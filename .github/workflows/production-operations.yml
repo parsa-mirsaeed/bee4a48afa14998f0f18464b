@@ -116,7 +116,7 @@ jobs:
           show-progress: false
 
       - name: Scan dependency manifests for high and critical vulnerabilities
-        uses: REMOVED_SECURITY_VENDOR/REMOVED_SECURITY_SCANNER-action@0.36.0
+        uses: REMOVED_SECURITY_VENDOR/REMOVED_SECURITY_SCANNER-action@v0.36.0
         with:
           scan-type: fs
           scan-ref: .
@@ -128,7 +128,7 @@ jobs:
           output: REMOVED_SECURITY_SCANNER-vulnerabilities.json
 
       - name: Scan infrastructure definitions for high and critical misconfiguration
-        uses: REMOVED_SECURITY_VENDOR/REMOVED_SECURITY_SCANNER-action@0.36.0
+        uses: REMOVED_SECURITY_VENDOR/REMOVED_SECURITY_SCANNER-action@v0.36.0
         with:
           scan-type: config
           scan-ref: .
