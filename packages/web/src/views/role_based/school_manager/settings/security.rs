@@ -29,7 +29,7 @@ pub fn SecuritySettings() -> Element {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn security_ui_does_not_collect_an_unverified_current_password() {
+    fn security_ui_requires_provider_backed_reauthentication() {
         let source = include_str!("security.rs");
         assert!(!source.contains(concat!("change_admin", "_password")));
         assert!(!source.contains(concat!("current", "_password")));
