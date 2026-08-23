@@ -63,9 +63,8 @@ mod tests {
                 continue;
             }
             let source = fs::read_to_string(&path).expect("read Rust source");
-            let production = production_source(&source);
             for token in forbidden {
-                if production.contains(token) {
+                if source.contains(token) {
                     violations.push(format!("{} contains {token:?}", path.display()));
                 }
             }
