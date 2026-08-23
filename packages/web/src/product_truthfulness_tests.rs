@@ -18,6 +18,12 @@ mod tests {
         }
     }
 
+    fn production_source(source: &str) -> &str {
+        source
+            .split_once("\n#[cfg(test)]")
+            .map_or(source, |(production, _)| production)
+    }
+
     #[test]
     fn production_web_source_contains_no_known_fictional_or_noop_product_content() {
         let source_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src");
@@ -57,8 +63,9 @@ mod tests {
                 continue;
             }
             let source = fs::read_to_string(&path).expect("read Rust source");
+            let production = production_source(&source);
             for token in forbidden {
-                if source.contains(token) {
+                if production.contains(token) {
                     violations.push(format!("{} contains {token:?}", path.display()));
                 }
             }
@@ -144,7 +151,9 @@ mod tests {
 
     #[test]
     fn provisioning_ui_cannot_call_password_bearing_legacy_endpoint() {
-        let source = include_str!("views/role_based/school_manager/user_creation.rs");
+        let source = production_source(include_str!(
+            "views/role_based/school_manager/user_creation.rs"
+        ));
         assert!(source.contains("provision_school_user"));
         assert!(!source.contains("CreateUserPayload"));
         assert!(!source.contains("create_user("));
@@ -178,7 +187,9 @@ mod tests {
 
     #[test]
     fn password_ui_does_not_collect_unverified_current_password() {
-        let source = include_str!("views/role_based/school_manager/settings/security.rs");
+        let source = production_source(include_str!(
+            "views/role_based/school_manager/settings/security.rs"
+        ));
         assert!(!source.contains("change_admin_password"));
         assert!(!source.contains("current_password"));
     }
