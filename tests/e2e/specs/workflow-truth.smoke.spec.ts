@@ -16,6 +16,8 @@ const EMPTY_CLASS = 'E2E Empty Class A';
 const GUIDED_ASSIGNMENT = 'E2E Guided Publish Draft';
 const STUDENT_SUBMISSION = 'E2E PR1 persisted student submission';
 
+type CreationRole = 'Student' | 'Teacher' | 'Parent';
+
 async function signIn(page: Page, email: string, password = FIXTURE_PASSWORD): Promise<void> {
   await page.goto('/');
   await page.locator('input[type="email"]').fill(email);
@@ -39,11 +41,22 @@ function actionWithIcon(page: Page, icon: string) {
   }).first();
 }
 
+function creationRoleTab(page: Page, role: CreationRole) {
+  const roleIndex: Record<CreationRole, number> = {
+    Student: 0,
+    Teacher: 1,
+    Parent: 2,
+  };
+  return page.getByRole('tab').nth(roleIndex[role]);
+}
+
 async function openUserCreation(page: Page): Promise<void> {
   await page.goto('/dashboard');
   await actionWithIcon(page, 'groups').click();
   await actionWithIcon(page, 'person_add').click();
-  await expect(page.getByRole('tab', { name: /student/i })).toBeVisible();
+  const roleTabs = page.getByRole('tab');
+  await expect(roleTabs).toHaveCount(3);
+  await expect(creationRoleTab(page, 'Student')).toHaveAttribute('aria-selected', 'true');
 }
 
 async function revealTemporaryPassword(page: Page): Promise<string> {
@@ -56,7 +69,7 @@ async function revealTemporaryPassword(page: Page): Promise<string> {
 }
 
 async function createStudent(page: Page): Promise<string> {
-  await page.getByRole('tab', { name: /student/i }).click();
+  await creationRoleTab(page, 'Student').click();
   await page.getByLabel('First name').fill('E2E PR1');
   await page.getByLabel('Last name').fill('Student');
   await page.getByLabel('Email').fill(STUDENT_EMAIL);
@@ -71,7 +84,7 @@ async function createStudent(page: Page): Promise<string> {
 }
 
 async function createTeacher(page: Page): Promise<string> {
-  await page.getByRole('tab', { name: /teacher/i }).click();
+  await creationRoleTab(page, 'Teacher').click();
   await page.getByLabel('First name').fill('E2E PR1');
   await page.getByLabel('Last name').fill('Teacher');
   await page.getByLabel('Email').fill(CREATED_TEACHER_EMAIL);
@@ -86,7 +99,7 @@ async function createTeacher(page: Page): Promise<string> {
 }
 
 async function createParent(page: Page): Promise<string> {
-  await page.getByRole('tab', { name: /parent/i }).click();
+  await creationRoleTab(page, 'Parent').click();
   await page.getByLabel('First name').fill('E2E PR1');
   await page.getByLabel('Last name').fill('Parent');
   await page.getByLabel('Email').fill(PARENT_EMAIL);
