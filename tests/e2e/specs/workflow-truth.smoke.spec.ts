@@ -168,7 +168,11 @@ test('manager provisions Student Teacher Parent and guided publish persists @smo
   const publishedCard = page
     .getByText(GUIDED_ASSIGNMENT, { exact: true })
     .locator('xpath=ancestor::article[1]');
-  await expect(publishedCard).toContainText('Published');
+  // The dashboard presents persisted Published assignments that are still open
+  // as "active"; the generated student assignment count and student journey
+  // below prove the publication transaction persisted its downstream record.
+  await expect(publishedCard).toContainText('active');
+  await expect(publishedCard).toContainText('0/1 submitted');
   await endSession(page);
 
   // The newly-created Student authenticates with the generated credential,
