@@ -23,9 +23,6 @@ serde_json = "1.0.108"
 
 # Authentication & Security
 jsonwebtoken = "9.2.0"
-supabase_rs = { version = "0.5.0", default-features = false, features = [
-    "rustls",
-] }
 bcrypt = "0.15.0"
 base64 = "0.22.0"
 
@@ -33,9 +30,9 @@ base64 = "0.22.0"
 ipnetwork = "0.21"
 
 # HTTP & Networking
-# Keep the 0.11 API used by the application, but use the system TLS backend so
-# the unmaintained rustls 0.21/webpki 0.101 branch is not in the runtime graph.
-reqwest = { version = "0.11.27", default-features = false, features = [
+# Use the current 0.12 API with the system TLS backend so the application does
+# not retain the older hyper/h2 dependency branch in the production graph.
+reqwest = { version = "0.12.24", default-features = false, features = [
     "json",
     "stream",
     "native-tls",
@@ -60,7 +57,7 @@ tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 
 # Validation & Utilities
-validator = { version = "0.18.0", features = ["derive"] }
+validator = { version = "0.21.0", features = ["derive"] }
 anyhow = "1.0.75"
 thiserror = "1.0.50"
 once_cell = "1.19.0"

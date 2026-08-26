@@ -50,8 +50,8 @@ A production candidate is accepted only on the exact release commit and exact ap
 
 ## Security scanning
 
-- REMOVED_SECURITY_SCANNER high/critical dependency vulnerability scan;
-- REMOVED_SECURITY_SCANNER high/critical infrastructure misconfiguration scan;
+- RustSec high/critical Cargo.lock vulnerability audit;
+- repository-owned high-impact production configuration policy checks;
 - repository all-history secret scan;
 - custom image SBOM and vulnerability evidence;
 - signed multi-architecture release provenance;

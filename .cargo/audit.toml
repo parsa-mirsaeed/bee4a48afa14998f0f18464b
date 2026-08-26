@@ -1,0 +1,20 @@
+# EduTalent dependency vulnerability policy.
+# RustSec is maintained by the Rust Secure Code Working Group and audits Cargo.lock.
+# Fail the production gate for HIGH/CRITICAL vulnerabilities while reporting
+# informational maintenance advisories without turning them into release blockers.
+
+[advisories]
+severity_threshold = "high"
+informational_warnings = ["unmaintained"]
+
+[database]
+fetch = true
+stale = false
+
+[output]
+quiet = false
+show_tree = true
+
+[yanked]
+enabled = true
+update_index = true

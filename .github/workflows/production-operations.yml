@@ -123,7 +123,7 @@ jobs:
           retention-days: 14
 
   security-scan:
-    name: Scan dependencies and production configuration
+    name: Audit dependencies and production configuration
     needs: definitions
     runs-on: ubuntu-24.04
     timeout-minutes: 25
@@ -134,35 +134,33 @@ jobs:
           fetch-depth: 0
           show-progress: false
 
-      - name: Scan dependency manifests for high and critical vulnerabilities
-        uses: REMOVED_SECURITY_VENDOR/REMOVED_SECURITY_SCANNER-action@v0.36.0
-        with:
-          scan-type: fs
-          scan-ref: .
-          scanners: vuln
-          severity: HIGH,CRITICAL
-          ignore-unfixed: true
-          exit-code: "1"
-          format: json
-          output: REMOVED_SECURITY_SCANNER-vulnerabilities.json
+      - name: Install pinned RustSec cargo-audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo install cargo-audit --version 0.22.2 --locked
 
-      - name: Scan infrastructure definitions for high and critical misconfiguration
-        uses: REMOVED_SECURITY_VENDOR/REMOVED_SECURITY_SCANNER-action@v0.36.0
-        with:
-          scan-type: config
-          scan-ref: .
-          severity: HIGH,CRITICAL
-          exit-code: "1"
-          format: json
-          output: REMOVED_SECURITY_SCANNER-misconfiguration.json
+      - name: Audit Cargo.lock for high and critical vulnerabilities
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo audit --json 2>&1 | tee rustsec-audit.json
+
+      - name: Validate repository-owned production configuration policy
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 deploy/production/operations/security_policy.py \
+            --output production-security-policy.json 2>&1 | tee production-security-policy.log
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: production-operations-security-scan
           path: |
-            REMOVED_SECURITY_SCANNER-vulnerabilities.json
-            REMOVED_SECURITY_SCANNER-misconfiguration.json
+            rustsec-audit.json
+            production-security-policy.json
+            production-security-policy.log
           if-no-files-found: warn
           retention-days: 14
 

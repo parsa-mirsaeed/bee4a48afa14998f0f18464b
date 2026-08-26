@@ -1,0 +1,36 @@
+name: Security Job Policy
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/production-operations.yml
+      - .github/workflows/security-job-policy.yml
+      - .github/scripts/enforce_security_job_allowlist.py
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/production-operations.yml
+      - .github/workflows/security-job-policy.yml
+      - .github/scripts/enforce_security_job_allowlist.py
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-job-policy-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  policy:
+    name: Enforce approved security execution paths
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          show-progress: false
+
+      - name: Validate production security job allowlist
+        run: python3 .github/scripts/enforce_security_job_allowlist.py

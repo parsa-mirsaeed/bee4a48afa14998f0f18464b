@@ -166,8 +166,8 @@ The exact paths and rootless Docker environment must be reviewed for the host. D
 
 The `Production Operations` workflow performs:
 
-- REMOVED_SECURITY_SCANNER filesystem vulnerability scanning for high and critical dependency findings;
-- REMOVED_SECURITY_SCANNER configuration scanning for high and critical infrastructure findings;
+- RustSec `Cargo.lock` auditing for high and critical Rust dependency findings;
+- repository-owned canonical Compose/configuration policy checks for production infrastructure;
 - the repository's existing all-history secret scan and signed-release checks through the air-gapped release gate;
 - deterministic rendered-Compose security verification;
 - final live checks for privileged mode, host networking, Docker socket mounts, public ports, and AI egress membership.

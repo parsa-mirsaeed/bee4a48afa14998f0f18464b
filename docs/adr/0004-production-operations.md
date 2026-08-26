@@ -22,7 +22,7 @@ The command provides:
 - bounded load/soak and controlled restart testing;
 - final acceptance orchestration.
 
-CI adds exact-head REMOVED_SECURITY_SCANNER scans, configuration fault tests, full encrypted backup/restore against the production stack, PostgreSQL PITR, Qdrant recovery, migration rollback, database restart, application recreation, and sustained load proof.
+CI adds exact-head RustSec dependency auditing and repository-owned production configuration policy checks, configuration fault tests, full encrypted backup/restore against the production stack, PostgreSQL PITR, Qdrant recovery, migration rollback, database restart, application recreation, and sustained load proof.
 
 ## Consequences
 

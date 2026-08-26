@@ -55,7 +55,7 @@ Control: no Docker socket in containers; dedicated host account, no `sudo`, syst
 
 ### Scanner bypass
 
-Control: high/critical REMOVED_SECURITY_SCANNER gates, existing all-history secret gate, exact-head artifacts, no broad ignore paths. False-positive suppressions require narrow evidence, owner, and expiry.
+Control: high/critical RustSec dependency auditing, repository-owned production configuration policy checks, existing all-history secret gate, exact-head artifacts, and no broad ignore paths. False-positive suppressions require narrow evidence, owner, and expiry.
 
 ### Load test denial of service
 

@@ -1,0 +1,60 @@
+name: Dependency Security
+
+on:
+  pull_request:
+    paths:
+      - Cargo.lock
+      - Cargo.toml
+      - packages/**/Cargo.toml
+      - .cargo/audit.toml
+      - .github/workflows/dependency-security.yml
+  push:
+    branches:
+      - main
+    paths:
+      - Cargo.lock
+      - Cargo.toml
+      - packages/**/Cargo.toml
+      - .cargo/audit.toml
+      - .github/workflows/dependency-security.yml
+  schedule:
+    - cron: "15 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dependency-security-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  rustsec:
+    name: Audit Rust dependency advisories
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          show-progress: false
+
+      - name: Install pinned RustSec cargo-audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo install cargo-audit --version 0.22.2 --locked
+
+      - name: Enforce configured advisory severity policy
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo audit --json 2>&1 | tee rustsec-audit.json
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dependency-security-evidence
+          path: rustsec-audit.json
+          if-no-files-found: error
+          retention-days: 7
