@@ -61,9 +61,12 @@ test('shared login fields, reveal control, recovery dialog and WCAG scan are acc
   }
 
   const passwordField = password.locator('xpath=ancestor::div[contains(@class,"et-ui-field")][1]');
-  await passwordField.getByRole('button', { name: 'Show password' }).click();
+  const reveal = passwordField.locator('.et-ui-input-action');
+  await expect(reveal).toHaveAttribute('aria-label', /Show password|نمایش رمز عبور/);
+  await reveal.click();
   await expect(passwordField.locator('input')).toHaveAttribute('type', 'text');
-  await passwordField.getByRole('button', { name: 'Hide password' }).click();
+  await expect(reveal).toHaveAttribute('aria-label', /Hide password|پنهان کردن رمز عبور/);
+  await reveal.click();
   await expect(passwordField.locator('input')).toHaveAttribute('type', 'password');
 
   await page.locator('.et-auth-help').click();

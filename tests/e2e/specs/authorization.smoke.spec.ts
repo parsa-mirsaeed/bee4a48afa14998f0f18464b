@@ -161,7 +161,10 @@ test('teacher cannot grade a School B submission by tampering its object ID @smo
 test('teacher cannot mutate a School B knowledge asset by tampering its object ID @smoke @authorization', async ({ page }) => {
   await signIn(page, TEACHER.email, TEACHER.password);
 
-  await page.getByRole('button', { name: /knowledge assets/i }).first().click();
+  // Navigation labels are localized and Farsi is the product default. The
+  // material icon is the stable semantic destination key already used by the
+  // other authorization journeys in this file.
+  await actionWithIcon(page, 'library_books').click();
   await expect(page.getByText('E2E Published Asset', { exact: true })).toBeVisible();
   await expect(page.getByText('E2E School B Asset', { exact: true })).toHaveCount(0);
 

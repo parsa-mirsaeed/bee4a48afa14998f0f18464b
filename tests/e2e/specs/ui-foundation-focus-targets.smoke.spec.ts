@@ -29,7 +29,8 @@ test('login dialog traps keyboard focus, restores its trigger, and shared target
   await page.goto('/');
 
   const passwordField = page.locator('input[type="password"]').locator('xpath=ancestor::div[contains(@class,"et-ui-field")][1]');
-  const reveal = passwordField.getByRole('button', { name: 'Show password' });
+  const reveal = passwordField.locator('.et-ui-input-action');
+  await expect(reveal).toHaveAttribute('aria-label', /Show password|نمایش رمز عبور/);
   await expectMinimumTarget(reveal);
 
   const recoveryTrigger = page.locator('.et-auth-help');
@@ -39,8 +40,9 @@ test('login dialog traps keyboard focus, restores its trigger, and shared target
   await expect(dialog).toBeVisible();
   await expect(dialog).toBeFocused();
 
-  const closeButton = dialog.getByRole('button', { name: 'Close', exact: true });
+  const closeButton = dialog.locator('.et-ui-icon-button');
   await expect(closeButton).toHaveCount(1);
+  await expect(closeButton).toHaveAttribute('aria-label', /Close|بستن/);
   await expectMinimumTarget(closeButton);
 
   await page.keyboard.press('Tab');

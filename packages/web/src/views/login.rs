@@ -2,7 +2,7 @@ use crate::application::{AppAuthService, AuthHooks};
 use crate::domain::{AuthCredentials, AuthResult};
 use crate::i18n::{use_locale, LanguageSwitcher};
 use crate::ui::{
-    Button, ButtonSize, ButtonVariant, Dialog, EmailField, FeedbackTone, InlineAlert, PasswordField,
+    Button, ButtonSize, Dialog, EmailField, FeedbackTone, InlineAlert, PasswordField,
 };
 use crate::Route;
 use dioxus::prelude::*;
@@ -222,16 +222,9 @@ pub fn LoginPage() -> Element {
             close_label: locale.t("common.close"),
             on_close: move |_| show_forgot_dialog.set(false),
             children: rsx! {
-                div { class: "et-ui-stack et-ui-stack--md",
-                    InlineAlert {
-                        message: locale.t("auth.recovery_unavailable_description"),
-                        tone: FeedbackTone::Info,
-                    }
-                    Button {
-                        label: locale.t("common.close"),
-                        variant: ButtonVariant::Secondary,
-                        onclick: move |_| show_forgot_dialog.set(false),
-                    }
+                InlineAlert {
+                    message: locale.t("auth.recovery_unavailable_description"),
+                    tone: FeedbackTone::Info,
                 }
             },
         }

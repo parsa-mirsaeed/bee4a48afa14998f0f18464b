@@ -95,7 +95,7 @@ pub fn Sidebar(
                             } else {
                                 nav.push(crate::Route::DashboardSectionRoute { section });
                             }
-                            focus_main_content();
+                            focus_main_content_after_navigation();
                         }
                     },
                 }
@@ -133,18 +133,20 @@ pub fn Sidebar(
     }
 }
 
-fn focus_main_content() {
+fn focus_main_content_after_navigation() {
     #[cfg(target_arch = "wasm32")]
     {
-        use wasm_bindgen::JsCast;
-        if let Some(window) = web_sys::window() {
-            if let Some(document) = window.document() {
-                if let Some(element) = document.get_element_by_id("dashboard-main-content") {
-                    if let Some(element) = element.dyn_ref::<web_sys::HtmlElement>() {
-                        let _ = element.focus();
-                    }
-                }
-            }
-        }
+        // Route navigation replaces the current dashboard subtree. Focusing the
+        // old <main> synchronously is lost when that subtree is swapped, so use
+        // two animation frames to restore focus only after the routed view has
+        // committed to the DOM. This is render-lifecycle synchronization rather
+        // than an arbitrary timing delay.
+        let _ = document::eval(
+            r#"requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    document.getElementById('dashboard-main-content')?.focus();
+                });
+            });"#,
+        );
     }
 }
