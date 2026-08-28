@@ -1,32 +1,7 @@
 name: Production Foundation
 
 on:
-  pull_request:
-    paths:
-      - deploy/production/**
-      - docs/adr/**
-      - docs/security/**
-      - packages/api/src/ai_gateway_protocol.rs
-      - packages/api/src/ai_gateway_runtime.rs
-      - packages/api/src/bin/ai_gateway.rs
-      - packages/api/src/services/ai_outage_queue.rs
-      - packages/api/src/services/embedding_profile.rs
-      - packages/api/src/services/embedding_service.rs
-      - packages/api/src/services/knowledge_ingestion_worker.rs
-      - packages/api/src/services/knowledge_vector_store_service.rs
-      - packages/api/src/services/llm_service.rs
-      - packages/api/src/services/material_vectorization_service.rs
-      - packages/api/src/services/supabase_auth.rs
-      - scripts/ci/apply_migrations.sh
-      - scripts/ci/configure_database_role.sh
-      - docker/entrypoint.sh
-      - Dockerfile
-      - compose.yaml
-      - compose.release.yaml
-      - edutalent
-      - Makefile
-      - README.md
-      - .github/workflows/production-foundation.yml
+  workflow_call:
   push:
     branches:
       - main
