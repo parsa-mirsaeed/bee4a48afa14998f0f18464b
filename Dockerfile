@@ -22,26 +22,38 @@ FROM toolchain AS planner
 COPY . .
 RUN cargo chef prepare --recipe-path recipe.json
 
-FROM toolchain AS builder
-RUN apt-get update \
-    && apt-get install --yes --no-install-recommends postgresql postgresql-client \
-    && rm -rf /var/lib/apt/lists/*
+# Keep the AI gateway/API dependency graph independent from Web/WASM source and
+# asset churn. The recipe still captures the exact workspace dependency graph.
+FROM toolchain AS api-dependencies
+COPY --from=planner /workspace/recipe.json recipe.json
+RUN cargo chef cook --release --recipe-path recipe.json --package api --features server
+
+FROM toolchain AS web-dependencies
 COPY --from=planner /workspace/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json --package web --features server
 RUN cargo chef cook --release --recipe-path recipe.json --package web --features web --target wasm32-unknown-unknown
+
+FROM api-dependencies AS api-builder
+COPY Cargo.toml Cargo.lock ./
+COPY .cargo .cargo
+COPY packages/api packages/api
+COPY migrations migrations
+RUN cargo build --release --package api --features server --bin ai_gateway
+
+FROM web-dependencies AS web-builder
 COPY . .
+RUN dx bundle --web --release --package web
+
+# Assemble the same runtime payload without carrying the Rust toolchain or a
+# build-time PostgreSQL server into artifact compilation. Migration correctness
+# is proven after the image exists, against the packaged migration entrypoint.
+FROM debian:trixie-slim AS bundle
+WORKDIR /workspace
+COPY --from=web-builder /workspace/target/dx/web/release/web /tmp/web-bundle
+COPY --from=api-builder /workspace/target/release/ai_gateway /tmp/ai_gateway
+COPY packages/web/assets/fonts /tmp/fonts
 RUN set -eux; \
-    service postgresql start; \
-    runuser -u postgres -- psql --set=ON_ERROR_STOP=1 \
-        --command="ALTER USER postgres PASSWORD 'postgres'"; \
-    runuser -u postgres -- createdb edutalent_build; \
-    export DATABASE_URL='postgresql://postgres:postgres@127.0.0.1:5432/edutalent_build'; \
-    bash scripts/ci/apply_migrations.sh; \
-    cargo build --release --package api --features server --bin ai_gateway; \
-    dx bundle --web --release --package web; \
-    service postgresql stop
-RUN set -eux; \
-    bundle_dir="target/dx/web/release/web"; \
+    bundle_dir="/tmp/web-bundle"; \
     test -d "${bundle_dir}/public"; \
     mkdir -p /opt/edutalent-bundle; \
     cp -R "${bundle_dir}/public" /opt/edutalent-bundle/public; \
@@ -54,12 +66,10 @@ RUN set -eux; \
         test -n "${executable}"; \
         cp "${executable}" /opt/edutalent-bundle/server; \
     fi; \
-    test -x target/release/ai_gateway; \
-    cp target/release/ai_gateway /opt/edutalent-bundle/ai_gateway; \
-    if [ -d packages/web/assets/fonts ]; then \
-        mkdir -p /opt/edutalent-bundle/public/fonts; \
-        cp -R packages/web/assets/fonts/. /opt/edutalent-bundle/public/fonts/; \
-    fi; \
+    test -x /tmp/ai_gateway; \
+    cp /tmp/ai_gateway /opt/edutalent-bundle/ai_gateway; \
+    mkdir -p /opt/edutalent-bundle/public/fonts; \
+    cp -R /tmp/fonts/. /opt/edutalent-bundle/public/fonts/; \
     chmod +x /opt/edutalent-bundle/server /opt/edutalent-bundle/ai_gateway
 
 FROM debian:trixie-slim AS runtime
@@ -70,7 +80,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/edutalent
-COPY --from=builder --chown=65532:65532 /opt/edutalent-bundle/ /opt/edutalent/
+COPY --from=bundle --chown=65532:65532 /opt/edutalent-bundle/ /opt/edutalent/
 COPY --chown=65532:65532 packages/api/migration/migrations/ /opt/edutalent/packages/api/migration/migrations/
 COPY --chown=65532:65532 migrations/ /opt/edutalent/migrations/
 COPY --chown=65532:65532 scripts/ci/apply_migrations.sh /opt/edutalent/scripts/ci/apply_migrations.sh
