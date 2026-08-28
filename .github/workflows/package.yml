@@ -82,7 +82,9 @@ jobs:
 
   package:
     name: Docker image and release bundle
-    if: github.event_name != 'pull_request'
+    if: >-
+      github.event_name != 'pull_request' ||
+      contains(github.event.pull_request.labels.*.name, 'ci:package')
     needs: validate
     runs-on: ubuntu-24.04
     timeout-minutes: 60
