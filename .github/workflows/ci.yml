@@ -100,8 +100,6 @@ jobs:
           web = derived["web"] or workspace
           database = derived["needs_postgres"] or "ci:db" in labels
 
-          # Authentication middleware remains browser-escalated in S1-PR-01.
-          # We optimize generic UI/browser selection first, not auth proof.
           auth_browser = any(
               path.startswith("packages/api/src/middleware/auth")
               or path.startswith("packages/api/src/middleware/authorization")
@@ -184,6 +182,9 @@ jobs:
 
       - name: Verify intended legacy-to-Stage-1 deltas
         run: python3 scripts/ci/test_stage1_legacy_comparison.py
+
+      - name: Verify browser selector policy
+        run: python3 tests/e2e/test_select_smoke.py
 
       - name: Verify evidence contract
         run: python3 scripts/ci/test_stage1_evidence_contract.py
@@ -500,15 +501,40 @@ jobs:
         with:
           show-progress: false
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: ai-change-classification
+
+      - id: browser-scope
+        name: Select focused browser journeys
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep_pattern="$(python3 tests/e2e/select_smoke.py --files-from changed-files.txt)"
+          test -n "$grep_pattern"
+          echo "grep=$grep_pattern" >> "$GITHUB_OUTPUT"
+          echo "Selected Playwright grep: $grep_pattern"
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
 
-      - name: Install pinned Dioxus CLI
+      - name: Restore pinned Dioxus CLI
+        id: dioxus-cli-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/dx
+          key: dioxus-cli-0.7.2-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Install pinned Dioxus CLI when absent
+        if: steps.dioxus-cli-cache.outputs.cache-hit != 'true'
         run: |
           curl -L --proto '=https' --tlsv1.2 -sSf \
             https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
           cargo binstall "dioxus-cli@0.7.2" -y --force
+
+      - name: Verify pinned Dioxus CLI
+        run: dx --version
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -519,42 +545,53 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
+          cache-dependency-path: tests/e2e/package-lock.json
 
-      - name: Install pinned browser harness dependencies
+      - name: Install locked browser harness dependencies
         working-directory: tests/e2e
-        run: npm install --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
 
       - name: Restore pinned Chromium
         id: playwright-cache
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-chromium-1.49.1-${{ runner.os }}
+          key: playwright-chromium-1.49.1-${{ runner.os }}-${{ runner.arch }}
 
       - name: Install pinned Chromium when absent
         if: steps.playwright-cache.outputs.cache-hit != 'true'
         working-directory: tests/e2e
         run: npx playwright install --with-deps chromium
 
-      - name: Run browser smoke on exact head
+      - name: Run focused browser smoke on exact head
         shell: bash
         env:
           E2E_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          E2E_GREP: ${{ steps.browser-scope.outputs.grep }}
         run: |
           set -o pipefail
           bash scripts/ci/run_browser_smoke.sh 2>&1 | tee browser-smoke.log
 
-      - name: Upload browser smoke evidence
+      - name: Upload compact browser evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: browser-smoke-evidence
-          path: |
-            browser-smoke.log
-            tests/e2e/evidence.json
-            tests/e2e/test-results/
+          path: tests/e2e/evidence.json
           if-no-files-found: warn
           retention-days: 3
+
+      - name: Upload browser diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-smoke-diagnostics
+          path: |
+            browser-smoke.log
+            tests/e2e/test-results/
+          if-no-files-found: warn
+          retention-days: 7
 
   gate:
     name: AI change gate
@@ -643,7 +680,6 @@ jobs:
           required_sections = ["classification"]
           executed_sections = ["classification"] if classify == "success" else []
           omissions = {}
-
           sections = [
               ("policy", yes("POLICY_REQUIRED"), policy),
               ("formatting", rust_required, formatting),
