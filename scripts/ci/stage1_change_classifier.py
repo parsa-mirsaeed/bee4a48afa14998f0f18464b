@@ -153,6 +153,7 @@ def classify(files: Iterable[str]) -> dict:
     rust_file_changed = False
     cargo_workspace_changed = False
     cargo_dependency_changed = False
+    backend_auth_changed = False
 
     for path in changed_files:
         matched = False
@@ -192,6 +193,8 @@ def classify(files: Iterable[str]) -> dict:
         if AUTH_RE.match(path):
             _mark(categories, "auth_authorization")
             matched = True
+            if path.startswith("packages/api/") or path.startswith("scripts/ci/"):
+                backend_auth_changed = True
         if DB_RE.match(path):
             _mark(categories, "database")
             matched = True
@@ -235,14 +238,16 @@ def classify(files: Iterable[str]) -> dict:
     active = [name for name in CATEGORY_NAMES if categories[name]]
     api = any(
         categories[name]
-        for name in ("api_logic", "api_data_access", "auth_authorization", "database", "ai_gateway", "worker_rag")
+        for name in ("api_logic", "api_data_access", "database", "ai_gateway", "worker_rag")
     )
     web = categories["web_logic"] or categories["web_browser_behavior"]
     workspace = cargo_workspace_changed
     rust = rust_file_changed or cargo_dependency_changed or api or web
-    needs_postgres = any(
-        categories[name]
-        for name in ("api_data_access", "auth_authorization", "database", "worker_rag")
+    needs_postgres = (
+        categories["api_data_access"]
+        or backend_auth_changed
+        or categories["database"]
+        or categories["worker_rag"]
     )
     docs_only = bool(active) and set(active) <= {"docs"}
 
