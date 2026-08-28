@@ -345,11 +345,14 @@ jobs:
           components: clippy
           targets: wasm32-unknown-unknown
 
-      - uses: Swatinem/rust-cache@v2
+      - id: rust-cache
+        uses: Swatinem/rust-cache@v2
         with:
-          shared-key: ai-change-rust
+          shared-key: ai-change-web-wasm
+          key: ${{ runner.os }}-${{ runner.arch }}-wasm32-web
+          cache-bin: false
           cache-on-failure: true
-          save-if: ${{ github.event_name == 'workflow_dispatch' }}
+          save-if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
 
       - name: Check, lint, and test affected Web client code
         shell: bash
@@ -412,11 +415,14 @@ jobs:
         with:
           components: clippy
 
-      - uses: Swatinem/rust-cache@v2
+      - id: rust-cache
+        uses: Swatinem/rust-cache@v2
         with:
-          shared-key: ai-change-rust
+          shared-key: ai-change-server-native
+          key: ${{ runner.os }}-${{ runner.arch }}-native-server
+          cache-bin: false
           cache-on-failure: true
-          save-if: ${{ github.event_name == 'workflow_dispatch' }}
+          save-if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
 
       - uses: actions/download-artifact@v4
         with:
@@ -524,11 +530,14 @@ jobs:
       - name: Verify pinned Dioxus CLI
         run: dx --version
 
-      - uses: Swatinem/rust-cache@v2
+      - id: rust-cache
+        uses: Swatinem/rust-cache@v2
         with:
-          shared-key: ai-change-rust
+          shared-key: ai-change-browser-release
+          key: ${{ runner.os }}-${{ runner.arch }}-release-web-bundle
+          cache-bin: false
           cache-on-failure: true
-          save-if: ${{ github.event_name == 'workflow_dispatch' }}
+          save-if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
 
       - uses: actions/setup-node@v4
         with:
