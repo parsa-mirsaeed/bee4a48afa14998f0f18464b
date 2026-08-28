@@ -1,0 +1,168 @@
+{
+  "$id": "https://edutalent.local/schemas/ci/stage1-evidence.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "base_sha": {
+      "pattern": "^[0-9a-f]{40}$",
+      "type": "string"
+    },
+    "cache": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "type": "object"
+    },
+    "categories": {
+      "items": {
+        "enum": [
+          "docs",
+          "workflow_policy",
+          "web_assets",
+          "web_logic",
+          "web_browser_behavior",
+          "api_logic",
+          "api_data_access",
+          "auth_authorization",
+          "database",
+          "ai_gateway",
+          "worker_rag",
+          "dependencies",
+          "packaging",
+          "production_topology",
+          "operations",
+          "appliance",
+          "release",
+          "unknown"
+        ],
+        "type": "string"
+      },
+      "type": "array",
+      "uniqueItems": true
+    },
+    "comparison": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "controls_ci": {
+      "type": "boolean"
+    },
+    "executed_sections": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "type": "array",
+      "uniqueItems": true
+    },
+    "gate_result": {
+      "enum": [
+        "success",
+        "failure",
+        "not_controlling"
+      ]
+    },
+    "head_sha": {
+      "pattern": "^[0-9a-f]{40}$",
+      "type": "string"
+    },
+    "intentional_omissions": {
+      "additionalProperties": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "type": "object"
+    },
+    "jobs": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "duration_seconds": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "name": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "result": {
+            "enum": [
+              "success",
+              "failure",
+              "cancelled",
+              "skipped"
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "result",
+          "duration_seconds"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "mode": {
+      "enum": [
+        "shadow",
+        "control"
+      ]
+    },
+    "required_sections": {
+      "items": {
+        "minLength": 1,
+        "type": "string"
+      },
+      "type": "array",
+      "uniqueItems": true
+    },
+    "runner": {
+      "additionalProperties": false,
+      "properties": {
+        "arch": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "name": {
+          "minLength": 1,
+          "type": "string"
+        },
+        "os": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "os",
+        "arch"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "unknown": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "schema_version",
+    "mode",
+    "controls_ci",
+    "head_sha",
+    "base_sha",
+    "comparison",
+    "runner",
+    "categories",
+    "required_sections",
+    "executed_sections",
+    "intentional_omissions",
+    "jobs",
+    "unknown",
+    "gate_result"
+  ],
+  "title": "EduTalent Stage-1 exact-head change evidence",
+  "type": "object"
+}
