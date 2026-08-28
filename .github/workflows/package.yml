@@ -1,40 +1,13 @@
 name: Package
 
 on:
+  workflow_call:
   workflow_dispatch:
     inputs:
       version:
         description: Optional package version
         required: false
         type: string
-  pull_request:
-    types:
-      - opened
-      - synchronize
-      - reopened
-      - labeled
-      - ready_for_review
-    paths:
-      - Dockerfile
-      - Dockerfile.appliance-tools
-      - compose.yaml
-      - compose.release.yaml
-      - edutalent
-      - Makefile
-      - .dockerignore
-      - .env.example
-      - docker/**
-      - deploy/appliance/**
-      - deploy/production/**
-      - scripts/appliance/**
-      - scripts/ci/test_stage1_build_contract.py
-      - .github/workflows/package.yml
-      - .github/workflows/air-gapped-appliance.yml
-      - Cargo.toml
-      - Cargo.lock
-      - packages/**
-      - migrations/**
-      - scripts/ci/apply_migrations.sh
   push:
     branches:
       - main

@@ -186,6 +186,9 @@ jobs:
       - name: Verify workflow fast-path contract
         run: python3 scripts/ci/test_stage1_workflow_contract.py
 
+      - name: Verify specialized workflow trigger contract
+        run: python3 scripts/ci/test_stage1_specialized_trigger_contract.py
+
       - name: Verify browser selector policy
         run: python3 tests/e2e/test_select_smoke.py
 
@@ -590,6 +593,30 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
+  package-proof:
+    name: Package definition proof
+    needs: classify
+    if: needs.classify.outputs.packaging == 'true'
+    uses: ./.github/workflows/package.yml
+
+  production-proof:
+    name: Production topology definition proof
+    needs: classify
+    if: needs.classify.outputs.production == 'true'
+    uses: ./.github/workflows/production-foundation.yml
+
+  operations-proof:
+    name: Production operations definition proof
+    needs: classify
+    if: needs.classify.outputs.operations == 'true'
+    uses: ./.github/workflows/production-operations.yml
+
+  appliance-proof:
+    name: Air-gapped appliance definition proof
+    needs: classify
+    if: needs.classify.outputs.appliance == 'true'
+    uses: ./.github/workflows/air-gapped-appliance.yml
+
   gate:
     name: AI change gate
     if: always()
@@ -601,6 +628,10 @@ jobs:
       - targeted-rust-no-db
       - targeted-rust-db
       - browser-smoke
+      - package-proof
+      - production-proof
+      - operations-proof
+      - appliance-proof
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -628,6 +659,10 @@ jobs:
           RUST_NO_DB_RESULT: ${{ needs.targeted-rust-no-db.result }}
           RUST_DB_RESULT: ${{ needs.targeted-rust-db.result }}
           BROWSER_RESULT: ${{ needs.browser-smoke.result }}
+          PACKAGE_RESULT: ${{ needs.package-proof.result }}
+          PRODUCTION_RESULT: ${{ needs.production-proof.result }}
+          OPERATIONS_RESULT: ${{ needs.operations-proof.result }}
+          APPLIANCE_RESULT: ${{ needs.appliance-proof.result }}
         run: |
           python3 - <<'PY'
           import json
@@ -668,6 +703,15 @@ jobs:
           require(rust_required and not db_required, rust_no_db, "Rust no-database proof")
           require(rust_required and db_required, rust_db, "Rust database-backed proof")
 
+          specialized_sections = [
+              ("package", yes("PACKAGE_REQUIRED"), os.environ.get("PACKAGE_RESULT", "")),
+              ("production", yes("PRODUCTION_REQUIRED"), os.environ.get("PRODUCTION_RESULT", "")),
+              ("operations", yes("OPERATIONS_REQUIRED"), os.environ.get("OPERATIONS_RESULT", "")),
+              ("appliance", yes("APPLIANCE_REQUIRED"), os.environ.get("APPLIANCE_RESULT", "")),
+          ]
+          for name, required, result in specialized_sections:
+              require(required, result, f"{name} specialized proof")
+
           try:
               categories = json.loads(os.environ.get("CATEGORIES_JSON", "[]"))
           except json.JSONDecodeError:
@@ -693,17 +737,19 @@ jobs:
               elif not required:
                   omissions[name] = "classifier determined this proof was not required"
 
-          for name, env_name in (
-              ("dependency_audit", "DEPENDENCY_AUDIT_REQUIRED"),
-              ("package", "PACKAGE_REQUIRED"),
-              ("production", "PRODUCTION_REQUIRED"),
-              ("operations", "OPERATIONS_REQUIRED"),
-              ("appliance", "APPLIANCE_REQUIRED"),
-          ):
-              if yes(env_name):
-                  required_sections.append(f"specialized:{name}")
-              else:
-                  omissions[f"specialized:{name}"] = "classifier determined the specialized boundary was not affected"
+          if yes("DEPENDENCY_AUDIT_REQUIRED"):
+              required_sections.append("specialized:dependency_audit")
+          else:
+              omissions["specialized:dependency_audit"] = "classifier determined the specialized boundary was not affected"
+
+          for name, required, result in specialized_sections:
+              section = f"specialized:{name}"
+              if required:
+                  required_sections.append(section)
+              if result == "success":
+                  executed_sections.append(section)
+              elif not required:
+                  omissions[section] = "classifier determined the specialized boundary was not affected"
 
           evidence = {
               "schema_version": 1,
