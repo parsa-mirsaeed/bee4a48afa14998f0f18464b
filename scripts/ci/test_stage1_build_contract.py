@@ -19,46 +19,67 @@ class Stage1BuildBoundaryTests(unittest.TestCase):
         cls.pre_runtime, cls.runtime = cls.dockerfile.split(
             "FROM debian:trixie-slim AS runtime\n", 1
         )
-        cls.api_builder = cls.dockerfile.split(
-            "FROM api-dependencies AS api-builder\n", 1
-        )[1].split("FROM web-dependencies AS web-builder\n", 1)[0]
+        cls.build_deps = cls.dockerfile.split(
+            "FROM toolchain AS build-deps\n", 1
+        )[1].split("FROM build-deps AS gateway-builder\n", 1)[0]
+        cls.gateway_builder = cls.dockerfile.split(
+            "FROM build-deps AS gateway-builder\n", 1
+        )[1].split("FROM build-deps AS web-builder\n", 1)[0]
+        cls.web_builder = cls.dockerfile.split(
+            "FROM build-deps AS web-builder\n", 1
+        )[1].split("FROM debian:trixie-slim AS runtime\n", 1)[0]
         cls.targeted = cls.package.split("  targeted:\n", 1)[1].split(
             "  package:\n", 1
         )[0]
         cls.complete_package = cls.package.split("  package:\n", 1)[1]
 
-    def test_api_and_web_builds_have_independent_dependency_stages(self):
-        self.assertIn("FROM toolchain AS api-dependencies", self.dockerfile)
-        self.assertIn("FROM toolchain AS web-dependencies", self.dockerfile)
-        self.assertIn("FROM api-dependencies AS api-builder", self.dockerfile)
-        self.assertIn("FROM web-dependencies AS web-builder", self.dockerfile)
-        self.assertIn(
-            "cargo chef cook --release --recipe-path recipe.json --package api --features server",
-            self.dockerfile,
-        )
+    def test_gateway_and_web_source_builds_are_independent(self):
+        self.assertIn("FROM toolchain AS build-deps", self.dockerfile)
+        self.assertIn("FROM build-deps AS gateway-builder", self.dockerfile)
+        self.assertIn("FROM build-deps AS web-builder", self.dockerfile)
         self.assertIn(
             "cargo chef cook --release --recipe-path recipe.json --package web --features server",
-            self.dockerfile,
+            self.build_deps,
+        )
+        self.assertIn(
+            "cargo chef cook --release --recipe-path recipe.json --package web --features web --target wasm32-unknown-unknown",
+            self.build_deps,
         )
 
-    def test_presentation_churn_does_not_invalidate_api_source_copy(self):
-        self.assertIn("COPY packages/api packages/api", self.api_builder)
-        self.assertNotIn("COPY . .", self.api_builder)
-        self.assertNotIn("packages/web/assets", self.api_builder)
+    def test_presentation_churn_does_not_invalidate_gateway_source_copy(self):
+        self.assertIn("COPY packages/api/ packages/api/", self.gateway_builder)
+        self.assertNotIn("COPY . .", self.gateway_builder)
+        self.assertNotIn("packages/web", self.gateway_builder)
+        self.assertNotIn("packages/ui", self.gateway_builder)
         self.assertIn(
             "cargo build --release --package api --features server --bin ai_gateway",
-            self.api_builder,
+            self.gateway_builder,
         )
+        self.assertIn("COPY . .", self.web_builder)
+        self.assertIn("dx bundle --web --release --package web", self.web_builder)
 
-    def test_artifact_compilation_does_not_start_or_install_postgres_server(self):
-        self.assertNotIn("service postgresql start", self.pre_runtime)
-        self.assertNotIn("createdb edutalent_build", self.pre_runtime)
-        self.assertNotIn("edutalent_build", self.pre_runtime)
-        self.assertNotIn("bash scripts/ci/apply_migrations.sh", self.pre_runtime)
-        self.assertNotIn("postgresql postgresql-client", self.pre_runtime)
+    def test_sqlx_compile_schema_boundary_is_explicit_and_minimal(self):
+        self.assertIn("postgresql postgresql-client", self.build_deps)
+        self.assertNotIn("COPY . .", self.build_deps)
+        self.assertIn("service postgresql start", self.gateway_builder)
+        self.assertIn("createdb edutalent_build", self.gateway_builder)
+        self.assertIn("bash scripts/ci/apply_migrations.sh", self.gateway_builder)
+        self.assertIn("service postgresql start", self.web_builder)
+        self.assertIn("createdb edutalent_build", self.web_builder)
+        self.assertIn("bash scripts/ci/apply_migrations.sh", self.web_builder)
+        self.assertEqual(self.pre_runtime.count("FROM toolchain AS build-deps"), 1)
+        self.assertEqual(self.pre_runtime.count("postgresql postgresql-client"), 1)
 
     def test_runtime_keeps_migration_and_database_client_contract(self):
         self.assertIn("postgresql-client", self.runtime)
+        self.assertIn(
+            "COPY --from=web-builder --chown=65532:65532 /opt/edutalent-web/ /opt/edutalent/",
+            self.runtime,
+        )
+        self.assertIn(
+            "COPY --from=gateway-builder --chown=65532:65532 /workspace/target/release/ai_gateway /opt/edutalent/ai_gateway",
+            self.runtime,
+        )
         self.assertIn(
             "COPY --chown=65532:65532 packages/api/migration/migrations/ /opt/edutalent/packages/api/migration/migrations/",
             self.runtime,
