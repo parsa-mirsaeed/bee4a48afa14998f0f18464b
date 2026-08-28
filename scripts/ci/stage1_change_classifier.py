@@ -243,8 +243,16 @@ def classify(files: Iterable[str]) -> dict:
     web = categories["web_logic"] or categories["web_browser_behavior"]
     workspace = cargo_workspace_changed
     rust = rust_file_changed or cargo_dependency_changed or api or web
+
+    # The current API/server and workspace compile graph still includes SQLx
+    # compile-time queries. Until the later Stage-2 crate split/offline metadata
+    # removes that coupling, keep API/workspace Rust proof DB-backed. The actual
+    # Stage-1 win is that ordinary Web/UI client Rust no longer starts the full
+    # migration/invariant job merely because it lives under packages/web|ui.
     needs_postgres = (
-        categories["api_data_access"]
+        api
+        or workspace
+        or categories["api_data_access"]
         or backend_auth_changed
         or categories["database"]
         or categories["worker_rag"]
