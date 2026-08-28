@@ -1,9 +1,7 @@
 use crate::application::{AppAuthService, AuthHooks};
 use crate::domain::{AuthCredentials, AuthResult};
 use crate::i18n::{use_locale, LanguageSwitcher};
-use crate::ui::{
-    Button, ButtonSize, Dialog, EmailField, FeedbackTone, InlineAlert, PasswordField,
-};
+use crate::ui::{Button, ButtonSize, Dialog, EmailField, FeedbackTone, InlineAlert, PasswordField};
 use crate::Route;
 use dioxus::prelude::*;
 
