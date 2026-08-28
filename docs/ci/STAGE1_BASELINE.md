@@ -36,3 +36,7 @@ The sampled AI Change Proof jobs used GitHub-hosted `ubuntu-latest` runners. Rep
 ## S1-PR-00 safety rule
 
 `stage1_change_classifier.py` is SHADOW ONLY in this PR. Its decision cannot skip or add existing AI Change Proof Rust/database/browser work. S1-PR-01 may wire it into proof selection only after fixture comparison and exact-head review.
+
+## Historical-record note
+
+This file intentionally preserves the pre-optimization state and wording. The implemented Stage-1 result, post-optimization observations, remaining bottlenecks, and architecture exit decision are recorded in `docs/ci/STAGE1_RESULTS.md`.
