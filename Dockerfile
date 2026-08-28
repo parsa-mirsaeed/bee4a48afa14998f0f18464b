@@ -22,14 +22,22 @@ FROM toolchain AS planner
 COPY . .
 RUN cargo chef prepare --recipe-path recipe.json
 
-FROM toolchain AS builder
+FROM toolchain AS build-deps
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends postgresql postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=planner /workspace/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json --package web --features server
 RUN cargo chef cook --release --recipe-path recipe.json --package web --features web --target wasm32-unknown-unknown
-COPY . .
+
+# Keep the AI Gateway source boundary independent from Web/UI presentation source.
+# The current API/server graph still uses SQLx compile-time validation, so this
+# source build deliberately retains a local PostgreSQL schema until a separately
+# proven offline-metadata/build-boundary change removes that requirement.
+FROM build-deps AS gateway-builder
+COPY packages/api/ packages/api/
+COPY migrations/ migrations/
+COPY scripts/ci/apply_migrations.sh scripts/ci/apply_migrations.sh
 RUN set -eux; \
     service postgresql start; \
     runuser -u postgres -- psql --set=ON_ERROR_STOP=1 \
@@ -38,29 +46,41 @@ RUN set -eux; \
     export DATABASE_URL='postgresql://postgres:postgres@127.0.0.1:5432/edutalent_build'; \
     bash scripts/ci/apply_migrations.sh; \
     cargo build --release --package api --features server --bin ai_gateway; \
+    service postgresql stop
+
+# The complete Web bundle owns API/UI/Web source because the server feature links
+# the API contract, while the gateway binary above remains cached when only Web/UI
+# presentation source changes.
+FROM build-deps AS web-builder
+COPY . .
+RUN set -eux; \
+    service postgresql start; \
+    runuser -u postgres -- psql --set=ON_ERROR_STOP=1 \
+        --command="ALTER USER postgres PASSWORD 'postgres'"; \
+    runuser -u postgres -- createdb edutalent_build; \
+    export DATABASE_URL='postgresql://postgres:postgres@127.0.0.1:5432/edutalent_build'; \
+    bash scripts/ci/apply_migrations.sh; \
     dx bundle --web --release --package web; \
     service postgresql stop
 RUN set -eux; \
     bundle_dir="target/dx/web/release/web"; \
     test -d "${bundle_dir}/public"; \
-    mkdir -p /opt/edutalent-bundle; \
-    cp -R "${bundle_dir}/public" /opt/edutalent-bundle/public; \
+    mkdir -p /opt/edutalent-web; \
+    cp -R "${bundle_dir}/public" /opt/edutalent-web/public; \
     if [ -x "${bundle_dir}/server" ]; then \
-        cp "${bundle_dir}/server" /opt/edutalent-bundle/server; \
+        cp "${bundle_dir}/server" /opt/edutalent-web/server; \
     elif [ -x "${bundle_dir}/web" ]; then \
-        cp "${bundle_dir}/web" /opt/edutalent-bundle/server; \
+        cp "${bundle_dir}/web" /opt/edutalent-web/server; \
     else \
         executable="$(find "${bundle_dir}" -maxdepth 1 -type f -perm /111 | head -n 1)"; \
         test -n "${executable}"; \
-        cp "${executable}" /opt/edutalent-bundle/server; \
+        cp "${executable}" /opt/edutalent-web/server; \
     fi; \
-    test -x target/release/ai_gateway; \
-    cp target/release/ai_gateway /opt/edutalent-bundle/ai_gateway; \
     if [ -d packages/web/assets/fonts ]; then \
-        mkdir -p /opt/edutalent-bundle/public/fonts; \
-        cp -R packages/web/assets/fonts/. /opt/edutalent-bundle/public/fonts/; \
+        mkdir -p /opt/edutalent-web/public/fonts; \
+        cp -R packages/web/assets/fonts/. /opt/edutalent-web/public/fonts/; \
     fi; \
-    chmod +x /opt/edutalent-bundle/server /opt/edutalent-bundle/ai_gateway
+    chmod +x /opt/edutalent-web/server
 
 FROM debian:trixie-slim AS runtime
 RUN apt-get update \
@@ -70,7 +90,8 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/edutalent
-COPY --from=builder --chown=65532:65532 /opt/edutalent-bundle/ /opt/edutalent/
+COPY --from=web-builder --chown=65532:65532 /opt/edutalent-web/ /opt/edutalent/
+COPY --from=gateway-builder --chown=65532:65532 /workspace/target/release/ai_gateway /opt/edutalent/ai_gateway
 COPY --chown=65532:65532 packages/api/migration/migrations/ /opt/edutalent/packages/api/migration/migrations/
 COPY --chown=65532:65532 migrations/ /opt/edutalent/migrations/
 COPY --chown=65532:65532 scripts/ci/apply_migrations.sh /opt/edutalent/scripts/ci/apply_migrations.sh
