@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# PR-12 Tier-1 browser smoke on an exact head: login, role landing, one
-# critical changed-feature path, authorization denial, logout. One engine.
+# Stage-1 Tier-1 browser smoke on an exact head. E2E_GREP may narrow the
+# existing tagged suite; an absent selector intentionally falls back to all
+# @smoke journeys.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "${ROOT}"
 
-export E2E_GREP="@smoke"
+: "${E2E_GREP:=@smoke}"
+export E2E_GREP
 exec bash scripts/ci/run_browser_e2e.sh
