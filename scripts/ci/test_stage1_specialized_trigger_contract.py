@@ -125,7 +125,9 @@ class SpecializedTriggerContractTests(unittest.TestCase):
         ):
             self.assertIn(f"      - {job}", gate)
             self.assertIn(f"{env_name}: ${{{{ needs.{job}.result }}}}", gate)
-            self.assertIn(f'(yes("{required_env}"), os.environ.get("{env_name}", "")', gate)
+            self.assertIn(f'yes("{required_env}")', gate)
+            self.assertIn(f'os.environ.get("{env_name}", "")', gate)
+        self.assertIn('require(required, result, f"{name} specialized proof")', gate)
 
     def test_policy_self_test_executes_this_contract(self):
         self.assertIn(
