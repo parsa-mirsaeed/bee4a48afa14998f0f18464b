@@ -216,6 +216,19 @@ class ClassifierTests(unittest.TestCase):
             needs_operations_definition=True,
         )
 
+    def test_operations_adr_and_threat_model_keep_operations_owner(self):
+        self.assert_categories(
+            [
+                "docs/adr/0004-production-operations.md",
+                "docs/security/production-operations-threat-model.md",
+            ],
+            required=("docs", "operations"),
+            forbidden=("production_topology", "unknown"),
+            docs_only=False,
+            needs_production_definition=False,
+            needs_operations_definition=True,
+        )
+
     def test_readiness_boundaries_require_operations_definition(self):
         self.assert_categories(
             ["packages/api/src/readiness.rs", "packages/web/src/main.rs"],
