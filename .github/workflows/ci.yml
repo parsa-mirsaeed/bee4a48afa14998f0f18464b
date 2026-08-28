@@ -98,7 +98,7 @@ jobs:
           rust = derived["rust"] or workspace
           api = derived["api"] or workspace
           web = derived["web"] or workspace
-          database = derived["needs_postgres"] or "ci:db" in labels
+          database = derived["needs_postgres"] or workspace or "ci:db" in labels
 
           # Authentication middleware remains browser-escalated in S1-PR-01.
           # We optimize generic UI/browser selection first, not auth proof.
@@ -184,6 +184,9 @@ jobs:
 
       - name: Verify intended legacy-to-Stage-1 deltas
         run: python3 scripts/ci/test_stage1_legacy_comparison.py
+
+      - name: Verify workflow fast-path contract
+        run: python3 scripts/ci/test_stage1_workflow_contract.py
 
       - name: Verify evidence contract
         run: python3 scripts/ci/test_stage1_evidence_contract.py
@@ -319,7 +322,7 @@ jobs:
           retention-days: 3
 
   targeted-rust-no-db:
-    name: Affected Rust checks and tests (no database)
+    name: Affected Web client Rust checks and tests (no database)
     needs:
       - classify
       - formatting
@@ -339,6 +342,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+          targets: wasm32-unknown-unknown
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -346,7 +350,7 @@ jobs:
           cache-on-failure: true
           save-if: ${{ github.event_name == 'workflow_dispatch' }}
 
-      - name: Check, lint, and test affected packages
+      - name: Check, lint, and test affected Web client code
         shell: bash
         env:
           WORKSPACE_CHANGED: ${{ needs.classify.outputs.workspace }}
@@ -355,35 +359,19 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [[ "$WORKSPACE_CHANGED" == "true" ]]; then
-            cargo check --workspace --all-targets --locked --message-format=short
-            cargo check -p api --features server --all-targets --locked --message-format=short
-            cargo clippy -p api --features server --lib --tests --locked --message-format=short -- \
-              -A warnings -D clippy::correctness -D clippy::suspicious
-            cargo test -p api --features server --lib --locked
-            cargo check -p web --features server --all-targets --locked --message-format=short
-            cargo clippy -p web --features server --all-targets --locked --message-format=short -- \
-              -A warnings -D clippy::correctness -D clippy::suspicious
-            cargo test -p web --features server --locked
-            exit 0
+          if [[ "$WORKSPACE_CHANGED" == "true" || "$API_CHANGED" == "true" ]]; then
+            echo "database-free Rust lane received an API/workspace change; classifier must escalate it" >&2
+            exit 1
+          fi
+          if [[ "$WEB_CHANGED" != "true" ]]; then
+            echo "database-free Rust lane requires a Web/UI change" >&2
+            exit 1
           fi
 
-          if [[ "$API_CHANGED" == "true" ]]; then
-            cargo check -p api --features server --all-targets --locked --message-format=short
-            cargo clippy -p api --features server --lib --tests --locked --message-format=short -- \
-              -A warnings -D clippy::correctness -D clippy::suspicious
-            cargo test -p api --features server --lib --locked
-            cargo check -p web --features server --all-targets --locked --message-format=short
-          fi
-
-          if [[ "$WEB_CHANGED" == "true" ]]; then
-            if [[ "$API_CHANGED" != "true" ]]; then
-              cargo check -p web --features server --all-targets --locked --message-format=short
-            fi
-            cargo clippy -p web --features server --all-targets --locked --message-format=short -- \
-              -A warnings -D clippy::correctness -D clippy::suspicious
-            cargo test -p web --features server --locked
-          fi
+          cargo check -p web --features web --target wasm32-unknown-unknown --locked --message-format=short
+          cargo clippy -p web --features web --target wasm32-unknown-unknown --lib --locked --message-format=short -- \
+            -A warnings -D clippy::correctness -D clippy::suspicious
+          cargo test -p web --locked
 
   targeted-rust-db:
     name: Affected Rust checks and tests (database-backed)
