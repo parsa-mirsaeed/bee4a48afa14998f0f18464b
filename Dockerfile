@@ -36,31 +36,37 @@ RUN cargo chef cook --release --recipe-path recipe.json --package web --features
 
 # Build only the API-owned gateway source in this layer. Presentation files are
 # intentionally absent so normal Web/UI source changes can reuse this result.
+# BuildKit may execute this stage in parallel with web-builder on host networking,
+# so its compile-only PostgreSQL instance uses a dedicated non-default port.
 FROM build-deps AS gateway-builder
 COPY packages/api/ packages/api/
 COPY migrations/ migrations/
 COPY scripts/ci/apply_migrations.sh scripts/ci/apply_migrations.sh
 RUN set -eux; \
+    pg_version="$(pg_lsclusters --no-header | awk 'NR == 1 {print $1}')"; \
+    sed -ri 's/^[# ]*port = [0-9]+/port = 55432/' "/etc/postgresql/${pg_version}/main/postgresql.conf"; \
     service postgresql start; \
-    runuser -u postgres -- psql --set=ON_ERROR_STOP=1 \
+    runuser -u postgres -- psql -p 55432 --set=ON_ERROR_STOP=1 \
         --command="ALTER USER postgres PASSWORD 'postgres'"; \
-    runuser -u postgres -- createdb edutalent_build; \
-    export DATABASE_URL='postgresql://postgres:postgres@127.0.0.1:5432/edutalent_build'; \
+    runuser -u postgres -- createdb -p 55432 edutalent_build; \
+    export DATABASE_URL='postgresql://postgres:postgres@127.0.0.1:55432/edutalent_build'; \
     bash scripts/ci/apply_migrations.sh; \
     cargo build --release --package api --features server --bin ai_gateway; \
     service postgresql stop
 
 # The Web server feature links the API contract, so the complete source tree is
-# required here. This layer is independent from gateway-builder even though both
-# deliberately share the SQLx build prerequisite above.
+# required here. This layer remains parallel with gateway-builder and therefore
+# uses a different compile-only PostgreSQL port to avoid host-network collisions.
 FROM build-deps AS web-builder
 COPY . .
 RUN set -eux; \
+    pg_version="$(pg_lsclusters --no-header | awk 'NR == 1 {print $1}')"; \
+    sed -ri 's/^[# ]*port = [0-9]+/port = 55433/' "/etc/postgresql/${pg_version}/main/postgresql.conf"; \
     service postgresql start; \
-    runuser -u postgres -- psql --set=ON_ERROR_STOP=1 \
+    runuser -u postgres -- psql -p 55433 --set=ON_ERROR_STOP=1 \
         --command="ALTER USER postgres PASSWORD 'postgres'"; \
-    runuser -u postgres -- createdb edutalent_build; \
-    export DATABASE_URL='postgresql://postgres:postgres@127.0.0.1:5432/edutalent_build'; \
+    runuser -u postgres -- createdb -p 55433 edutalent_build; \
+    export DATABASE_URL='postgresql://postgres:postgres@127.0.0.1:55433/edutalent_build'; \
     bash scripts/ci/apply_migrations.sh; \
     dx bundle --web --release --package web; \
     service postgresql stop
