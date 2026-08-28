@@ -78,18 +78,34 @@ mod tests {
     }
 
     #[test]
-    fn direct_role_routes_do_not_render_placeholder_dashboards() {
+    fn direct_role_routes_resolve_to_canonical_dashboards_without_placeholders() {
         let main_source = include_str!("main.rs");
         assert!(!main_source.contains("DashboardPlaceholder"));
         assert!(!main_source.contains("under development"));
-        for component in [
-            "fn PlatformAdminRoute()",
-            "fn SchoolManagerRoute()",
-            "fn TeacherRoute()",
-            "fn StudentRoute()",
-            "fn ParentRoute()",
+
+        for route_boundary in [
+            "fn DashboardRoute()",
+            "fn DashboardSectionRoute(section: String)",
+            "fn RoleBasedDashboard(requested_section: Option<String>)",
+            "RoutingService::resolve_dashboard_section(&user, requested)",
         ] {
-            assert!(main_source.contains(component));
+            assert!(
+                main_source.contains(route_boundary),
+                "missing canonical direct-route boundary: {route_boundary}"
+            );
+        }
+
+        for dashboard in [
+            "PlatformAdminDashboard { section }",
+            "SchoolManagerDashboard { section }",
+            "TeacherDashboard { section }",
+            "StudentDashboard { section }",
+            "ParentDashboard { section }",
+        ] {
+            assert!(
+                main_source.contains(dashboard),
+                "direct role routing must dispatch to the real dashboard: {dashboard}"
+            );
         }
     }
 
