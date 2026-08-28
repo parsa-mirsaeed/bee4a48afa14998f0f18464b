@@ -47,7 +47,8 @@ DOC_ROOT_FILES = {
 }
 
 WORKFLOW_POLICY_RE = re.compile(
-    r"^\.github/(?:workflows/.*\.ya?ml|FULL_VALIDATION\.md|scripts/.*)$"
+    r"^(?:\.github/(?:workflows/.*\.ya?ml|FULL_VALIDATION\.md|scripts/.*)|"
+    r"scripts/ci/(?:stage1_.*|test_stage1_.*|evidence_schema\.json))$"
 )
 DB_RE = re.compile(
     r"^(?:migrations/|packages/api/migration/|"
@@ -166,12 +167,6 @@ def classify(files: Iterable[str]) -> dict:
         if WORKFLOW_POLICY_RE.match(path) or path in {
             "EduTalent-Workflow-Trigger-Guide.md",
             "EduTalent-Stage1-Smart-CI-CD-and-Build-Optimization-Plan.md",
-            "scripts/ci/stage1_change_classifier.py",
-            "scripts/ci/test_stage1_change_classifier.py",
-            "scripts/ci/test_stage1_evidence_contract.py",
-            "scripts/ci/test_stage1_legacy_comparison.py",
-            "scripts/ci/test_stage1_workflow_contract.py",
-            "scripts/ci/evidence_schema.json",
         }:
             _mark(categories, "workflow_policy")
             matched = True
