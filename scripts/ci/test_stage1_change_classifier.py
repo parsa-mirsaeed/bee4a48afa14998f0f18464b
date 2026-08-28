@@ -52,6 +52,7 @@ class ClassifierTests(unittest.TestCase):
             required=("web_assets",),
             forbidden=("database", "unknown"),
             rust=False,
+            needs_postgres=False,
         )
 
     def test_web_rust_component(self):
@@ -76,15 +77,15 @@ class ClassifierTests(unittest.TestCase):
             needs_postgres=False,
         )
 
-    def test_login_is_browser_sensitive(self):
+    def test_login_is_browser_sensitive_but_not_db_invariant(self):
         self.assert_categories(
             ["packages/web/src/views/login.rs"],
             required=("web_logic", "web_browser_behavior", "auth_authorization"),
             rust=True,
             web=True,
-            api=True,
+            api=False,
             needs_browser=True,
-            needs_postgres=True,
+            needs_postgres=False,
         )
 
     def test_api_pure_service(self):
@@ -107,7 +108,7 @@ class ClassifierTests(unittest.TestCase):
             needs_postgres=True,
         )
 
-    def test_auth_middleware_requires_db(self):
+    def test_backend_auth_middleware_requires_db(self):
         self.assert_categories(
             ["packages/api/src/middleware/auth.rs"],
             required=("api_logic", "auth_authorization"),
@@ -171,6 +172,7 @@ class ClassifierTests(unittest.TestCase):
             rust=True,
             api=True,
             needs_dependency_audit=True,
+            needs_postgres=False,
         )
 
     def test_package_file(self):
@@ -207,6 +209,8 @@ class ClassifierTests(unittest.TestCase):
             required=("workflow_policy",),
             forbidden=("unknown",),
             rust=False,
+            needs_postgres=False,
+            needs_browser=False,
         )
 
     def test_unknown_executable_fails_closed(self):
