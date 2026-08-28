@@ -77,12 +77,19 @@ PACKAGING_RE = re.compile(
     r"^(?:Dockerfile(?:\.appliance-tools)?|compose(?:\.release)?\.ya?ml|edutalent|Makefile|"
     r"\.dockerignore|\.env\.example|docker/|scripts/(?:package|release)/|\.github/workflows/package\.yml)"
 )
+# Production topology owns executable/configuration material under deploy/production,
+# but not operator implementation (owned by Operations) and not Markdown guidance.
+# This keeps documentation cheap while preserving fail-closed ownership for runtime
+# configuration, pinned Supabase materialization, proxy/TLS, and production scripts.
 PRODUCTION_RE = re.compile(
-    r"^(?:deploy/production/|\.github/workflows/production-foundation\.yml|"
+    r"^(?:deploy/production/(?!operations/)(?!.*\.(?:md|mdx)$)|"
+    r"\.github/workflows/production-foundation\.yml|"
     r"scripts/(?:production|ci/configure_database_role).*|docker/entrypoint\.sh)"
 )
 OPERATIONS_RE = re.compile(
-    r"^(?:deploy/(?:operations|monitoring|backup|recovery)/|scripts/(?:operations|backup|recovery)/|"
+    r"^(?:deploy/production/(?:operations/|edutalent-operations$)|"
+    r"packages/api/src/readiness\.rs|packages/web/src/main\.rs|"
+    r"deploy/(?:operations|monitoring|backup|recovery)/|scripts/(?:operations|backup|recovery)/|"
     r"\.github/workflows/production-operations\.yml|docs/(?:operations|runbooks)/)"
 )
 APPLIANCE_RE = re.compile(
