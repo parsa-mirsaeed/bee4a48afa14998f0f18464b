@@ -6,6 +6,8 @@ on:
       - opened
       - synchronize
       - reopened
+      - labeled
+      - unlabeled
   workflow_dispatch:
 
 permissions:
@@ -33,8 +35,14 @@ jobs:
       database: ${{ steps.scope.outputs.database }}
       packaging: ${{ steps.scope.outputs.packaging }}
       production: ${{ steps.scope.outputs.production }}
+      operations: ${{ steps.scope.outputs.operations }}
+      appliance: ${{ steps.scope.outputs.appliance }}
       browser: ${{ steps.scope.outputs.browser }}
+      dependency_audit: ${{ steps.scope.outputs.dependency_audit }}
+      workflow_policy: ${{ steps.scope.outputs.workflow_policy }}
+      unknown: ${{ steps.scope.outputs.unknown }}
       docs_only: ${{ steps.scope.outputs.docs_only }}
+      categories: ${{ steps.scope.outputs.categories }}
       comparison: ${{ steps.scope.outputs.comparison }}
     steps:
       - uses: actions/checkout@v4
@@ -49,6 +57,7 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          LABELS_JSON: ${{ toJSON(github.event.pull_request.labels.*.name) }}
         run: |
           set -euo pipefail
 
@@ -62,94 +71,125 @@ jobs:
           else
             git ls-files > changed-files.txt
           fi
-
           sort -u changed-files.txt -o changed-files.txt
 
-          # A validation-rule change can alter which proof is required for every
-          # file in the pull request. Escalate it to the complete PR impact set.
-          if [[ "$EVENT_NAME" == "pull_request" ]] && grep -Eq '^\.github/workflows/(ci|full-validation|package|production-foundation|air-gapped-appliance|mirror-final-proof)\.yml$' changed-files.txt; then
-            git diff --name-only "$BASE_SHA"..."$HEAD_SHA" > changed-files.txt
-            sort -u changed-files.txt -o changed-files.txt
-            comparison=pull-request-validation
-          fi
+          python3 scripts/ci/stage1_change_classifier.py \
+            --files-from changed-files.txt \
+            --output stage1-classification.json \
+            --pretty
+
+          COMPARISON="$comparison" python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          import os
+
+          with open("stage1-classification.json", encoding="utf-8") as fh:
+              result = json.load(fh)
+
+          labels_raw = os.environ.get("LABELS_JSON", "[]")
+          try:
+              labels = set(json.loads(labels_raw) or [])
+          except json.JSONDecodeError:
+              labels = set()
+
+          derived = result["derived"]
+          flags = result["category_flags"]
+
+          workspace = derived["workspace"] or "ci:workspace" in labels
+          rust = derived["rust"] or workspace
+          api = derived["api"] or workspace
+          web = derived["web"] or workspace
+          database = derived["needs_postgres"] or "ci:db" in labels
+
+          # Authentication middleware remains browser-escalated in S1-PR-01.
+          # We optimize generic UI/browser selection first, not auth proof.
+          auth_browser = any(
+              path.startswith("packages/api/src/middleware/auth")
+              or path.startswith("packages/api/src/middleware/authorization")
+              or path.startswith("packages/api/src/middleware/endpoint_authorization")
+              for path in result["changed_files"]
+          )
+          browser = derived["needs_browser"] or auth_browser or "ci:browser" in labels
+
+          packaging = derived["needs_package_definition"] or "ci:package" in labels
+          production = derived["needs_production_definition"] or "ci:production" in labels
+          operations = derived["needs_operations_definition"] or "ci:operations" in labels
+          appliance = derived["needs_appliance_definition"] or "ci:appliance" in labels
+          dependency_audit = derived["needs_dependency_audit"]
+          workflow_policy = flags["workflow_policy"]
+          unknown = flags["unknown"]
+          docs_only = derived["docs_only"] and not labels
+
+          effective = {
+              "rust": rust,
+              "workspace": workspace,
+              "api": api,
+              "web": web,
+              "database": database,
+              "browser": browser,
+              "packaging": packaging,
+              "production": production,
+              "operations": operations,
+              "appliance": appliance,
+              "dependency_audit": dependency_audit,
+              "workflow_policy": workflow_policy,
+              "unknown": unknown,
+              "docs_only": docs_only,
+              "labels": sorted(labels),
+          }
+          result["effective"] = effective
+          with open("stage1-effective-classification.json", "w", encoding="utf-8") as fh:
+              json.dump(result, fh, indent=2, sort_keys=True)
+              fh.write("\n")
+
+          def out_bool(name, value):
+              print(f"{name}={'true' if value else 'false'}")
+
+          for key in (
+              "rust", "workspace", "api", "web", "database", "packaging",
+              "production", "operations", "appliance", "browser",
+              "dependency_audit", "workflow_policy", "unknown", "docs_only",
+          ):
+              out_bool(key, effective[key])
+          print("categories=" + json.dumps(result["categories"], separators=(",", ":")))
+          print("comparison=" + os.environ["COMPARISON"])
+          PY
 
           echo "Comparison mode: $comparison"
           cat changed-files.txt
-
-          rust=false
-          workspace=false
-          api=false
-          web=false
-          database=false
-          packaging=false
-          production=false
-          browser=false
-
-          if grep -Eq '^(Cargo\.toml|Cargo\.lock|packages/)' changed-files.txt; then
-            rust=true
-          fi
-
-          if grep -Eq '^(Cargo\.toml|Cargo\.lock|\.github/workflows/(ci|full-validation)\.yml)$' changed-files.txt; then
-            rust=true
-            workspace=true
-            api=true
-            web=true
-            database=true
-          fi
-
-          if grep -Eq '^packages/api/' changed-files.txt; then
-            api=true
-          fi
-
-          if grep -Eq '^packages/(web|ui)/' changed-files.txt; then
-            web=true
-          fi
-
-          if grep -Eq '^packages/(desktop|mobile)/' changed-files.txt; then
-            workspace=true
-          fi
-
-          if grep -Eq '^(migrations/|packages/api/migration/|scripts/ci/(apply_migrations|verify_knowledge_schema|verify_knowledge_security|verify_transaction_scoped_rls)\.sh)' changed-files.txt; then
-            database=true
-          fi
-
-          if grep -Eq '^(Dockerfile(\.appliance-tools)?|compose(\.release)?\.yaml|edutalent|Makefile|\.dockerignore|\.env\.example|docker/|deploy/appliance/|scripts/appliance/|scripts/ci/apply_migrations\.sh|\.github/workflows/(package|air-gapped-appliance|mirror-final-proof)\.yml)' changed-files.txt; then
-            packaging=true
-          fi
-
-          if grep -Eq '^(deploy/(production|appliance)/|scripts/appliance/|docs/(adr|security)/|packages/api/src/services/supabase_auth\.rs|scripts/ci/(apply_migrations|configure_database_role)\.sh|docker/entrypoint\.sh|Dockerfile(\.appliance-tools)?|edutalent|Makefile|\.github/workflows/(production-foundation|air-gapped-appliance|mirror-final-proof)\.yml)' changed-files.txt; then
-            production=true
-          fi
-
-          # PR-12: browser smoke is required for UI/auth and harness changes.
-          if grep -Eq '^(tests/e2e/|packages/(web|ui)/|packages/api/src/(middleware|handlers)/|scripts/ci/(run_browser_e2e|run_browser_smoke|run_browser_final|verify_browser_harness)\.sh)' changed-files.txt; then
-            browser=true
-          fi
-
-          docs_only=false
-          if [[ "$rust" == false && "$database" == false && "$packaging" == false && "$production" == false && "$browser" == false ]]; then
-            docs_only=true
-          fi
-
-          {
-            echo "rust=$rust"
-            echo "workspace=$workspace"
-            echo "api=$api"
-            echo "web=$web"
-            echo "database=$database"
-            echo "packaging=$packaging"
-            echo "production=$production"
-            echo "browser=$browser"
-            echo "docs_only=$docs_only"
-            echo "comparison=$comparison"
-          } >> "$GITHUB_OUTPUT"
+          cat stage1-effective-classification.json
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ai-change-files
-          path: changed-files.txt
+          name: ai-change-classification
+          path: |
+            changed-files.txt
+            stage1-classification.json
+            stage1-effective-classification.json
           if-no-files-found: error
           retention-days: 3
+
+  policy-self-test:
+    name: Validate CI policy and classifier
+    needs: classify
+    if: needs.classify.outputs.workflow_policy == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          show-progress: false
+
+      - name: Run Stage 1 classifier matrix
+        run: python3 scripts/ci/test_stage1_change_classifier.py
+
+      - name: Verify intended legacy-to-Stage-1 deltas
+        run: python3 scripts/ci/test_stage1_legacy_comparison.py
+
+      - name: Verify evidence contract
+        run: python3 scripts/ci/test_stage1_evidence_contract.py
+
+      - name: Validate evidence schema JSON
+        run: python3 -m json.tool scripts/ci/evidence_schema.json >/dev/null
 
   formatting:
     name: Format changed Rust files
@@ -168,14 +208,13 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
-          name: ai-change-files
+          name: ai-change-classification
 
       - id: rustfmt
         name: Generate exact rustfmt patch
         shell: bash
         run: |
           set -euo pipefail
-
           rust_files=()
           while IFS= read -r file; do
             if [[ "$file" == *.rs && -f "$file" ]]; then
@@ -192,7 +231,6 @@ jobs:
 
           rustfmt --edition 2021 --config skip_children=true "${rust_files[@]}"
           git diff -- "${rust_files[@]}" | tee rustfmt.patch
-
           if [[ -s rustfmt.patch ]]; then
             echo "clean=false" >> "$GITHUB_OUTPUT"
           else
@@ -217,7 +255,7 @@ jobs:
   database:
     name: PostgreSQL migrations and invariants
     needs: classify
-    if: needs.classify.outputs.api == 'true' || needs.classify.outputs.web == 'true' || needs.classify.outputs.database == 'true'
+    if: needs.classify.outputs.database == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
@@ -280,8 +318,75 @@ jobs:
           if-no-files-found: warn
           retention-days: 3
 
-  targeted-rust:
-    name: Affected Rust checks and tests
+  targeted-rust-no-db:
+    name: Affected Rust checks and tests (no database)
+    needs:
+      - classify
+      - formatting
+    if: >-
+      always() &&
+      needs.classify.result == 'success' &&
+      needs.classify.outputs.rust == 'true' &&
+      needs.classify.outputs.database != 'true' &&
+      (needs.formatting.result == 'success' || needs.formatting.result == 'skipped')
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          show-progress: false
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ai-change-rust
+          cache-on-failure: true
+          save-if: ${{ github.event_name == 'workflow_dispatch' }}
+
+      - name: Check, lint, and test affected packages
+        shell: bash
+        env:
+          WORKSPACE_CHANGED: ${{ needs.classify.outputs.workspace }}
+          API_CHANGED: ${{ needs.classify.outputs.api }}
+          WEB_CHANGED: ${{ needs.classify.outputs.web }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$WORKSPACE_CHANGED" == "true" ]]; then
+            cargo check --workspace --all-targets --locked --message-format=short
+            cargo check -p api --features server --all-targets --locked --message-format=short
+            cargo clippy -p api --features server --lib --tests --locked --message-format=short -- \
+              -A warnings -D clippy::correctness -D clippy::suspicious
+            cargo test -p api --features server --lib --locked
+            cargo check -p web --features server --all-targets --locked --message-format=short
+            cargo clippy -p web --features server --all-targets --locked --message-format=short -- \
+              -A warnings -D clippy::correctness -D clippy::suspicious
+            cargo test -p web --features server --locked
+            exit 0
+          fi
+
+          if [[ "$API_CHANGED" == "true" ]]; then
+            cargo check -p api --features server --all-targets --locked --message-format=short
+            cargo clippy -p api --features server --lib --tests --locked --message-format=short -- \
+              -A warnings -D clippy::correctness -D clippy::suspicious
+            cargo test -p api --features server --lib --locked
+            cargo check -p web --features server --all-targets --locked --message-format=short
+          fi
+
+          if [[ "$WEB_CHANGED" == "true" ]]; then
+            if [[ "$API_CHANGED" != "true" ]]; then
+              cargo check -p web --features server --all-targets --locked --message-format=short
+            fi
+            cargo clippy -p web --features server --all-targets --locked --message-format=short -- \
+              -A warnings -D clippy::correctness -D clippy::suspicious
+            cargo test -p web --features server --locked
+          fi
+
+  targeted-rust-db:
+    name: Affected Rust checks and tests (database-backed)
     needs:
       - classify
       - formatting
@@ -290,8 +395,9 @@ jobs:
       always() &&
       needs.classify.result == 'success' &&
       needs.classify.outputs.rust == 'true' &&
+      needs.classify.outputs.database == 'true' &&
       (needs.formatting.result == 'success' || needs.formatting.result == 'skipped') &&
-      (needs.database.result == 'success' || needs.database.result == 'skipped')
+      needs.database.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 55
     services:
@@ -324,12 +430,10 @@ jobs:
           save-if: ${{ github.event_name == 'workflow_dispatch' }}
 
       - uses: actions/download-artifact@v4
-        if: needs.database.result == 'success'
         with:
           name: ai-change-database
 
       - name: Restore verified schema
-        if: needs.database.result == 'success'
         run: pg_restore --clean --if-exists --no-owner --no-acl --dbname="$DATABASE_URL" edutalent-ci-schema.dump
 
       - name: Check, lint, and test affected packages
@@ -457,77 +561,150 @@ jobs:
     if: always()
     needs:
       - classify
+      - policy-self-test
       - formatting
       - database
-      - targeted-rust
+      - targeted-rust-no-db
+      - targeted-rust-db
       - browser-smoke
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Enforce required outcomes and write evidence
+      - name: Enforce required outcomes and write exact-head evidence
         shell: bash
         env:
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.sha }}
           COMPARISON_MODE: ${{ needs.classify.outputs.comparison }}
+          CATEGORIES_JSON: ${{ needs.classify.outputs.categories }}
+          UNKNOWN: ${{ needs.classify.outputs.unknown }}
+          POLICY_REQUIRED: ${{ needs.classify.outputs.workflow_policy }}
           RUST_REQUIRED: ${{ needs.classify.outputs.rust }}
-          DATABASE_REQUIRED: ${{ needs.classify.outputs.api == 'true' || needs.classify.outputs.web == 'true' || needs.classify.outputs.database == 'true' }}
+          DATABASE_REQUIRED: ${{ needs.classify.outputs.database }}
           PACKAGE_REQUIRED: ${{ needs.classify.outputs.packaging }}
           PRODUCTION_REQUIRED: ${{ needs.classify.outputs.production }}
+          OPERATIONS_REQUIRED: ${{ needs.classify.outputs.operations }}
+          APPLIANCE_REQUIRED: ${{ needs.classify.outputs.appliance }}
+          DEPENDENCY_AUDIT_REQUIRED: ${{ needs.classify.outputs.dependency_audit }}
           BROWSER_REQUIRED: ${{ needs.classify.outputs.browser }}
           CLASSIFY_RESULT: ${{ needs.classify.result }}
+          POLICY_RESULT: ${{ needs.policy-self-test.result }}
           FORMAT_RESULT: ${{ needs.formatting.result }}
           DATABASE_RESULT: ${{ needs.database.result }}
-          RUST_RESULT: ${{ needs.targeted-rust.result }}
+          RUST_NO_DB_RESULT: ${{ needs.targeted-rust-no-db.result }}
+          RUST_DB_RESULT: ${{ needs.targeted-rust-db.result }}
           BROWSER_RESULT: ${{ needs.browser-smoke.result }}
         run: |
-          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
 
-          test "$CLASSIFY_RESULT" = "success"
+          def yes(name):
+              return os.environ.get(name) == "true"
 
-          require_success() {
-            local required="$1"
-            local result="$2"
-            local name="$3"
-            if [[ "$required" == "true" ]]; then
-              test "$result" = "success" || {
-                echo "$name was required but concluded: $result" >&2
-                exit 1
-              }
-            else
-              case "$result" in
-                success|skipped) ;;
-                *) echo "$name unexpectedly concluded: $result" >&2; exit 1 ;;
-              esac
-            fi
+          failures = []
+          classify = os.environ.get("CLASSIFY_RESULT", "")
+          policy = os.environ.get("POLICY_RESULT", "")
+          formatting = os.environ.get("FORMAT_RESULT", "")
+          database = os.environ.get("DATABASE_RESULT", "")
+          rust_no_db = os.environ.get("RUST_NO_DB_RESULT", "")
+          rust_db = os.environ.get("RUST_DB_RESULT", "")
+          browser = os.environ.get("BROWSER_RESULT", "")
+
+          if classify != "success":
+              failures.append(f"classification concluded {classify}")
+          if yes("UNKNOWN"):
+              failures.append("unknown executable/configuration change requires classifier ownership")
+
+          def require(required, result, name):
+              if required:
+                  if result != "success":
+                      failures.append(f"{name} was required but concluded {result}")
+              elif result not in {"success", "skipped"}:
+                  failures.append(f"{name} unexpectedly concluded {result}")
+
+          require(yes("POLICY_REQUIRED"), policy, "policy self-test")
+          require(yes("RUST_REQUIRED"), formatting, "formatting")
+          require(yes("DATABASE_REQUIRED"), database, "database")
+          require(yes("BROWSER_REQUIRED"), browser, "browser smoke")
+
+          rust_required = yes("RUST_REQUIRED")
+          db_required = yes("DATABASE_REQUIRED")
+          require(rust_required and not db_required, rust_no_db, "Rust no-database proof")
+          require(rust_required and db_required, rust_db, "Rust database-backed proof")
+
+          try:
+              categories = json.loads(os.environ.get("CATEGORIES_JSON", "[]"))
+          except json.JSONDecodeError:
+              categories = ["unknown"]
+              failures.append("classifier categories were not valid JSON")
+
+          required_sections = ["classification"]
+          executed_sections = ["classification"] if classify == "success" else []
+          omissions = {}
+
+          sections = [
+              ("policy", yes("POLICY_REQUIRED"), policy),
+              ("formatting", rust_required, formatting),
+              ("database", db_required, database),
+              ("rust_no_db", rust_required and not db_required, rust_no_db),
+              ("rust_db", rust_required and db_required, rust_db),
+              ("browser", yes("BROWSER_REQUIRED"), browser),
+          ]
+          for name, required, result in sections:
+              if required:
+                  required_sections.append(name)
+              if result == "success":
+                  executed_sections.append(name)
+              elif not required:
+                  omissions[name] = "classifier determined this proof was not required"
+
+          for name, env_name in (
+              ("dependency_audit", "DEPENDENCY_AUDIT_REQUIRED"),
+              ("package", "PACKAGE_REQUIRED"),
+              ("production", "PRODUCTION_REQUIRED"),
+              ("operations", "OPERATIONS_REQUIRED"),
+              ("appliance", "APPLIANCE_REQUIRED"),
+          ):
+              if yes(env_name):
+                  required_sections.append(f"specialized:{name}")
+              else:
+                  omissions[f"specialized:{name}"] = "classifier determined the specialized boundary was not affected"
+
+          evidence = {
+              "schema_version": 1,
+              "mode": "control",
+              "controls_ci": True,
+              "head_sha": os.environ["HEAD_SHA"],
+              "base_sha": os.environ["BASE_SHA"],
+              "comparison": os.environ.get("COMPARISON_MODE", "unknown"),
+              "runner": {
+                  "name": os.environ.get("RUNNER_NAME", "github-actions"),
+                  "os": os.environ.get("RUNNER_OS", "unknown"),
+                  "arch": os.environ.get("RUNNER_ARCH", "unknown"),
+              },
+              "categories": categories,
+              "required_sections": required_sections,
+              "executed_sections": executed_sections,
+              "intentional_omissions": omissions,
+              "cache": {},
+              "jobs": [],
+              "unknown": yes("UNKNOWN"),
+              "gate_result": "failure" if failures else "success",
           }
+          with open("ai-change-evidence.json", "w", encoding="utf-8") as fh:
+              json.dump(evidence, fh, indent=2, sort_keys=True)
+              fh.write("\n")
 
-          require_success "$RUST_REQUIRED" "$FORMAT_RESULT" "formatting"
-          require_success "$DATABASE_REQUIRED" "$DATABASE_RESULT" "database"
-          require_success "$RUST_REQUIRED" "$RUST_RESULT" "targeted Rust"
-          require_success "$BROWSER_REQUIRED" "$BROWSER_RESULT" "browser smoke"
-
-          cat > ai-change-evidence.json <<EOF
-          {
-            "head_sha": "${HEAD_SHA}",
-            "comparison_mode": "${COMPARISON_MODE}",
-            "required": {
-              "rust": ${RUST_REQUIRED},
-              "database": ${DATABASE_REQUIRED},
-              "package_workflow": ${PACKAGE_REQUIRED},
-              "production_workflow": ${PRODUCTION_REQUIRED},
-              "browser_smoke": ${BROWSER_REQUIRED}
-            },
-            "results": {
-              "classification": "${CLASSIFY_RESULT}",
-              "formatting": "${FORMAT_RESULT}",
-              "database": "${DATABASE_RESULT}",
-              "rust": "${RUST_RESULT}",
-              "browser_smoke": "${BROWSER_RESULT}"
-            }
-          }
-          EOF
+          if failures:
+              for failure in failures:
+                  print(f"AI change gate: {failure}", file=sys.stderr)
+              raise SystemExit(1)
+          PY
 
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: ai-change-evidence
           path: ai-change-evidence.json
