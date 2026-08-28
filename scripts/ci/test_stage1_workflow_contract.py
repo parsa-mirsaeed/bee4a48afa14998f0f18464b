@@ -48,6 +48,12 @@ class WorkflowContractTests(unittest.TestCase):
         cls.no_db = cls.text.split("  targeted-rust-no-db:\n", 1)[1].split(
             "  targeted-rust-db:\n", 1
         )[0]
+        cls.db = cls.text.split("  targeted-rust-db:\n", 1)[1].split(
+            "  browser-smoke:\n", 1
+        )[0]
+        cls.browser = cls.text.split("  browser-smoke:\n", 1)[1].split(
+            "  gate:\n", 1
+        )[0]
 
     def test_no_db_lane_is_client_only(self):
         self.assertNotIn("    services:\n", self.no_db)
@@ -59,6 +65,33 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("cargo test -p web --locked", self.no_db)
         self.assertNotIn("--features server", self.no_db)
         self.assertNotIn("cargo check -p api", self.no_db)
+
+    def test_rust_cache_domains_are_runner_and_build_mode_specific(self):
+        self.assertIn("shared-key: ai-change-web-wasm", self.no_db)
+        self.assertIn("key: ${{ runner.os }}-${{ runner.arch }}-wasm32-web", self.no_db)
+        self.assertIn("shared-key: ai-change-server-native", self.db)
+        self.assertIn("key: ${{ runner.os }}-${{ runner.arch }}-native-server", self.db)
+        self.assertIn("shared-key: ai-change-browser-release", self.browser)
+        self.assertIn("key: ${{ runner.os }}-${{ runner.arch }}-release-web-bundle", self.browser)
+
+    def test_rust_cache_writes_are_same_repo_only_and_do_not_cache_tool_bins(self):
+        save_guard = (
+            "save-if: ${{ github.event_name != 'pull_request' || "
+            "github.event.pull_request.head.repo.full_name == github.repository }}"
+        )
+        for section in (self.no_db, self.db, self.browser):
+            self.assertIn(save_guard, section)
+            self.assertIn("cache-bin: false", section)
+            self.assertIn("cache-on-failure: true", section)
+
+    def test_cache_hits_cannot_skip_rust_or_browser_proof(self):
+        self.assertNotIn("cache-hit", self.no_db)
+        self.assertNotIn("cache-hit", self.db)
+        self.assertIn("Run focused browser smoke on exact head", self.browser)
+        # Only Dioxus/Chromium installation may be conditional on their own
+        # dedicated tool-cache hits. The browser proof itself is unconditional.
+        proof = self.browser.split("- name: Run focused browser smoke on exact head", 1)[1]
+        self.assertNotIn("if: steps.rust-cache", proof)
 
     def test_database_lane_is_selected_only_by_classifier_output(self):
         self.assertIn(
