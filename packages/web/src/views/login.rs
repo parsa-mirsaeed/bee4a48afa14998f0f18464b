@@ -208,7 +208,6 @@ pub fn LoginPage() -> Element {
                             pending: is_loading(),
                             disabled: is_loading(),
                             icon: "arrow_forward".to_string(),
-                            onclick: move |_| {},
                         }
                     }
 
