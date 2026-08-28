@@ -35,15 +35,17 @@ Important areas:
 - `packages/web/`: Dioxus Web application and role-based views.
 - `packages/ui/`: shared UI components.
 - `migrations/` and `packages/api/migration/`: canonical database migrations.
-- `scripts/ci/`: migration and security verification scripts.
+- `scripts/ci/`: migration, classifier, evidence, and security verification
+  scripts.
 - `docker/`, `Dockerfile`, `compose*.yaml`, `edutalent`: build and packaging.
-- `deploy/production/`: production Supabase, Caddy, Qdrant, TLS, role, and
-  network topology.
+- `deploy/production/`: production Supabase, Caddy, Qdrant, TLS, role,
+  operations, and network topology.
+- `deploy/appliance/` and `scripts/appliance/`: air-gapped appliance material.
 - `.github/workflows/`: objective implementation proof.
 
 Do not weaken authorization, migration integrity, secret handling, runner
-isolation, Qdrant filtering, or production network boundaries to make a test
-pass.
+isolation, Qdrant filtering, offline boundaries, or production network
+boundaries to make a test pass.
 
 ## 3. Dioxus 0.7 implementation rules
 
@@ -74,121 +76,181 @@ this repository.
 
 Workflow: `.github/workflows/ci.yml`
 
-Runs on every pull-request update. It is the minimum proof required after an
-agent commit.
+`AI Change Proof` runs on every ordinary pull-request update and is the minimum
+exact-head proof required after an agent commit.
 
-It automatically detects:
+Its Stage-1 classifier evaluates the complete changed-file set and derives the
+required proof for:
 
-- Rust workspace changes;
-- API/backend changes;
-- Web/UI changes;
-- database and migration changes;
-- packaging changes;
-- production-topology changes;
-- documentation-only changes.
+- Rust workspace/dependency changes;
+- API/backend logic and data access;
+- Web/UI logic and browser-sensitive behavior;
+- database, migration, RLS, and role changes;
+- dependency audit;
+- packaging;
+- production topology;
+- production operations/readiness;
+- air-gapped appliance definitions;
+- workflow/classifier policy;
+- documentation-only changes;
+- unknown executable/configuration changes.
 
-It runs only the relevant Rust/database checks and creates an
-`ai-change-evidence` artifact tied to the exact head SHA.
+Unknown executable/configuration changes fail closed. Manual labels may only
+escalate proof; they never suppress classifier-required work.
 
-Required branch-protection check:
+The workflow runs only the selected ordinary Rust/database/browser checks and,
+when required, invokes the specialized owner workflows described below. It
+creates exact-head classification and `ai-change-evidence` artifacts.
+
+Required ordinary-PR merge check by repository policy:
 
 - `AI change gate`
 
-### Level 2: Specialized focused checks
+### Level 2: Specialized focused owner proof
 
-These workflows run only when their paths are affected:
+Ordinary PRs do **not** rely on broad direct `pull_request.paths` filters in the
+specialized workflows. `AI Change Proof` is the routing authority and invokes
+the affected owner workflow through `workflow_call`.
 
-- `Package / Validate package definitions`
-- `Production Foundation / Render and verify production topology`
+The specialized owners are:
 
-They are required evidence for packaging and production-topology changes even
-though they are not globally required branch-protection checks.
+- Package — package definitions and targeted package proof when explicitly
+  escalated;
+- Production Foundation — rendered production topology/security definitions;
+- Production Operations — operations definitions/regressions, dependency and
+  production-configuration security, and its focused gate;
+- Air-gapped Appliance — appliance definitions/tamper checks and its focused
+  gate.
+
+The escalation-only labels are:
+
+- `ci:package`;
+- `ci:production`;
+- `ci:operations`;
+- `ci:appliance`.
+
+These labels add owner proof even when the current diff would not select it.
+There are no de-escalation labels.
 
 ### Level 3: Full Validation
 
 Workflow: `.github/workflows/full-validation.yml`
 
-Full validation runs:
+The workflow is eligible on PR `labeled`, `synchronize`, and `reopened` events,
+but heavy Full Validation runs on a PR only while the `full-validation` label is
+present. It also runs completely on:
 
-- on pushes to `main`;
-- on the weekly schedule;
-- by manual dispatch;
-- on a PR while it has the `full-validation` label.
+- pushes to `main`;
+- the weekly schedule;
+- manual dispatch.
 
-Once a PR enters final review, apply the `full-validation` label and keep it
-until merge. Every later commit then reruns complete database and Rust
-validation.
+Once a PR enters final review and its risk requires complete validation, apply
+`full-validation` and keep it until merge. Every later commit invalidates the
+older exact-head evidence and reruns the full proof.
 
-Required final-review check:
+Required final-review gate when Full Validation is selected:
 
 - `Full validation gate`
 
-### Level 4: Package and production proof
+### Level 4: Complete release/production proof
 
-For a release, production/security change, or packaging change, run the
-specialized full workflows on the exact final SHA:
+Complete package, production, operations, and appliance workflows are release
+or final-candidate evidence. They are deliberately not the ordinary iteration
+loop.
 
-- `Package / Docker image and release bundle`
-- `Production Foundation / Apply migrations and roles on pinned Supabase PostgreSQL 17`
-- `Production Foundation / Start complete self-hosted production stack`
+Depending on the affected release boundary, complete proof includes:
 
-The full package job runs automatically for a relevant PR carrying the
-`full-validation` label. The full production workflow can be dispatched
-manually on the PR branch and runs automatically on relevant `main` changes and
-its schedule.
+- Package runtime image/release bundle, packaged migration replay, SBOM and
+  release evidence;
+- Production Foundation PostgreSQL 17 migration/role proof and complete
+  self-hosted production-stack startup/security smoke;
+- Production Operations backup/recovery/PITR/Qdrant recovery, alerts, restart,
+  load, recreation, and fail-closed evidence;
+- Air-gapped Appliance complete offline build, registry-disabled startup,
+  immutable manifest, model/SBOM/signature/provenance evidence, and required
+  architecture proof.
+
+The final release/acceptance workflows remain authoritative for the frozen
+release candidate. Do not replace them with a successful ordinary PR check.
 
 ## 5. Change-to-test matrix
 
+The binding detailed map is `EduTalent-Workflow-Trigger-Guide.md`. The rules
+below describe the current implementation contract.
+
 ### Documentation only
 
-Examples: `README.md`, `docs/**`, `AGENTS.md`, `SECURITY.md`, and `LICENSE`.
+Examples: `README.md`, ordinary `docs/**`, `AGENTS.md`, `SECURITY.md`, and
+`LICENSE`.
 
-Required: `AI change gate`.
+Required: `AI change gate` plus any selected documentation/policy self-test.
 
-Do not start PostgreSQL or compile Rust unless documentation also changes a
-generated or executable configuration.
+Do not start PostgreSQL, Rust compile, browser, package, production, operations,
+or appliance proof solely for ordinary documentation. A document that is itself
+a CI trigger/policy contract may select the policy self-test.
+
+### Web style/static assets
+
+Examples: CSS, fonts, SVG/images, and static assets under Web/UI.
+
+Do not infer Rust, PostgreSQL, or browser proof merely from the parent package.
+Add focused browser/visual/accessibility proof only when the changed asset can
+materially alter layout, focus, contrast, responsive behavior, RTL/LTR, or an
+interactive affordance.
+
+### Dioxus Web/shared UI Rust without database behavior
+
+For ordinary client-side Web/UI Rust, the Stage-1 fast path uses the Web client
+boundary rather than the server/SQLx boundary:
+
+```bash
+cargo check -p web --features web --target wasm32-unknown-unknown --locked --message-format=short
+cargo clippy -p web --features web --target wasm32-unknown-unknown --bin web --locked --message-format=short -- \
+  -A warnings -D clippy::correctness -D clippy::suspicious
+cargo test -p web --locked
+```
+
+Changed Rust formatting is also required. PostgreSQL is not required merely
+because the file is under `packages/web` or `packages/ui`.
+
+Compilation/unit tests do not prove browser behavior. Login, session, routing,
+navigation, forms, permission interactions, hydration/storage, RTL/LTR, or
+other critical browser behavior requires focused browser proof selected by the
+browser policy.
 
 ### API/backend logic
 
-Examples: services, repositories, server functions, and middleware under
-`packages/api/src/`.
+Examples: services, server functions, middleware, AI gateway internals, and
+other server code under `packages/api/src/`.
 
-Required:
+The current API/server compile graph remains SQLx schema coupled. Until a
+separately proven SQLx offline/build-contract change removes that dependency,
+API/server and workspace Rust proof remains database-backed.
+
+Typical affected server proof includes:
 
 ```bash
-cargo check -p api --features server --all-targets --locked
-cargo clippy -p api --features server --lib --tests --locked -- \
+cargo check -p api --features server --all-targets --locked --message-format=short
+cargo clippy -p api --features server --lib --tests --locked --message-format=short -- \
   -A warnings -D clippy::correctness -D clippy::suspicious
 cargo test -p api --features server --lib --locked
-cargo check -p web --features server --all-targets --locked
+cargo check -p web --features server --all-targets --locked --message-format=short
 ```
 
-The Web compile is required because Web depends on API.
+The dependent Web server compile remains required when the shared Rust/API
+contract changes.
 
-### Web or shared UI
+### Workspace/dependency configuration
 
-Examples: `packages/web/**` and `packages/ui/**`.
+Changes to root `Cargo.toml`, `Cargo.lock`, Rust toolchain/workspace features, or
+other shared Rust dependency configuration require complete affected/workspace
+proof and dependency audit. The current workspace/server compile path remains
+PostgreSQL-backed because of SQLx compile-time validation.
 
-Required:
+Do not infer browser/package/appliance proof from a lockfile alone; those are
+selected only when their actual boundary is affected or explicitly escalated.
 
-```bash
-cargo check -p web --features server --all-targets --locked
-cargo clippy -p web --features server --all-targets --locked -- \
-  -A warnings -D clippy::correctness -D clippy::suspicious
-cargo test -p web --features server --locked
-```
-
-Compilation and unit tests do not prove browser behavior. For changes to login,
-navigation, forms, permissions, or browser state, add a browser-level test when
-the browser harness is available and describe the manual verification until it
-is automated.
-
-### Workspace or dependency configuration
-
-Changes to `Cargo.toml`, `Cargo.lock`, workspace features, desktop, or mobile
-require complete workspace compile plus API and Web compile, Clippy, and tests.
-
-### Database migrations or SQL queries
+### Database migrations, RLS, roles, or data access
 
 Required:
 
@@ -196,20 +258,24 @@ Required:
 2. Replay all migrations.
 3. Verify governed schema lifecycle.
 4. Verify security invariants.
-5. Export the verified schema.
-6. Compile and test affected Rust packages against that schema.
+5. Verify affected RLS/role/authorization boundaries.
+6. Export the verified schema where the workflow contract requires it.
+7. Compile and test affected Rust packages against that schema.
 
-Never edit an already-applied migration silently. The checksum protection is a
-security and operational guarantee.
+Never edit an already-applied protected migration silently. Checksum and replay
+protection are security and operational guarantees.
 
 ### Authentication, authorization, and governed knowledge
 
-Required:
+Required as affected:
 
-- affected API tests;
-- database security invariants;
-- dependent Web compile;
-- focused integration proof for the changed boundary.
+- API/server Rust tests;
+- allowed and denied authorization cases;
+- exact-object and cross-school denial cases where applicable;
+- database/RLS security invariants;
+- dependent Web server compile;
+- focused browser proof for browser-reachable auth/session behavior;
+- governed retrieval/ingestion proof.
 
 Preserve these invariants:
 
@@ -221,21 +287,67 @@ Preserve these invariants:
 - duplicate active ingestion jobs remain prevented;
 - migration/bootstrap credentials never reach long-running services.
 
+### Browser harness/behavior
+
+Use the selector in `tests/e2e/select_smoke.py` and the existing journey tags.
+Known narrow changes should run focused journeys. Ambiguous/harness changes and
+manual browser escalation must fail conservative to representative complete
+smoke rather than selecting zero tests.
+
+Browser dependencies use the committed lockfile. Dioxus CLI and Chromium are
+version-pinned and may be restored from cache, but a cache hit never replaces
+the browser journey itself.
+
 ### Packaging
 
-Per commit: shell, Compose, and package-definition validation.
+The central classifier selects Package owner proof for packaging definitions.
+Focused definition validation is ordinary PR evidence. Targeted runtime image
+and migration replay may be added with `ci:package` when that proof is needed.
 
-Final PR: image build, source-free release archive, checksum inspection, and
-packaged migrations executed twice.
+Complete image/release archive, packaged migration replay, SBOM,
+signature/provenance, and release trust evidence belong to stable final review
+or release proof.
 
-### Production topology and security
+### Production topology/security
 
-Per commit: executable syntax, pinned Supabase materialization, isolated test
-secrets, rendered Compose, and fail-closed security invariants.
+The central classifier selects Production Foundation for executable/configured
+production topology. Ordinary Markdown guidance under production remains
+ordinary documentation unless it is an explicit operations/policy owner file.
 
-Final PR: pinned Supabase PostgreSQL 17 migrations and role checks, exact runtime
-image build, full stack startup, and database, TLS, gateway, authentication, and
-administrative-boundary smoke tests.
+Focused proof renders the pinned topology with isolated validation secrets and
+enforces fail-closed security/network/runtime invariants. Complete stack startup
+and PostgreSQL role/migration proof belong to final/release evidence.
+
+### Production operations/readiness
+
+The Operations owner includes the actual `deploy/production/operations/**`
+implementation, `deploy/production/edutalent-operations`, readiness entry
+points, and the owned Operations ADR/threat-model contract.
+
+Focused proof runs definitions/regressions, bounded load/capacity preflight,
+RustSec/dependency and production-configuration security, and the Operations
+gate. Complete backup/recovery/PITR/Qdrant recovery/load/restart evidence belongs
+to final/release proof.
+
+### Air-gapped appliance
+
+The central classifier selects Appliance owner proof for appliance definitions,
+installer/build scripts, and owned workflow boundaries. Focused definition,
+lock/inventory, workflow-isolation, and tamper checks are ordinary affected PR
+proof.
+
+Complete offline bundle, no-pull startup, model/SBOM/signature/provenance and
+native architecture proof belongs to the stable final candidate.
+
+### Workflow/classifier/policy
+
+Required: AI gate plus workflow syntax/static checks, classifier fixtures,
+legacy-delta regression tests, browser selector tests, specialized-trigger
+contract tests, and evidence-contract tests as selected.
+
+If a workflow can alter proof selection, evaluate the complete PR changed-file
+set. A workflow change may add/escalate evidence but must not silently reduce
+it.
 
 ## 6. Test design rules
 
@@ -253,6 +365,8 @@ administrative-boundary smoke tests.
   customer, credential, document, or production identifiers.
 - Never make external AI or network availability a health requirement for the
   core offline school system.
+- Cache/tool reuse may reduce setup work but must never decide whether required
+  proof executes.
 
 ## 7. Agent execution protocol
 
@@ -281,14 +395,19 @@ After committing:
 1. Record the exact head SHA.
 2. Inspect workflow runs for that SHA.
 3. Verify `AI change gate`.
-4. Verify Package or Production focused checks when the evidence artifact marks
-   them required.
-5. For final review, apply `full-validation` and verify all final checks.
-6. Never claim that skipped work passed.
+4. Read the exact-head classification/evidence and verify every selected
+   Package, Production, Operations, or Appliance owner result.
+5. Verify database/browser/Rust proof when selected; do not infer success from a
+   skipped job.
+6. For stable final review, add `full-validation` when required and verify the
+   complete final-review gate.
+7. Run complete package/production/operations/appliance release proof when the
+   authoritative release plan requires it.
+8. Never claim that skipped work passed.
 
 A job that failed before checkout is infrastructure failure, not code success.
 A job that was skipped is not proof unless the classifier explicitly determined
-that it was irrelevant.
+that it was irrelevant or a complete/final mode was not selected.
 
 ## 8. Evidence and reporting
 
@@ -296,6 +415,7 @@ Every implementation report must state:
 
 - exact commit SHA;
 - files or systems changed;
+- classifier categories/affected boundaries when relevant;
 - tests added or changed;
 - workflows and jobs that ran;
 - pass, fail, or skip status;
@@ -305,67 +425,62 @@ Every implementation report must state:
 Preferred completion statement:
 
 > Exact head `<sha>` passed `AI change gate`; API unit tests and dependent Web
-> compile passed; no package or production workflow was required.
+> compile passed; classifier evidence did not require package, production,
+> operations, appliance, or browser proof.
 
 Never write “all tests passed” unless every test implied by the sentence
 actually ran on the exact SHA.
 
-## 9. Self-hosted runner configuration
+Stage-1 before/after measurements and the architecture exit decision are
+recorded in `docs/ci/STAGE1_RESULTS.md`. Treat those values as observations from
+the named runs, not universal performance guarantees.
 
-Repository variables select runner pools. Every value is a JSON array accepted
-by `fromJSON`.
+## 9. Runner topology and tool provisioning
 
-Backward-compatible default:
+The Stage-1 measurements in `docs/ci/STAGE1_BASELINE.md` and
+`docs/ci/STAGE1_RESULTS.md` were observed on GitHub-hosted runners. Current
+ordinary workflows use explicit GitHub-hosted labels such as `ubuntu-latest`,
+`ubuntu-24.04`, and the required hosted architecture runner where applicable.
 
-```text
-EDUTALENT_RUNNER_LABELS=["self-hosted","Linux","X64","edutalent-ci"]
-```
+Do not assume undocumented self-hosted repository variables control the active
+workflow unless the workflow itself proves that contract.
 
-Optional specialized pools:
+If self-hosted runners are introduced later, they require a separate security
+and reliability review. At minimum:
 
-```text
-EDUTALENT_FAST_RUNNER_LABELS=["self-hosted","Linux","X64","edutalent-fast"]
-EDUTALENT_RUST_RUNNER_LABELS=["self-hosted","Linux","X64","edutalent-rust"]
-EDUTALENT_DOCKER_RUNNER_LABELS=["self-hosted","Linux","X64","edutalent-docker"]
-EDUTALENT_PRODUCTION_RUNNER_LABELS=["self-hosted","Linux","X64","edutalent-production"]
-```
+- repository-scoped trust;
+- dedicated Linux user/VM;
+- no personal SSH/GPG credentials;
+- no untrusted public-fork code;
+- isolated work/cache directories;
+- one heavy job per appropriately sized runner unless measured otherwise;
+- rootless or otherwise reviewed Docker boundary for Docker jobs;
+- pinned, reproducible toolchain image/provisioning;
+- exact same test/security semantics as the hosted path.
 
-When a specialized variable is absent, workflows fall back to
-`EDUTALENT_RUNNER_LABELS`, then to `ubuntu-latest`.
-
-Multiple runners with the same label form a pool. GitHub assigns one queued job
-to one available runner. Use separate machines or appropriately isolated VMs
-for parallel heavy jobs. Do not start several heavy runners on the current
-7.4-GiB laptop; competing Rust, PostgreSQL, and Docker workloads would reduce
-reliability.
-
-Runner requirements:
-
-- repository-scoped;
-- dedicated Linux user;
-- no `sudo`;
-- no rootful Docker group;
-- no personal SSH or GPG credentials;
-- rootless Docker for Docker jobs;
-- separate work and cache directories;
-- one job per runner;
-- no untrusted public-fork code.
+Stage-1 measurements identified repeated tool installation as a remaining
+optimization opportunity. In particular, a focused Operations security run
+spent most of its wall time installing pinned `cargo-audit`. A future tool-cache
+or prebuilt-runner change is acceptable only if the pinned version/trust model
+and proof behavior remain unchanged.
 
 ## 10. Branch and merge policy
 
 For ordinary development:
 
-1. create or update a feature branch;
+1. create or update a feature branch from the intended current base;
 2. open a PR;
-3. require `AI change gate`;
-4. require specialized path checks when triggered;
-5. apply `full-validation` when implementation is complete;
-6. verify `Full validation gate`;
-7. run full Package or Production proof when affected;
-8. merge only the exact validated head.
+3. require exact-head `AI change gate`;
+4. require every classifier-selected specialized owner proof;
+5. fix failures instead of adding skip/de-escalation behavior;
+6. apply `full-validation` for stable final review when required by the change;
+7. verify `Full validation gate` when selected;
+8. run complete Package/Production/Operations/Appliance proof when the release
+   contract requires it;
+9. merge only the exact validated head.
 
-A force-push, rebase, conflict resolution, or new commit invalidates previous
-evidence and must be revalidated.
+A force-push, rebase, conflict resolution, label change that adds proof, or new
+commit invalidates previous evidence as applicable and must be revalidated.
 
 ## 11. Security and publication
 
@@ -389,6 +504,7 @@ A change is done only when:
 - the implementation satisfies the requested behavior;
 - relevant tests exist;
 - exact-head required workflows are green;
+- classifier-selected owner proof is green;
 - evidence is inspectable;
 - diagnostics do not expose secrets or personal data;
 - documentation is updated;
@@ -396,3 +512,26 @@ A change is done only when:
 
 When these conditions are not met, report the implementation as incomplete or
 partially validated.
+
+## 13. Stage-1 architecture guardrail
+
+Stage 1 optimized proof selection, browser/tool reuse, Rust cache domains,
+Docker/BuildKit source boundaries, and specialized workflow ownership without a
+product-framework rewrite.
+
+The measured exit decision is recorded in `docs/ci/STAGE1_RESULTS.md`:
+
+- keep the current Rust/Dioxus application architecture;
+- do not initiate a React/TypeScript rewrite solely for CI/CD speed;
+- do not add a Python general application backend solely for CI/CD speed;
+- keep Rust as the security/data/concurrency/application core;
+- treat SQLx compile-time PostgreSQL coupling and repeated tool provisioning as
+  focused future optimization candidates, not justification for a broad
+  migration.
+
+A Stage-2 frontend architecture proposal requires a new controlled measurement
+set proving that Rust frontend compilation itself is the sustained dominant
+feedback-path bottleneck after the Stage-1 controls are active. The proposal
+must account for auth/session, explicit API contracts, routing, localization,
+RTL/LTR, accessibility, offline packaging, browser supply chain, security, and
+cutover risk before migration is approved.
