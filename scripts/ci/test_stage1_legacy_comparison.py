@@ -62,13 +62,22 @@ class LegacyDeltaTests(unittest.TestCase):
         self.assertFalse(new["needs_postgres"])
         self.assertFalse(new["needs_browser"])
 
-    def test_auth_preserves_rust_db_and_browser(self):
+    def test_client_login_keeps_rust_and_browser_but_removes_db_overtrigger(self):
+        files = ["packages/web/src/views/login.rs"]
+        old, new = legacy(files), self.new(files)
+        self.assertTrue(old["rust"] and old["database_job"] and old["browser"])
+        self.assertTrue(new["rust"] and new["web"] and new["needs_browser"])
+        self.assertFalse(new["api"])
+        self.assertFalse(new["needs_postgres"])
+        self.assertTrue(classifier.classify(files)["category_flags"]["auth_authorization"])
+
+    def test_backend_auth_preserves_rust_db_and_browser_escalation_category(self):
         files = ["packages/api/src/middleware/auth.rs"]
         old, new = legacy(files), self.new(files)
         self.assertTrue(old["rust"] and old["database_job"] and old["browser"])
         self.assertTrue(new["rust"] and new["needs_postgres"])
-        # API auth middleware is security sensitive even without a UI filename;
-        # the controlling workflow escalates auth to browser proof.
+        # The controlling workflow escalates backend auth middleware to browser
+        # proof even though the path itself is not a Web file.
         self.assertTrue(classifier.classify(files)["category_flags"]["auth_authorization"])
 
     def test_repository_preserves_database_proof(self):
