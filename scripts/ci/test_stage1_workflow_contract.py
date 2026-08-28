@@ -7,6 +7,9 @@ import unittest
 
 
 WORKFLOW = Path(".github/workflows/ci.yml")
+DOCKERFILE = Path("Dockerfile")
+PACKAGE_WORKFLOW = Path(".github/workflows/package.yml")
+APPLIANCE_BUILD = Path("scripts/appliance/build.sh")
 MODULE_PATH = Path(__file__).with_name("stage1_change_classifier.py")
 SPEC = importlib.util.spec_from_file_location("stage1_change_classifier", MODULE_PATH)
 classifier = importlib.util.module_from_spec(SPEC)
@@ -45,6 +48,9 @@ class WorkflowContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.text = WORKFLOW.read_text(encoding="utf-8")
+        cls.dockerfile = DOCKERFILE.read_text(encoding="utf-8")
+        cls.package_workflow = PACKAGE_WORKFLOW.read_text(encoding="utf-8")
+        cls.appliance_build = APPLIANCE_BUILD.read_text(encoding="utf-8")
         cls.no_db = cls.text.split("  targeted-rust-no-db:\n", 1)[1].split(
             "  targeted-rust-db:\n", 1
         )[0]
@@ -92,6 +98,37 @@ class WorkflowContractTests(unittest.TestCase):
         # dedicated tool-cache hits. The browser proof itself is unconditional.
         proof = self.browser.split("- name: Run focused browser smoke on exact head", 1)[1]
         self.assertNotIn("if: steps.rust-cache", proof)
+
+    def test_runtime_build_separates_gateway_from_web_source_invalidation(self):
+        self.assertIn("FROM toolchain AS build-deps", self.dockerfile)
+        self.assertIn("FROM build-deps AS gateway-builder", self.dockerfile)
+        self.assertIn("FROM build-deps AS web-builder", self.dockerfile)
+        gateway = self.dockerfile.split("FROM build-deps AS gateway-builder", 1)[1].split(
+            "FROM build-deps AS web-builder", 1
+        )[0]
+        web = self.dockerfile.split("FROM build-deps AS web-builder", 1)[1].split(
+            "FROM debian:trixie-slim AS runtime", 1
+        )[0]
+        self.assertIn("COPY packages/api/ packages/api/", gateway)
+        self.assertNotIn("COPY packages/web", gateway)
+        self.assertNotIn("COPY packages/ui", gateway)
+        self.assertIn("cargo build --release --package api --features server --bin ai_gateway", gateway)
+        self.assertIn("bash scripts/ci/apply_migrations.sh", gateway)
+        self.assertIn("COPY . .", web)
+        self.assertIn("dx bundle --web --release --package web", web)
+        self.assertIn("bash scripts/ci/apply_migrations.sh", web)
+        runtime = self.dockerfile.split("FROM debian:trixie-slim AS runtime", 1)[1]
+        self.assertIn("COPY --from=web-builder", runtime)
+        self.assertIn("COPY --from=gateway-builder", runtime)
+
+    def test_package_full_build_is_explicit_pr_escalation_only(self):
+        self.assertIn("contains(github.event.pull_request.labels.*.name, 'ci:package')", self.package_workflow)
+        self.assertIn("EDUTALENT_BUILD_CACHE_SCOPE: edutalent-runtime", self.package_workflow)
+        self.assertIn("Verify packaged migrations are repeatable", self.package_workflow)
+
+    def test_appliance_runtime_reuses_package_buildkit_scope(self):
+        self.assertIn('EDUTALENT_BUILD_CACHE_SCOPE:-edutalent-runtime', self.appliance_build)
+        self.assertNotIn('EDUTALENT_BUILD_CACHE_SCOPE:-edutalent-appliance-${ARCH}', self.appliance_build)
 
     def test_database_lane_is_selected_only_by_classifier_output(self):
         self.assertIn(
