@@ -62,13 +62,23 @@ class Stage1BuildBoundaryTests(unittest.TestCase):
         self.assertIn("postgresql postgresql-client", self.build_deps)
         self.assertNotIn("COPY . .", self.build_deps)
         self.assertIn("service postgresql start", self.gateway_builder)
-        self.assertIn("createdb edutalent_build", self.gateway_builder)
+        self.assertIn("createdb -p 55432 edutalent_build", self.gateway_builder)
         self.assertIn("bash scripts/ci/apply_migrations.sh", self.gateway_builder)
         self.assertIn("service postgresql start", self.web_builder)
-        self.assertIn("createdb edutalent_build", self.web_builder)
+        self.assertIn("createdb -p 55433 edutalent_build", self.web_builder)
         self.assertIn("bash scripts/ci/apply_migrations.sh", self.web_builder)
         self.assertEqual(self.pre_runtime.count("FROM toolchain AS build-deps"), 1)
         self.assertEqual(self.pre_runtime.count("postgresql postgresql-client"), 1)
+
+    def test_parallel_source_builds_use_isolated_database_ports(self):
+        self.assertIn("port = 55432", self.gateway_builder)
+        self.assertIn("127.0.0.1:55432/edutalent_build", self.gateway_builder)
+        self.assertNotIn("55433", self.gateway_builder)
+        self.assertIn("port = 55433", self.web_builder)
+        self.assertIn("127.0.0.1:55433/edutalent_build", self.web_builder)
+        self.assertNotIn("55432", self.web_builder)
+        self.assertNotIn("127.0.0.1:5432/edutalent_build", self.gateway_builder)
+        self.assertNotIn("127.0.0.1:5432/edutalent_build", self.web_builder)
 
     def test_runtime_keeps_migration_and_database_client_contract(self):
         self.assertIn("postgresql-client", self.runtime)
