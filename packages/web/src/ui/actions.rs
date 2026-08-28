@@ -43,7 +43,7 @@ impl ButtonSize {
 #[component]
 pub fn Button(
     label: String,
-    onclick: EventHandler,
+    onclick: Option<EventHandler>,
     variant: Option<ButtonVariant>,
     size: Option<ButtonSize>,
     disabled: Option<bool>,
@@ -67,7 +67,9 @@ pub fn Button(
             "aria-busy": if pending { "true" } else { "false" },
             onclick: move |_| {
                 if !disabled {
-                    onclick.call(());
+                    if let Some(handler) = onclick.as_ref() {
+                        handler.call(());
+                    }
                 }
             },
             if pending {
