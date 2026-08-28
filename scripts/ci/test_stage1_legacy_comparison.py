@@ -80,6 +80,12 @@ class LegacyDeltaTests(unittest.TestCase):
         # proof even though the path itself is not a Web file.
         self.assertTrue(classifier.classify(files)["category_flags"]["auth_authorization"])
 
+    def test_api_pure_logic_remains_db_backed_until_sqlx_compile_coupling_is_removed(self):
+        files = ["packages/api/src/services/grade_scale.rs"]
+        old, new = legacy(files), self.new(files)
+        self.assertTrue(old["rust"] and old["database_job"])
+        self.assertTrue(new["rust"] and new["api"] and new["needs_postgres"])
+
     def test_repository_preserves_database_proof(self):
         files = ["packages/api/src/repositories/user_repository.rs"]
         old, new = legacy(files), self.new(files)
@@ -102,12 +108,12 @@ class LegacyDeltaTests(unittest.TestCase):
         self.assertTrue(result["category_flags"]["unknown"])
         self.assertFalse(result["safe_to_control_ci"])
 
-    def test_cargo_lock_keeps_workspace_rust_without_forcing_db(self):
+    def test_cargo_lock_keeps_workspace_db_until_compile_coupling_is_removed(self):
         files = ["Cargo.lock"]
         old, new = legacy(files), self.new(files)
         self.assertTrue(old["rust"] and old["workspace"] and old["database_job"])
         self.assertTrue(new["rust"] and new["workspace"])
-        self.assertFalse(new["needs_postgres"])
+        self.assertTrue(new["needs_postgres"])
 
 
 if __name__ == "__main__":

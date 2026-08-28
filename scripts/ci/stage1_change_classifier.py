@@ -47,7 +47,8 @@ DOC_ROOT_FILES = {
 }
 
 WORKFLOW_POLICY_RE = re.compile(
-    r"^\.github/(?:workflows/.*\.ya?ml|FULL_VALIDATION\.md|scripts/.*)$"
+    r"^(?:\.github/(?:workflows/.*\.ya?ml|FULL_VALIDATION\.md|scripts/.*)|"
+    r"scripts/ci/(?:stage1_.*|test_stage1_.*|evidence_schema\.json))$"
 )
 DB_RE = re.compile(
     r"^(?:migrations/|packages/api/migration/|"
@@ -166,11 +167,6 @@ def classify(files: Iterable[str]) -> dict:
         if WORKFLOW_POLICY_RE.match(path) or path in {
             "EduTalent-Workflow-Trigger-Guide.md",
             "EduTalent-Stage1-Smart-CI-CD-and-Build-Optimization-Plan.md",
-            "scripts/ci/stage1_change_classifier.py",
-            "scripts/ci/test_stage1_change_classifier.py",
-            "scripts/ci/test_stage1_evidence_contract.py",
-            "scripts/ci/test_stage1_legacy_comparison.py",
-            "scripts/ci/evidence_schema.json",
         }:
             _mark(categories, "workflow_policy")
             matched = True
@@ -243,8 +239,16 @@ def classify(files: Iterable[str]) -> dict:
     web = categories["web_logic"] or categories["web_browser_behavior"]
     workspace = cargo_workspace_changed
     rust = rust_file_changed or cargo_dependency_changed or api or web
+
+    # The current API/server and workspace compile graph still includes SQLx
+    # compile-time queries. Until the later Stage-2 crate split/offline metadata
+    # removes that coupling, keep API/workspace Rust proof DB-backed. The actual
+    # Stage-1 win is that ordinary Web/UI client Rust no longer starts the full
+    # migration/invariant job merely because it lives under packages/web|ui.
     needs_postgres = (
-        categories["api_data_access"]
+        api
+        or workspace
+        or categories["api_data_access"]
         or backend_auth_changed
         or categories["database"]
         or categories["worker_rag"]

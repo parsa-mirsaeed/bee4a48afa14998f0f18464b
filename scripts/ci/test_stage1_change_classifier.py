@@ -88,7 +88,7 @@ class ClassifierTests(unittest.TestCase):
             needs_postgres=False,
         )
 
-    def test_api_pure_service(self):
+    def test_api_pure_service_stays_db_backed_until_sqlx_compile_coupling_is_removed(self):
         self.assert_categories(
             ["packages/api/src/services/grade_scale.rs"],
             required=("api_logic",),
@@ -96,7 +96,7 @@ class ClassifierTests(unittest.TestCase):
             rust=True,
             api=True,
             web=False,
-            needs_postgres=False,
+            needs_postgres=True,
         )
 
     def test_api_repository_requires_db(self):
@@ -135,14 +135,14 @@ class ClassifierTests(unittest.TestCase):
             needs_postgres=True,
         )
 
-    def test_ai_gateway(self):
+    def test_ai_gateway_stays_db_backed_while_api_server_compile_is_coupled(self):
         self.assert_categories(
             ["packages/api/src/ai_gateway_runtime.rs"],
             required=("api_logic", "ai_gateway"),
             forbidden=("web_browser_behavior",),
             rust=True,
             api=True,
-            needs_postgres=False,
+            needs_postgres=True,
         )
 
     def test_knowledge_worker(self):
@@ -154,7 +154,7 @@ class ClassifierTests(unittest.TestCase):
             needs_postgres=True,
         )
 
-    def test_root_cargo_lock(self):
+    def test_root_cargo_lock_keeps_workspace_db_backed_until_compile_coupling_is_removed(self):
         self.assert_categories(
             ["Cargo.lock"],
             required=("dependencies",),
@@ -162,17 +162,17 @@ class ClassifierTests(unittest.TestCase):
             workspace=True,
             needs_workspace_compile=True,
             needs_dependency_audit=True,
-            needs_postgres=False,
+            needs_postgres=True,
         )
 
-    def test_api_manifest_is_rust_dependency_change(self):
+    def test_api_manifest_is_rust_dependency_change_and_currently_db_backed(self):
         self.assert_categories(
             ["packages/api/Cargo.toml"],
             required=("api_logic", "dependencies"),
             rust=True,
             api=True,
             needs_dependency_audit=True,
-            needs_postgres=False,
+            needs_postgres=True,
         )
 
     def test_package_file(self):
