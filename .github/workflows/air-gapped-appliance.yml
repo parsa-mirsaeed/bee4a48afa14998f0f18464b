@@ -1,29 +1,6 @@
 name: Air-gapped Appliance
 
 on:
-  pull_request:
-    types:
-      - opened
-      - synchronize
-      - reopened
-      - labeled
-    paths:
-      - Dockerfile
-      - Dockerfile.appliance-tools
-      - compose.yaml
-      - compose.release.yaml
-      - edutalent
-      - Makefile
-      - deploy/appliance/**
-      - deploy/production/**
-      - scripts/appliance/**
-      - scripts/ci/**
-      - migrations/**
-      - packages/**
-      - .github/workflows/air-gapped-appliance.yml
-      - .github/workflows/air-gapped-release.yml
-      - .github/workflows/package.yml
-      - .github/workflows/mirror-final-proof.yml
   workflow_call:
     inputs:
       version:
