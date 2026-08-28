@@ -54,6 +54,8 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("wasm32-unknown-unknown", self.no_db)
         self.assertIn("cargo check -p web --features web", self.no_db)
         self.assertIn("cargo clippy -p web --features web", self.no_db)
+        self.assertIn("--bin web", self.no_db)
+        self.assertNotIn("--lib --locked", self.no_db)
         self.assertIn("cargo test -p web --locked", self.no_db)
         self.assertNotIn("--features server", self.no_db)
         self.assertNotIn("cargo check -p api", self.no_db)
