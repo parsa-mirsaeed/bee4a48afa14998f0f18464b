@@ -5,28 +5,27 @@ use super::{
 };
 use crate::application::AuthHooks;
 use crate::i18n::{use_locale, Locale};
+use crate::ui::{DataState, DataStateKind};
 use crate::views::role_based::components::ResponsiveDashboardLayout;
 use dioxus::prelude::*;
 
 #[component]
-pub fn SchoolManagerDashboard() -> Element {
+pub fn SchoolManagerDashboard(section: String) -> Element {
     let current_user = AuthHooks::use_current_user().ok().flatten();
-    let mut active_section = use_signal(|| "overview".to_string());
     let locale = use_locale();
+    let nav = use_navigator();
 
     if let Some(user) = current_user {
         if !user.role.is_administrative() {
             return rsx! {
-                div { class: "flex min-h-screen items-center justify-center",
-                    div { class: "glass-card p-8 text-center",
-                        h1 { class: "text-xl font-bold text-red-600", "{locale.t(\"school_manager.access_denied\")}" }
-                        p { class: "mt-2 text-sm text-gray-500", "{locale.t(\"school_manager.access_denied_desc\")}" }
-                    }
+                DataState {
+                    kind: DataStateKind::Permission,
+                    title: locale.t("errors.access_denied"),
+                    description: locale.t("errors.access_denied_description"),
                 }
             };
         }
 
-        let section = active_section();
         let content = match section.as_str() {
             "users" => rsx! { UserManagementSection {} },
             "classes" => rsx! { ClassManagementSection {} },
@@ -40,7 +39,18 @@ pub fn SchoolManagerDashboard() -> Element {
                 rsx! { ReportsSection {} }
             }
             _ => {
-                rsx! { SchoolManagerOverviewSection { on_navigate: move |next| active_section.set(next) } }
+                let nav = nav.clone();
+                rsx! {
+                    SchoolManagerOverviewSection {
+                        on_navigate: move |next: String| {
+                            if next == "overview" {
+                                nav.push(crate::Route::DashboardRoute {});
+                            } else {
+                                nav.push(crate::Route::DashboardSectionRoute { section: next });
+                            }
+                        },
+                    }
+                }
             }
         };
 
@@ -48,12 +58,17 @@ pub fn SchoolManagerDashboard() -> Element {
             ResponsiveDashboardLayout {
                 user,
                 active_section: section,
-                on_navigate: move |next| active_section.set(next),
                 children: rsx! { {content} }
             }
         }
     } else {
-        rsx! { div { class: "flex min-h-screen items-center justify-center", "{locale.t(\"common.loading\")}" } }
+        rsx! {
+            DataState {
+                kind: DataStateKind::Loading,
+                title: locale.t("common.loading"),
+                description: locale.t("session.checking"),
+            }
+        }
     }
 }
 
@@ -144,6 +159,7 @@ fn ManagerAction(
     rsx! {
         button {
             class: "et-action-card",
+            r#type: "button",
             onclick: move |_| on_click.call(()),
             div { class: "et-action-card-top",
                 span { class: "et-action-icon",

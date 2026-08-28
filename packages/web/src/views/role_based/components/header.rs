@@ -1,10 +1,12 @@
 use crate::domain::User;
 use crate::i18n::use_locale;
+use crate::ui::{
+    Button, ButtonSize, ButtonVariant, DataState, DataStateKind, FeedbackTone, IconButton,
+    InlineAlert, Popover,
+};
 use dioxus::prelude::*;
 
-/// Compact product top bar. It intentionally contains only current-page context
-/// and functional utilities; the previous inert global search and decorative
-/// clock have been removed.
+/// Compact product top bar with functional navigation and notification state.
 #[component]
 pub fn Header(user: User, page_title: String, on_open_navigation: EventHandler) -> Element {
     let locale = use_locale();
@@ -14,7 +16,8 @@ pub fn Header(user: User, page_title: String, on_open_navigation: EventHandler) 
             div { class: "et-topbar-start",
                 button {
                     class: "et-mobile-menu-button",
-                    "aria-label": "Open navigation",
+                    r#type: "button",
+                    "aria-label": locale.t("navigation.open"),
                     onclick: move |_| on_open_navigation.call(()),
                     span { class: "material-icons-outlined", "aria-hidden": "true", "menu" }
                 }
@@ -25,9 +28,7 @@ pub fn Header(user: User, page_title: String, on_open_navigation: EventHandler) 
                 }
             }
 
-            div { class: "et-topbar-end",
-                NotificationDropdown {}
-            }
+            div { class: "et-topbar-end", NotificationDropdown {} }
         }
     }
 }
@@ -35,11 +36,15 @@ pub fn Header(user: User, page_title: String, on_open_navigation: EventHandler) 
 #[component]
 pub fn NotificationDropdown() -> Element {
     let mut is_open = use_signal(|| false);
+    let mut mark_all_pending = use_signal(|| false);
+    let mut busy_notification = use_signal(|| None::<String>);
+    let mut operation_error = use_signal(|| None::<String>);
     let locale = use_locale();
     let t_notifications = locale.t("nav.notifications");
     let t_mark_all_read = locale.t("notifications.mark_all_read");
     let t_no_notifications = locale.t("notifications.no_new");
-    let t_failed_load = locale.t("grades.failed_load");
+    let t_loading = locale.t("notifications.loading");
+    let t_failed_load = locale.t("notifications.failed_load");
 
     let mut notification_resource = use_resource(move || async move {
         api::server_functions::notification_functions::get_unread_notifications(Some(10)).await
@@ -58,60 +63,92 @@ pub fn NotificationDropdown() -> Element {
     };
 
     rsx! {
-        div { class: "relative",
-            button {
-                class: "et-icon-button et-notification-trigger",
-                "aria-label": "{t_notifications}",
-                "aria-expanded": if is_open() { "true" } else { "false" },
-                onclick: move |_| is_open.set(!is_open()),
-                span {
-                    class: "material-icons-outlined",
-                    "aria-hidden": "true",
-                    "notifications"
+        div { class: "et-notification-surface",
+            div { class: "et-notification-trigger",
+                IconButton {
+                    label: t_notifications.clone(),
+                    icon: "notifications".to_string(),
+                    expanded: is_open(),
+                    onclick: move |_| {
+                        operation_error.set(None);
+                        is_open.set(!is_open());
+                    },
                 }
                 if notification_count > 0 {
                     span { class: "et-notification-badge", "{badge_text}" }
                 }
             }
 
-            if is_open() {
-                div {
-                    class: "et-popover",
-                    role: "dialog",
-                    "aria-label": "{t_notifications}",
-
-                    div { class: "et-popover-header",
-                        h2 { class: "et-popover-title", "{t_notifications}" }
+            Popover {
+                open: is_open(),
+                label: t_notifications.clone(),
+                class: "et-notification-panel".to_string(),
+                on_close: move |_| is_open.set(false),
+                children: rsx! {
+                    div { class: "et-notification-panel__header",
+                        h2 { class: "et-notification-panel__title", "{t_notifications}" }
                         if notification_count > 0 {
-                            button {
-                                class: "et-inline-action",
+                            Button {
+                                label: t_mark_all_read.clone(),
+                                variant: ButtonVariant::Ghost,
+                                size: ButtonSize::Sm,
+                                pending: mark_all_pending(),
                                 onclick: move |_| {
+                                    if mark_all_pending() {
+                                        return;
+                                    }
+                                    mark_all_pending.set(true);
+                                    operation_error.set(None);
+                                    let failed = locale.t("notifications.action_failed");
                                     spawn(async move {
-                                        if api::server_functions::notification_functions::mark_all_notifications_as_read().await.is_ok() {
-                                            notification_resource.restart();
+                                        match api::server_functions::notification_functions::mark_all_notifications_as_read().await {
+                                            Ok(_) => notification_resource.restart(),
+                                            Err(_) => operation_error.set(Some(failed)),
                                         }
+                                        mark_all_pending.set(false);
                                     });
                                 },
-                                "{t_mark_all_read}"
                             }
                         }
                     }
 
-                    div { class: "et-notification-list",
+                    if let Some(message) = operation_error() {
+                        InlineAlert {
+                            message,
+                            tone: FeedbackTone::Danger,
+                        }
+                    }
+
+                    div { class: "et-notification-panel__list",
                         match notification_resource.read().clone() {
                             None => rsx! {
-                                div { class: "et-loading-compact", "Loading…" }
+                                DataState {
+                                    kind: DataStateKind::Loading,
+                                    title: t_loading.clone(),
+                                    description: t_loading.clone(),
+                                }
                             },
                             Some(Err(_)) => rsx! {
-                                div { class: "et-error-compact", "{t_failed_load}" }
+                                DataState {
+                                    kind: DataStateKind::Error,
+                                    title: t_failed_load.clone(),
+                                    description: t_failed_load.clone(),
+                                    action_label: locale.t("common.refresh"),
+                                    on_action: move |_| notification_resource.restart(),
+                                }
                             },
                             Some(Ok(response)) if response.notifications.is_empty() => rsx! {
-                                div { class: "et-empty-compact", "{t_no_notifications}" }
+                                DataState {
+                                    kind: DataStateKind::Empty,
+                                    title: t_no_notifications.clone(),
+                                    description: t_no_notifications.clone(),
+                                }
                             },
                             Some(Ok(response)) => rsx! {
                                 for notification in response.notifications.into_iter() {
                                     {
                                         let notification_id = notification.id.to_string();
+                                        let pending = busy_notification().as_deref() == Some(notification_id.as_str());
                                         rsx! {
                                             NotificationItem {
                                                 key: "{notification.id}",
@@ -120,12 +157,21 @@ pub fn NotificationDropdown() -> Element {
                                                 message: notification.message,
                                                 time: format_time_ago(notification.created_at, &locale),
                                                 is_read: notification.is_read,
+                                                pending,
                                                 on_click: move |_| {
+                                                    if busy_notification().is_some() {
+                                                        return;
+                                                    }
                                                     let notification_id = notification_id.clone();
+                                                    let failed = locale.t("notifications.action_failed");
+                                                    busy_notification.set(Some(notification_id.clone()));
+                                                    operation_error.set(None);
                                                     spawn(async move {
-                                                        if api::server_functions::notification_functions::mark_notification_as_read(notification_id).await.is_ok() {
-                                                            notification_resource.restart();
+                                                        match api::server_functions::notification_functions::mark_notification_as_read(notification_id).await {
+                                                            Ok(_) => notification_resource.restart(),
+                                                            Err(_) => operation_error.set(Some(failed)),
                                                         }
+                                                        busy_notification.set(None);
                                                     });
                                                 }
                                             }
@@ -135,7 +181,7 @@ pub fn NotificationDropdown() -> Element {
                             }
                         }
                     }
-                }
+                },
             }
         }
     }
@@ -172,27 +218,35 @@ pub fn NotificationItem(
     message: String,
     time: String,
     is_read: bool,
+    pending: bool,
     on_click: EventHandler,
 ) -> Element {
     let row_class = if is_read {
-        "et-notification-row"
+        "et-notification-item"
     } else {
-        "et-notification-row et-notification-row--unread"
+        "et-notification-item et-notification-item--unread"
     };
 
     rsx! {
         button {
+            r#type: "button",
             class: "{row_class}",
-            onclick: move |_| on_click.call(()),
-            div { class: "et-notification-icon",
-                span { class: "material-icons-outlined text-lg", "aria-hidden": "true", "{icon}" }
-            }
-            div { class: "et-notification-copy",
-                div { class: "et-notification-title-row",
-                    span { class: "et-notification-title", "{title}" }
-                    span { class: "et-notification-time", "{time}" }
+            disabled: pending,
+            "aria-busy": if pending { "true" } else { "false" },
+            onclick: move |_| {
+                if !pending {
+                    on_click.call(());
                 }
-                p { class: "et-notification-message", "{message}" }
+            },
+            div { class: "et-notification-item__icon",
+                span { class: "material-icons-outlined", "aria-hidden": "true", "{icon}" }
+            }
+            div {
+                div { class: "et-notification-item__title-row",
+                    span { class: "et-notification-item__title", "{title}" }
+                    span { class: "et-notification-item__time", "{time}" }
+                }
+                p { class: "et-notification-item__message", "{message}" }
             }
         }
     }

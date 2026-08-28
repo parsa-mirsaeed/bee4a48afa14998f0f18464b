@@ -3,6 +3,8 @@
 use super::{supplemental_translation, t, Locale, LocalizedGrade};
 use dioxus::prelude::*;
 
+const LOCALE_STORAGE_KEY: &str = "edutalent_locale";
+
 #[derive(Clone, Copy)]
 pub struct LocaleContext {
     locale: Signal<Locale>,
@@ -69,11 +71,26 @@ fn apply_document_locale(locale: Locale) {
     let _ = locale;
 }
 
+fn persisted_locale() -> Option<Locale> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let window = web_sys::window()?;
+        let storage = window.local_storage().ok()??;
+        let lang = storage.get_item(LOCALE_STORAGE_KEY).ok()??;
+        Locale::from_code(&lang)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        None
+    }
+}
+
 fn persist_locale(locale: Locale) {
     #[cfg(target_arch = "wasm32")]
     if let Some(window) = web_sys::window() {
         if let Ok(Some(storage)) = window.local_storage() {
-            let _ = storage.set_item("edutalent_locale", locale.code());
+            let _ = storage.set_item(LOCALE_STORAGE_KEY, locale.code());
         }
     }
 
@@ -83,17 +100,8 @@ fn persist_locale(locale: Locale) {
 
 #[component]
 pub fn LocaleProvider(children: Element) -> Element {
-    let stored_locale = use_signal(|| {
-        #[cfg(target_arch = "wasm32")]
-        if let Some(window) = web_sys::window() {
-            if let Ok(Some(storage)) = window.local_storage() {
-                if let Ok(Some(lang)) = storage.get_item("edutalent_locale") {
-                    return Locale::from_code(&lang).unwrap_or_default();
-                }
-            }
-        }
-        Locale::default()
-    });
+    let stored_locale = use_signal(|| persisted_locale().unwrap_or_default());
+    let mut hydrated_locale = stored_locale;
 
     let context = LocaleContext {
         locale: stored_locale,
@@ -101,6 +109,14 @@ pub fn LocaleProvider(children: Element) -> Element {
     use_context_provider(|| context);
     let locale = context.current();
 
+    // SSR renders the deterministic default locale. Once the client hydrates,
+    // reload the user's persisted preference so hydration never permanently
+    // pins the server-side locale.
+    use_effect(move || {
+        if let Some(locale) = persisted_locale() {
+            hydrated_locale.set(locale);
+        }
+    });
     use_effect(move || apply_document_locale(locale));
 
     rsx! {
@@ -108,7 +124,6 @@ pub fn LocaleProvider(children: Element) -> Element {
             class: "locale-wrapper",
             dir: "{locale.dir_attr()}",
             lang: "{locale.code()}",
-            style: "min-height: 100vh;",
             {children}
         }
     }
@@ -121,12 +136,14 @@ pub fn LanguageSwitcher(
 ) -> Element {
     let mut locale_ctx = use_locale();
     let current = locale_ctx.current();
+    let label = locale_ctx.t("common.select_language");
 
     if dropdown {
         rsx! {
             select {
                 class: "language-switcher-dropdown {class}",
                 value: "{current.code()}",
+                "aria-label": "{label}",
                 onchange: move |evt| {
                     if let Some(new_locale) = Locale::from_code(&evt.value()) {
                         locale_ctx.set(new_locale);
@@ -148,15 +165,16 @@ pub fn LanguageSwitcher(
             button {
                 r#type: "button",
                 class: "language-switcher-toggle {class}",
+                "aria-label": "{label}",
+                title: "{label}",
                 onclick: move |_| {
                     locale_ctx.toggle();
                     let new_locale = locale_ctx.current();
                     apply_document_locale(new_locale);
                     persist_locale(new_locale);
                 },
-                title: "{locale_ctx.t(\"common.select_language\")}",
                 span { class: "current-lang", "{current.native_name()}" }
-                span { class: "material-icons-outlined text-sm ml-1", "translate" }
+                span { class: "material-icons-outlined text-sm et-language-switcher-icon", "aria-hidden": "true", "translate" }
             }
         }
     }

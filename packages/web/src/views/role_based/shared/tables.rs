@@ -1,73 +1,35 @@
-use dioxus::prelude::*;
 use crate::i18n::use_locale;
+use crate::ui::{DataState, DataStateKind, DataTable as UiDataTable, Grid, MetricCard};
+use dioxus::prelude::*;
 
-/// Simple data table component
 #[component]
-pub fn DataTable(
-    columns: Vec<TableColumn>,
-    data: Vec<TableRow>,
-    title: Option<String>,
-) -> Element {
+pub fn DataTable(columns: Vec<TableColumn>, data: Vec<TableRow>, title: Option<String>) -> Element {
     let locale = use_locale();
-    rsx! {
-        div {
-            class: "glassmorphism rounded-xl overflow-hidden",
-
-            if let Some(table_title) = title {
-                div {
-                    class: "px-6 py-4 border-b border-gray-200 dark:border-gray-700",
-                    h3 {
-                        class: "text-lg font-semibold text-gray-800 dark:text-gray-100",
-                        "{table_title}"
-                    }
-                }
+    if data.is_empty() {
+        return rsx! {
+            DataState {
+                kind: DataStateKind::Empty,
+                title: title.unwrap_or_else(|| locale.t("common.no_data")),
+                description: locale.t("common.no_data"),
             }
-
-            div {
-                class: "overflow-x-auto",
-                table {
-                    class: "w-full text-left border-collapse",
-
-                    thead {
-                        tr {
-                            class: "bg-gray-50/50 dark:bg-gray-700/50 border-b border-gray-200 dark:border-gray-700",
-                            for column in columns.iter() {
-                                th {
-                                    class: "px-6 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider",
-                                    "{column.label}"
-                                }
-                            }
-                        }
-                    }
-
-                    tbody {
-                        class: "divide-y divide-gray-200 dark:divide-gray-700",
-                        for row in data.iter() {
-                            tr {
-                                class: "hover:bg-white/30 dark:hover:bg-white/5 transition-colors duration-150",
-                                for column in columns.iter() {
-                                    td {
-                                        class: "px-6 py-4 text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap",
-                                        "{row.get_cell_value(&column.key)}"
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            
-            if data.is_empty() {
-                div {
-                    class: "p-8 text-center text-gray-500 dark:text-gray-400",
-                    "{locale.t(\"common.no_data\")}"
-                }
-            }
-        }
+        };
     }
+
+    let headers = columns.iter().map(|column| column.label.clone()).collect();
+    let rows = data
+        .iter()
+        .map(|row| {
+            columns
+                .iter()
+                .map(|column| row.get_cell_value(&column.key))
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    let caption = title.unwrap_or_else(|| locale.t("common.data"));
+
+    rsx! { UiDataTable { caption, headers, rows } }
 }
 
-/// Table column structure
 #[derive(Debug, Clone, PartialEq)]
 pub struct TableColumn {
     pub key: String,
@@ -83,7 +45,6 @@ impl TableColumn {
     }
 }
 
-/// Table row structure
 #[derive(Debug, Clone, PartialEq)]
 pub struct TableRow {
     pub cells: std::collections::HashMap<String, String>,
@@ -102,64 +63,35 @@ impl TableRow {
     }
 
     pub fn get_cell_value(&self, key: &str) -> String {
-        self.cells.get(key).cloned().unwrap_or_else(|| "-".to_string())
+        self.cells
+            .get(key)
+            .cloned()
+            .unwrap_or_else(|| "-".to_string())
     }
 }
 
-/// Stats grid component
+impl Default for TableRow {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[component]
-pub fn StatsGrid(
-    stats: Vec<StatItem>,
-    columns: Option<i32>,
-) -> Element {
-    // We use CSS Grid classes directly instead of calculating columns prop for better responsiveness
+pub fn StatsGrid(stats: Vec<StatItem>, columns: Option<i32>) -> Element {
+    let columns = columns.unwrap_or(4).clamp(1, 4).try_into().unwrap_or(4_u8);
     rsx! {
-        div {
-            class: "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6",
-
-            for stat in stats.iter() {
-                div {
-                    class: "p-6 rounded-xl glassmorphism transition-transform hover:-translate-y-1 duration-300",
-                    style: "border-left: 4px solid {stat.color};",
-
-                    div {
-                        class: "flex items-center justify-between mb-2",
-                        span {
-                            class: "text-sm font-medium text-gray-500 dark:text-gray-400",
-                            "{stat.label}"
-                        }
-                        if let Some(icon) = &stat.icon {
-                            span {
-                                class: "material-icons-outlined text-gray-400",
-                                "{icon}"
-                            }
-                        }
-                    }
-
-                    div {
-                        class: "text-2xl font-bold text-gray-800 dark:text-gray-100",
-                        "{stat.value}"
-                    }
-
-                    if let Some(change) = &stat.change {
-                        div {
-                            class: "flex items-center mt-2 text-sm font-medium",
-                            class: if change.starts_with('+') { "text-green-600 dark:text-green-400" } else { "text-red-600 dark:text-red-400" },
-                            
-                            span {
-                                class: "material-icons-outlined text-sm mr-1",
-                                if change.starts_with('+') { "trending_up" } else { "trending_down" }
-                            }
-                            "{change}"
-                        }
-                    }
+        Grid { columns,
+            for stat in stats {
+                MetricCard {
+                    label: stat.label,
+                    value: stat.value,
+                    supporting: stat.change,
                 }
             }
         }
     }
 }
 
-/// Stat item structure
 #[derive(Debug, Clone, PartialEq)]
 pub struct StatItem {
     pub label: String,
@@ -170,7 +102,11 @@ pub struct StatItem {
 }
 
 impl StatItem {
-    pub fn new(label: impl Into<String>, value: impl Into<String>, color: impl Into<String>) -> Self {
+    pub fn new(
+        label: impl Into<String>,
+        value: impl Into<String>,
+        color: impl Into<String>,
+    ) -> Self {
         Self {
             label: label.into(),
             value: value.into(),
@@ -184,7 +120,7 @@ impl StatItem {
         self.change = Some(change.into());
         self
     }
-    
+
     pub fn with_icon(mut self, icon: impl Into<String>) -> Self {
         self.icon = Some(icon.into());
         self

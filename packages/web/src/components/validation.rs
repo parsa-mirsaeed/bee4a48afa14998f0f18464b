@@ -1,7 +1,9 @@
+use crate::i18n::use_locale;
+use crate::ui::{FeedbackTone, Field, StatusBanner};
+use crate::utils::validation::FormValidationState;
 use dioxus::prelude::*;
-use crate::utils::validation::{FormValidationState};
+use uuid::Uuid;
 
-/// Component to display field-level validation errors
 #[component]
 pub fn FieldValidationErrors(
     field_name: String,
@@ -9,29 +11,23 @@ pub fn FieldValidationErrors(
     #[props(default)] show_label: bool,
 ) -> Element {
     let validation = validation_state.read();
-
     if let Some(error_message) = validation.get_field_error(&field_name) {
         rsx! {
-            div {
-                style: "color: #ef4444; font-size: 0.875rem; margin-top: 0.25rem; display: flex; align-items: center; gap: 0.25rem;",
-                span { "⚠️" }
-                span { "{error_message}" }
+            p { class: "et-ui-field__error", role: "alert", "{error_message}" }
+        }
+    } else if show_label && validation.is_dirty && validation.is_valid {
+        let locale = use_locale();
+        rsx! {
+            StatusBanner {
+                message: locale.t("validation.valid"),
+                tone: FeedbackTone::Success,
             }
         }
     } else {
-        rsx! {
-            if show_label && validation.is_dirty && validation.is_valid {
-                div {
-                    style: "color: #22c55e; font-size: 0.875rem; margin-top: 0.25rem; display: flex; align-items: center; gap: 0.25rem;",
-                    span { "✓" }
-                    span { "Valid" }
-                }
-            }
-        }
+        rsx! {}
     }
 }
 
-/// Component to display a text input with validation
 #[component]
 pub fn ValidatedTextInput(
     field_name: String,
@@ -44,183 +40,130 @@ pub fn ValidatedTextInput(
     #[props(default)] input_type: String,
     #[props(default)] max_length: Option<usize>,
 ) -> Element {
-    let has_error = validation_state.read().has_field_error(&field_name);
+    let control_id = use_signal(|| format!("et-validated-{}", Uuid::new_v4().simple()))
+        .read()
+        .clone();
+    let error = validation_state.read().get_field_error(&field_name);
+    let invalid = error.is_some();
+    let input_type = if input_type.is_empty() {
+        "text".to_string()
+    } else {
+        input_type
+    };
 
     rsx! {
-        div {
-            style: "margin-bottom: 1rem;",
-
-            // Label
-            if !label.is_empty() {
-                label {
-                    style: "display: block; font-weight: 500; color: #374151; margin-bottom: 0.5rem; font-size: 0.875rem;",
-                    "{label}"
-                    if required {
-                        span {
-                            style: "color: #ef4444; margin-left: 0.25rem;",
-                            "*"
-                        }
-                    }
+        Field {
+            control_id: control_id.clone(),
+            label,
+            required,
+            error: error.clone(),
+            children: rsx! {
+                input {
+                    id: "{control_id}",
+                    class: "et-ui-input",
+                    r#type: "{input_type}",
+                    placeholder,
+                    value: "{value}",
+                    disabled,
+                    maxlength: max_length.map(|value| value.to_string()),
+                    "aria-required": if required { "true" } else { "false" },
+                    "aria-invalid": if invalid { "true" } else { "false" },
+                    "aria-describedby": if invalid { Some(format!("{control_id}-error")) } else { None },
+                    oninput: move |event| value.set(event.value()),
+                    onblur: move |_| {
+                        validation_state.write().is_dirty = true;
+                    },
                 }
-            }
-
-            // Input field
-            input {
-                r#type: "{input_type}",
-                style: if has_error {
-                    "width: 100%; padding: 0.75rem; border: 1px solid #ef4444; border-radius: 6px; font-size: 0.875rem; background: #fef2f2; color: #1f2937;"
-                } else {
-                    "width: 100%; padding: 0.75rem; border: 1px solid #d1d5db; border-radius: 6px; font-size: 0.875rem; background: white; color: #1f2937;"
-                },
-                style: "transition: all 0.2s; focus: outline: none; focus:ring-2; focus:ring-blue-500; focus:border-transparent;",
-                placeholder: "{placeholder}",
-                value: "{value}",
-                disabled: disabled,
-                maxlength: max_length.map(|m| m.to_string()),
-                oninput: move |e| {
-                    value.set(e.value());
-                },
-                onblur: move |_| {
-                    // Trigger validation on blur
-                    let mut validation_state = validation_state.clone();
-
-                    spawn(async move {
-                        // This would normally trigger validation logic
-                        // For now, we'll update is_dirty flag
-                        let mut validation = validation_state.write();
-                        validation.is_dirty = true;
-                    });
-                }
-            }
-
-            // Validation errors
-            FieldValidationErrors {
-                field_name: field_name.clone(),
-                validation_state: validation_state,
-                show_label: false,
-            }
+            },
         }
     }
 }
 
-/// Component to display a select input with validation
 #[component]
 pub fn ValidatedSelectInput(
     field_name: String,
     label: String,
     value: Signal<String>,
     validation_state: Signal<FormValidationState>,
-    options: Vec<(String, String)>, // (value, label)
+    options: Vec<(String, String)>,
     #[props(default)] placeholder: String,
     #[props(default)] required: bool,
     #[props(default)] disabled: bool,
 ) -> Element {
-    let has_error = validation_state.read().has_field_error(&field_name);
+    let control_id = use_signal(|| format!("et-validated-select-{}", Uuid::new_v4().simple()))
+        .read()
+        .clone();
+    let error = validation_state.read().get_field_error(&field_name);
+    let invalid = error.is_some();
 
     rsx! {
-        div {
-            style: "margin-bottom: 1rem;",
-
-            // Label
-            if !label.is_empty() {
-                label {
-                    style: "display: block; font-weight: 500; color: #374151; margin-bottom: 0.5rem; font-size: 0.875rem;",
-                    "{label}"
-                    if required {
-                        span {
-                            style: "color: #ef4444; margin-left: 0.25rem;",
-                            "*"
+        Field {
+            control_id: control_id.clone(),
+            label,
+            required,
+            error: error.clone(),
+            children: rsx! {
+                select {
+                    id: "{control_id}",
+                    class: "et-ui-select",
+                    disabled,
+                    value: "{value}",
+                    "aria-required": if required { "true" } else { "false" },
+                    "aria-invalid": if invalid { "true" } else { "false" },
+                    "aria-describedby": if invalid { Some(format!("{control_id}-error")) } else { None },
+                    onchange: move |event| value.set(event.value()),
+                    onblur: move |_| {
+                        validation_state.write().is_dirty = true;
+                    },
+                    if !placeholder.is_empty() {
+                        option {
+                            value: "",
+                            selected: value.read().is_empty(),
+                            disabled: required,
+                            "{placeholder}"
+                        }
+                    }
+                    for (option_value, option_label) in options {
+                        option {
+                            value: "{option_value}",
+                            selected: *value.read() == option_value,
+                            "{option_label}"
                         }
                     }
                 }
-            }
-
-            // Select field
-            select {
-                style: if has_error {
-                    "width: 100%; padding: 0.75rem; border: 1px solid #ef4444; border-radius: 6px; font-size: 0.875rem; background: #fef2f2; color: #1f2937;"
-                } else {
-                    "width: 100%; padding: 0.75rem; border: 1px solid #d1d5db; border-radius: 6px; font-size: 0.875rem; background: white; color: #1f2937;"
-                },
-                style: "transition: all 0.2s; focus: outline: none; focus:ring-2; focus:ring-blue-500; focus:border-transparent;",
-                disabled: disabled,
-                value: "{value}",
-                onchange: move |e| {
-                    value.set(e.value());
-                },
-                onblur: move |_| {
-                    // Trigger validation on blur
-                    let mut validation_state = validation_state.clone();
-
-                    spawn(async move {
-                        let mut validation = validation_state.write();
-                        validation.is_dirty = true;
-                    });
-                },
-
-                // Placeholder option
-                if !placeholder.is_empty() {
-                    option {
-                        value: "",
-                        selected: value.read().is_empty(),
-                        disabled: required,
-                        "{placeholder}"
-                    }
-                }
-
-                // Real options
-                for (option_value, option_label) in options {
-                    option {
-                        value: "{option_value}",
-                        selected: *value.read() == option_value,
-                        "{option_label}"
-                    }
-                }
-            }
-
-            // Validation errors
-            FieldValidationErrors {
-                field_name: field_name.clone(),
-                validation_state: validation_state,
-                show_label: false,
-            }
+            },
         }
     }
 }
 
-/// Component to display validation summary
 #[component]
 pub fn ValidationSummary(validation_state: Signal<FormValidationState>) -> Element {
     let validation = validation_state.read();
+    let locale = use_locale();
 
     if validation.errors.is_empty() {
         if validation.is_dirty && validation.is_valid {
             rsx! {
-                div {
-                    style: "background: #f0fdf4; border: 1px solid #86efac; color: #166534; padding: 0.75rem 1rem; border-radius: 6px; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem;",
-                    span { "✅" }
-                    span { "All fields are valid" }
+                StatusBanner {
+                    message: locale.t("validation.all_valid"),
+                    tone: FeedbackTone::Success,
                 }
             }
         } else {
-            rsx! { div {} } // Empty div when no errors but not dirty/valid
+            rsx! {}
         }
     } else {
+        let details = validation
+            .errors
+            .iter()
+            .map(|error| error.message.as_str())
+            .collect::<Vec<_>>()
+            .join(" · ");
         rsx! {
-            div {
-                style: "background: #fef2f2; border: 1px solid #fca5a5; color: #991b1b; padding: 0.75rem 1rem; border-radius: 6px; margin-bottom: 1rem;",
-                h4 {
-                    style: "font-weight: 600; margin-bottom: 0.5rem; font-size: 0.875rem;",
-                    "Please fix the following errors:"
-                }
-                ul {
-                    style: "margin: 0; padding-left: 1.5rem; list-style-type: disc;",
-                    for error in &validation.errors {
-                        li {
-                            style: "font-size: 0.875rem; margin-bottom: 0.25rem;",
-                            "{error.message}"
-                        }
-                    }
+            div { class: "et-ui-alert et-ui-tone--danger", role: "alert",
+                div { class: "et-ui-alert__copy",
+                    p { class: "et-ui-alert__title", "{locale.t(\"validation.fix_errors\")}" }
+                    p { class: "et-ui-alert__message", "{details}" }
                 }
             }
         }

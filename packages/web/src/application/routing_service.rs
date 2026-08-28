@@ -1,14 +1,17 @@
 use crate::domain::{AccessControl, SystemRole, User};
+use crate::ui::{DataState, DataStateKind};
 use api::product_capabilities::PRODUCTION_PRODUCT_CAPABILITIES;
 use dioxus::prelude::*;
 
 /// Application routing service.
+///
+/// Authenticated product navigation uses one canonical role-aware route tree:
+/// `/dashboard` for the role home and `/dashboard/<section>` for deep links.
+/// Backend authorization remains authoritative; this service only constrains
+/// which product destinations the current shell may present or render.
 pub struct RoutingService;
 
 impl RoutingService {
-    /// `/dashboard` is the canonical role-aware dashboard. Legacy/direct role
-    /// routes remain guarded aliases, but successful login and redirects always
-    /// converge on this one product entry point.
     pub fn get_role_based_route(_user: &User) -> &'static str {
         "/dashboard"
     }
@@ -17,10 +20,82 @@ impl RoutingService {
         "/dashboard"
     }
 
+    pub fn default_dashboard_section(user: &User) -> &'static str {
+        if user.role == SystemRole::PlatformAdmin {
+            "knowledge-assets"
+        } else {
+            "overview"
+        }
+    }
+
+    pub fn canonical_dashboard_path(section: &str) -> String {
+        if section == "overview" {
+            "/dashboard".to_string()
+        } else {
+            format!("/dashboard/{section}")
+        }
+    }
+
+    pub fn can_access_dashboard_section(user: &User, section: &str) -> bool {
+        let capabilities = PRODUCTION_PRODUCT_CAPABILITIES;
+        match user.role {
+            SystemRole::PlatformAdmin => matches!(section, "knowledge-assets" | "knowledge-audit"),
+            SystemRole::SchoolManager => match section {
+                "overview"
+                | "users"
+                | "classes"
+                | "knowledge-submissions"
+                | "settings"
+                | "profile" => true,
+                "reports" => capabilities.school_manager_reports,
+                _ => false,
+            },
+            SystemRole::Teacher => matches!(
+                section,
+                "overview"
+                    | "classes"
+                    | "assignments"
+                    | "knowledge-assets"
+                    | "submissions"
+                    | "students"
+            ),
+            SystemRole::Student => match section {
+                "overview" | "classes" | "assignments" | "grades" => true,
+                "schedule" => capabilities.timetable,
+                _ => false,
+            },
+            SystemRole::Parent => match section {
+                "overview" | "children" => true,
+                "reports" => capabilities.parent_reports,
+                "communication" => capabilities.parent_teacher_communication,
+                _ => false,
+            },
+        }
+    }
+
+    pub fn resolve_dashboard_section(user: &User, requested: Option<&str>) -> Result<String, ()> {
+        let section = requested.unwrap_or_else(|| Self::default_dashboard_section(user));
+        if Self::can_access_dashboard_section(user, section) {
+            Ok(section.to_string())
+        } else {
+            Err(())
+        }
+    }
+
     /// Check if user can access a specific route.
     pub fn can_access_route(user: &User, route: &str) -> bool {
         if Self::is_public_route(route) {
             return true;
+        }
+
+        if route == "/dashboard" {
+            return true;
+        }
+
+        if let Some(section) = route.strip_prefix("/dashboard/") {
+            if !section.contains('/') {
+                return Self::can_access_dashboard_section(user, section);
+            }
         }
 
         if let Some(required_role) = Self::get_required_role_for_route(route) {
@@ -43,22 +118,25 @@ impl RoutingService {
 
     pub fn is_protected_route(route: &str) -> bool {
         route == "/dashboard"
-            || route.starts_with("/dashboard/overview")
+            || route.starts_with("/dashboard/")
             || route.starts_with("/profile")
             || route.starts_with("/settings")
     }
 
+    /// Retained for guarded legacy aliases. Canonical section routes do not
+    /// encode a role in the URL; the authenticated user's role selects the
+    /// renderer and `can_access_dashboard_section` constrains the destination.
     pub fn get_required_role_for_route(route: &str) -> Option<SystemRole> {
         match route {
-            value if value.starts_with("/dashboard/platform-admin") => {
+            value if value.starts_with("/dashboard/platform-admin/") => {
                 Some(SystemRole::PlatformAdmin)
             }
-            value if value.starts_with("/dashboard/school-manager") => {
+            value if value.starts_with("/dashboard/school-manager/") => {
                 Some(SystemRole::SchoolManager)
             }
-            value if value.starts_with("/dashboard/teacher") => Some(SystemRole::Teacher),
-            value if value.starts_with("/dashboard/student") => Some(SystemRole::Student),
-            value if value.starts_with("/dashboard/parent") => Some(SystemRole::Parent),
+            value if value.starts_with("/dashboard/teacher/") => Some(SystemRole::Teacher),
+            value if value.starts_with("/dashboard/student/") => Some(SystemRole::Student),
+            value if value.starts_with("/dashboard/parent/") => Some(SystemRole::Parent),
             _ => None,
         }
     }
@@ -80,193 +158,127 @@ impl RoutingService {
         locale: &crate::i18n::LocaleContext,
     ) -> Vec<NavigationItem> {
         let capabilities = PRODUCTION_PRODUCT_CAPABILITIES;
-        let mut items = vec![NavigationItem {
-            id: "overview".to_string(),
-            label: locale.t("nav.overview"),
-            icon: "grid_view".to_string(),
-            route: "/dashboard/overview".to_string(),
-            active: false,
-        }];
+        let mut items = Vec::new();
+
+        if user.role != SystemRole::PlatformAdmin {
+            items.push(NavigationItem::section(
+                "overview",
+                locale.t("nav.overview"),
+                "grid_view",
+            ));
+        }
 
         match user.role {
             SystemRole::PlatformAdmin => {
                 items.extend_from_slice(&[
-                    NavigationItem {
-                        id: "knowledge-assets".to_string(),
-                        label: "Knowledge Assets".to_string(),
-                        icon: "library_books".to_string(),
-                        route: "/dashboard/platform-admin/knowledge-assets".to_string(),
-                        active: false,
-                    },
-                    NavigationItem {
-                        id: "knowledge-audit".to_string(),
-                        label: "Knowledge Audit".to_string(),
-                        icon: "policy".to_string(),
-                        route: "/dashboard/platform-admin/knowledge-audit".to_string(),
-                        active: false,
-                    },
+                    NavigationItem::section(
+                        "knowledge-assets",
+                        locale.t("nav.knowledge_assets"),
+                        "library_books",
+                    ),
+                    NavigationItem::section(
+                        "knowledge-audit",
+                        locale.t("nav.knowledge_audit"),
+                        "policy",
+                    ),
                 ]);
             }
             SystemRole::SchoolManager => {
                 items.extend_from_slice(&[
-                    NavigationItem {
-                        id: "users".to_string(),
-                        label: locale.t("nav.user_management"),
-                        icon: "groups".to_string(),
-                        route: "/dashboard/school-manager/users".to_string(),
-                        active: false,
-                    },
-                    NavigationItem {
-                        id: "classes".to_string(),
-                        label: locale.t("nav.class_management"),
-                        icon: "class".to_string(),
-                        route: "/dashboard/school-manager/classes".to_string(),
-                        active: false,
-                    },
-                    NavigationItem {
-                        id: "knowledge-submissions".to_string(),
-                        label: "Knowledge Submissions".to_string(),
-                        icon: "upload_file".to_string(),
-                        route: "/dashboard/school-manager/knowledge-submissions".to_string(),
-                        active: false,
-                    },
+                    NavigationItem::section("users", locale.t("nav.user_management"), "groups"),
+                    NavigationItem::section("classes", locale.t("nav.class_management"), "class"),
+                    NavigationItem::section(
+                        "knowledge-submissions",
+                        locale.t("nav.knowledge_submissions"),
+                        "upload_file",
+                    ),
                 ]);
                 if capabilities.school_manager_reports {
-                    items.push(NavigationItem {
-                        id: "reports".to_string(),
-                        label: locale.t("nav.reports"),
-                        icon: "bar_chart".to_string(),
-                        route: "/dashboard/school-manager/reports".to_string(),
-                        active: false,
-                    });
+                    items.push(NavigationItem::section(
+                        "reports",
+                        locale.t("nav.reports"),
+                        "bar_chart",
+                    ));
                 }
-                items.push(NavigationItem {
-                    id: "settings".to_string(),
-                    label: locale.t("nav.settings"),
-                    icon: "settings".to_string(),
-                    route: "/dashboard/school-manager/settings".to_string(),
-                    active: false,
-                });
+                items.push(NavigationItem::section(
+                    "settings",
+                    locale.t("nav.settings"),
+                    "settings",
+                ));
+                items.push(NavigationItem::section(
+                    "profile",
+                    locale.t("nav.profile"),
+                    "person_outline",
+                ));
             }
             SystemRole::Teacher => {
                 items.extend_from_slice(&[
-                    NavigationItem {
-                        id: "classes".to_string(),
-                        label: locale.t("nav.my_classes"),
-                        icon: "class".to_string(),
-                        route: "/dashboard/teacher/classes".to_string(),
-                        active: false,
-                    },
-                    NavigationItem {
-                        id: "assignments".to_string(),
-                        label: locale.t("nav.assignments"),
-                        icon: "assignment".to_string(),
-                        route: "/dashboard/teacher/assignments".to_string(),
-                        active: false,
-                    },
-                    NavigationItem {
-                        id: "knowledge-assets".to_string(),
-                        label: "Knowledge Assets".to_string(),
-                        icon: "library_books".to_string(),
-                        route: "/dashboard/teacher/knowledge-assets".to_string(),
-                        active: false,
-                    },
-                    NavigationItem {
-                        id: "submissions".to_string(),
-                        label: locale.t("nav.grading"),
-                        icon: "grading".to_string(),
-                        route: "/dashboard/teacher/submissions".to_string(),
-                        active: false,
-                    },
-                    NavigationItem {
-                        id: "students".to_string(),
-                        label: locale.t("nav.students"),
-                        icon: "people".to_string(),
-                        route: "/dashboard/teacher/students".to_string(),
-                        active: false,
-                    },
+                    NavigationItem::section("classes", locale.t("nav.my_classes"), "class"),
+                    NavigationItem::section(
+                        "assignments",
+                        locale.t("nav.assignments"),
+                        "assignment",
+                    ),
+                    NavigationItem::section(
+                        "knowledge-assets",
+                        locale.t("nav.knowledge_assets"),
+                        "library_books",
+                    ),
+                    NavigationItem::section("submissions", locale.t("nav.grading"), "grading"),
+                    NavigationItem::section("students", locale.t("nav.students"), "people"),
                 ]);
             }
             SystemRole::Student => {
                 items.extend_from_slice(&[
-                    NavigationItem {
-                        id: "classes".to_string(),
-                        label: locale.t("nav.my_classes"),
-                        icon: "class".to_string(),
-                        route: "/dashboard/student/classes".to_string(),
-                        active: false,
-                    },
-                    NavigationItem {
-                        id: "assignments".to_string(),
-                        label: locale.t("nav.assignments"),
-                        icon: "assignment".to_string(),
-                        route: "/dashboard/student/assignments".to_string(),
-                        active: false,
-                    },
-                    NavigationItem {
-                        id: "grades".to_string(),
-                        label: locale.t("nav.grades"),
-                        icon: "grade".to_string(),
-                        route: "/dashboard/student/grades".to_string(),
-                        active: false,
-                    },
+                    NavigationItem::section("classes", locale.t("nav.my_classes"), "class"),
+                    NavigationItem::section(
+                        "assignments",
+                        locale.t("nav.assignments"),
+                        "assignment",
+                    ),
+                    NavigationItem::section("grades", locale.t("nav.grades"), "grade"),
                 ]);
                 if capabilities.timetable {
-                    items.push(NavigationItem {
-                        id: "schedule".to_string(),
-                        label: locale.t("schedule.title"),
-                        icon: "calendar_month".to_string(),
-                        route: "/dashboard/student/schedule".to_string(),
-                        active: false,
-                    });
+                    items.push(NavigationItem::section(
+                        "schedule",
+                        locale.t("schedule.title"),
+                        "calendar_month",
+                    ));
                 }
             }
             SystemRole::Parent => {
-                items.push(NavigationItem {
-                    id: "children".to_string(),
-                    label: locale.t("nav.children"),
-                    icon: "child_care".to_string(),
-                    route: "/dashboard/parent/children".to_string(),
-                    active: false,
-                });
+                items.push(NavigationItem::section(
+                    "children",
+                    locale.t("nav.children"),
+                    "child_care",
+                ));
                 if capabilities.parent_reports {
-                    items.push(NavigationItem {
-                        id: "reports".to_string(),
-                        label: locale.t("nav.reports"),
-                        icon: "description".to_string(),
-                        route: "/dashboard/parent/reports".to_string(),
-                        active: false,
-                    });
+                    items.push(NavigationItem::section(
+                        "reports",
+                        locale.t("nav.reports"),
+                        "description",
+                    ));
                 }
                 if capabilities.parent_teacher_communication {
-                    items.push(NavigationItem {
-                        id: "communication".to_string(),
-                        label: locale.t("nav.communication"),
-                        icon: "chat".to_string(),
-                        route: "/dashboard/parent/communication".to_string(),
-                        active: false,
-                    });
+                    items.push(NavigationItem::section(
+                        "communication",
+                        locale.t("nav.communication"),
+                        "chat",
+                    ));
                 }
             }
         }
 
-        items.push(NavigationItem {
-            id: "profile".to_string(),
-            label: locale.t("nav.profile"),
-            icon: "person_outline".to_string(),
-            route: "/profile".to_string(),
-            active: false,
-        });
         items
     }
 
     pub fn get_active_navigation_item<'a>(
         navigation_items: &'a [NavigationItem],
-        current_route: &str,
+        current_section: &str,
     ) -> Option<&'a NavigationItem> {
         navigation_items
             .iter()
-            .find(|item| current_route.starts_with(&item.route) || current_route.contains(&item.id))
+            .find(|item| item.id == current_section)
     }
 
     pub fn redirect_to_role_dashboard(user: &User) -> String {
@@ -299,6 +311,20 @@ impl NavigationItem {
         }
     }
 
+    pub fn section(
+        id: impl Into<String>,
+        label: impl Into<String>,
+        icon: impl Into<String>,
+    ) -> Self {
+        let id = id.into();
+        Self::new(
+            id.clone(),
+            label,
+            icon,
+            RoutingService::canonical_dashboard_path(&id),
+        )
+    }
+
     pub fn with_active(mut self, active: bool) -> Self {
         self.active = active;
         self
@@ -325,20 +351,6 @@ impl RouteGuard {
             });
         });
 
-        let access_denied_content = rsx! {
-            div {
-                style: "padding: 2rem; text-align: center;",
-                h2 { "Access Denied" }
-                p { "You don't have permission to access this page." }
-            }
-        };
-        let loading_content = rsx! {
-            div {
-                style: "padding: 2rem; text-align: center;",
-                p { "Loading..." }
-            }
-        };
-
         rsx! {
             if let Some(user) = current_user.read().as_ref() {
                 if RoutingService::can_access_route(user, &route) {
@@ -346,10 +358,18 @@ impl RouteGuard {
                 } else if let Some(fallback_content) = fallback {
                     {fallback_content}
                 } else {
-                    {access_denied_content}
+                    DataState {
+                        kind: DataStateKind::Permission,
+                        title: "Access denied".to_string(),
+                        description: "This destination is not available for your current role.".to_string(),
+                    }
                 }
             } else {
-                {loading_content}
+                DataState {
+                    kind: DataStateKind::Loading,
+                    title: "Loading".to_string(),
+                    description: "Checking your session and access.".to_string(),
+                }
             }
         }
     }
@@ -359,17 +379,13 @@ impl RouteGuard {
 mod tests {
     use super::*;
 
-    #[test]
-    fn role_routes_are_not_generic_authenticated_routes() {
-        assert!(!RoutingService::is_protected_route(
-            "/dashboard/platform-admin/knowledge-assets"
-        ));
-        assert_eq!(
-            RoutingService::get_required_role_for_route(
-                "/dashboard/platform-admin/knowledge-assets"
-            ),
-            Some(SystemRole::PlatformAdmin)
-        );
+    fn user(role: SystemRole) -> User {
+        User::new(
+            "route-test-user".to_string(),
+            "route-test@example.test".to_string(),
+            role,
+            None,
+        )
     }
 
     #[test]
@@ -386,5 +402,68 @@ mod tests {
                 "/dashboard"
             );
         }
+    }
+
+    #[test]
+    fn canonical_section_paths_are_history_safe_deep_links() {
+        assert_eq!(
+            RoutingService::canonical_dashboard_path("overview"),
+            "/dashboard"
+        );
+        assert_eq!(
+            RoutingService::canonical_dashboard_path("users"),
+            "/dashboard/users"
+        );
+    }
+
+    #[test]
+    fn dashboard_section_matrix_rejects_role_mismatches() {
+        let manager = user(SystemRole::SchoolManager);
+        let teacher = user(SystemRole::Teacher);
+        let student = user(SystemRole::Student);
+        let parent = user(SystemRole::Parent);
+        let platform = user(SystemRole::PlatformAdmin);
+
+        assert!(RoutingService::can_access_dashboard_section(
+            &manager, "users"
+        ));
+        assert!(!RoutingService::can_access_dashboard_section(
+            &teacher, "users"
+        ));
+        assert!(RoutingService::can_access_dashboard_section(
+            &teacher,
+            "submissions"
+        ));
+        assert!(!RoutingService::can_access_dashboard_section(
+            &student,
+            "submissions"
+        ));
+        assert!(RoutingService::can_access_dashboard_section(
+            &parent, "children"
+        ));
+        assert!(!RoutingService::can_access_dashboard_section(
+            &parent,
+            "assignments"
+        ));
+        assert!(RoutingService::can_access_dashboard_section(
+            &platform,
+            "knowledge-assets"
+        ));
+        assert!(!RoutingService::can_access_dashboard_section(
+            &platform, "overview"
+        ));
+    }
+
+    #[test]
+    fn direct_dashboard_route_authorization_uses_section_matrix() {
+        let teacher = user(SystemRole::Teacher);
+        assert!(RoutingService::can_access_route(
+            &teacher,
+            "/dashboard/assignments"
+        ));
+        assert!(!RoutingService::can_access_route(
+            &teacher,
+            "/dashboard/users"
+        ));
     }
 }

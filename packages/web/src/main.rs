@@ -1,63 +1,49 @@
 use dioxus::prelude::*;
 
-// Import new clean architecture modules
 mod application;
 mod components;
 mod domain;
 mod i18n;
 mod infrastructure;
+mod ui;
 mod utils;
 mod views;
 
 #[cfg(test)]
 mod product_truthfulness_tests;
 
-// Re-export i18n for easy access
 pub use i18n::{t, use_locale, LanguageSwitcher, Locale, LocaleProvider, LocalizedGrade};
 
-// Import specific components
+use application::{AuthHooks, RoutingService};
+use ui::{DataState, DataStateKind};
 use views::login::LoginPage;
-use views::role_based::components::role_guard::{AuthGuard, RoleGuard};
+use views::role_based::components::role_guard::AuthGuard;
 use views::role_based::{
     ParentDashboard, PlatformAdminDashboard, SchoolManagerDashboard, StudentDashboard,
     TeacherDashboard,
 };
 
-// Import auth hooks
-use application::AuthHooks;
-
 #[derive(Debug, Clone, Routable, PartialEq)]
 #[rustfmt::skip]
 enum Route {
-    // Public routes
     #[route("/")]
     LoginPage,
 
-    // Protected dashboard routes - role-based rendering handled by components
     #[route("/dashboard")]
     DashboardRoute,
 
-    // Legacy route redirects
+    #[route("/dashboard/:section")]
+    DashboardSectionRoute { section: String },
+
     #[route("/admin")]
     AdminRedirect,
-
-    // Guarded aliases. The rendered product dashboard remains the canonical
-    // role-aware implementation used by `/dashboard`.
-    #[route("/dashboard/platform-admin")]
-    PlatformAdminRoute,
-    #[route("/dashboard/school-manager")]
-    SchoolManagerRoute,
-    #[route("/dashboard/teacher")]
-    TeacherRoute,
-    #[route("/dashboard/student")]
-    StudentRoute,
-    #[route("/dashboard/parent")]
-    ParentRoute,
 }
 
 const FAVICON: Asset = asset!("/assets/favicon.ico");
 const MAIN_CSS: Asset = asset!("/assets/main.css");
 const DASHBOARD_REMAKE_CSS: Asset = asset!("/assets/dashboard-remake.css");
+const DESIGN_SYSTEM_CSS: Asset = asset!("/assets/design-system.css");
+const DESIGN_SYSTEM_COMPAT_CSS: Asset = asset!("/assets/design-system-compat.css");
 
 #[cfg(feature = "server")]
 async fn database_readiness(
@@ -174,106 +160,136 @@ fn App() -> Element {
         document::Link { rel: "icon", href: FAVICON }
         document::Link { rel: "stylesheet", href: MAIN_CSS }
         document::Link { rel: "stylesheet", href: DASHBOARD_REMAKE_CSS }
+        document::Link { rel: "stylesheet", href: DESIGN_SYSTEM_CSS }
+        document::Link { rel: "stylesheet", href: DESIGN_SYSTEM_COMPAT_CSS }
         LocaleProvider { Router::<Route> {} }
     }
 }
 
-/// Main dashboard route that handles role-based routing.
 #[component]
 fn DashboardRoute() -> Element {
     rsx! {
         AuthGuard {
             fallback: None,
-            children: rsx! { RoleBasedDashboard {} }
+            children: rsx! { RoleBasedDashboard { requested_section: None } }
         }
     }
 }
 
-/// Component that renders the appropriate dashboard based on user role.
 #[component]
-fn RoleBasedDashboard() -> Element {
+fn DashboardSectionRoute(section: String) -> Element {
+    rsx! {
+        AuthGuard {
+            fallback: None,
+            children: rsx! { RoleBasedDashboard { requested_section: Some(section) } }
+        }
+    }
+}
+
+#[component]
+fn RoleBasedDashboard(requested_section: Option<String>) -> Element {
     let current_user = AuthHooks::use_current_user();
+    let locale = use_locale();
 
     match current_user {
-        Ok(Some(user)) => match user.role {
-            domain::SystemRole::PlatformAdmin => rsx! { PlatformAdminDashboard {} },
-            domain::SystemRole::SchoolManager => rsx! { SchoolManagerDashboard {} },
-            domain::SystemRole::Teacher => rsx! { TeacherDashboard {} },
-            domain::SystemRole::Student => rsx! { StudentDashboard {} },
-            domain::SystemRole::Parent => rsx! { ParentDashboard {} },
+        Ok(Some(user)) => {
+            let requested = requested_section.as_deref();
+            let requested = if let Some(required_role) = requested.and_then(legacy_role_alias) {
+                if required_role != user.role {
+                    return rsx! {
+                        DataState {
+                            kind: DataStateKind::Permission,
+                            title: locale.t("errors.access_denied"),
+                            description: locale.t("errors.destination_unavailable"),
+                        }
+                    };
+                }
+                None
+            } else {
+                requested
+            };
+
+            match RoutingService::resolve_dashboard_section(&user, requested) {
+                Ok(section) => match user.role {
+                    domain::SystemRole::PlatformAdmin => {
+                        rsx! { PlatformAdminDashboard { section } }
+                    }
+                    domain::SystemRole::SchoolManager => {
+                        rsx! { SchoolManagerDashboard { section } }
+                    }
+                    domain::SystemRole::Teacher => rsx! { TeacherDashboard { section } },
+                    domain::SystemRole::Student => rsx! { StudentDashboard { section } },
+                    domain::SystemRole::Parent => rsx! { ParentDashboard { section } },
+                },
+                Err(()) => rsx! {
+                    DataState {
+                        kind: DataStateKind::Permission,
+                        title: locale.t("errors.access_denied"),
+                        description: locale.t("errors.destination_unavailable"),
+                    }
+                },
+            }
+        }
+        Ok(None) => rsx! {
+            DataState {
+                kind: DataStateKind::Loading,
+                title: locale.t("session.sign_in_required"),
+                description: locale.t("session.sign_in_required_description"),
+            }
         },
-        Ok(None) => rsx! { div { "Please log in." } },
-        Err(_) => rsx! { div { "Error loading user profile." } },
+        Err(_) => rsx! {
+            DataState {
+                kind: DataStateKind::Error,
+                title: locale.t("session.unavailable_title"),
+                description: locale.t("session.unavailable_description"),
+            }
+        },
+    }
+}
+
+fn legacy_role_alias(section: &str) -> Option<domain::SystemRole> {
+    match section {
+        "platform-admin" => Some(domain::SystemRole::PlatformAdmin),
+        "school-manager" => Some(domain::SystemRole::SchoolManager),
+        "teacher" => Some(domain::SystemRole::Teacher),
+        "student" => Some(domain::SystemRole::Student),
+        "parent" => Some(domain::SystemRole::Parent),
+        _ => None,
     }
 }
 
 #[component]
 fn AdminRedirect() -> Element {
     let nav = use_navigator();
+    let locale = use_locale();
 
     use_effect(move || {
         nav.replace(Route::DashboardRoute {});
     });
 
     rsx! {
-        div {
-            style: "display: flex; justify-content: center; align-items: center; min-height: 100vh; background: #f8fafc;",
-            p { style: "color: #6b7280;", "Redirecting to dashboard..." }
+        DataState {
+            kind: DataStateKind::Loading,
+            title: locale.t("common.loading"),
+            description: locale.t("navigation.redirecting_dashboard"),
         }
     }
 }
 
-#[component]
-fn PlatformAdminRoute() -> Element {
-    rsx! {
-        RoleGuard {
-            required_role: domain::SystemRole::PlatformAdmin,
-            fallback: None,
-            children: rsx! { RoleBasedDashboard {} }
-        }
-    }
-}
+#[cfg(test)]
+mod route_tests {
+    use super::*;
 
-#[component]
-fn SchoolManagerRoute() -> Element {
-    rsx! {
-        RoleGuard {
-            required_role: domain::SystemRole::SchoolManager,
-            fallback: None,
-            children: rsx! { RoleBasedDashboard {} }
-        }
-    }
-}
-
-#[component]
-fn TeacherRoute() -> Element {
-    rsx! {
-        RoleGuard {
-            required_role: domain::SystemRole::Teacher,
-            fallback: None,
-            children: rsx! { RoleBasedDashboard {} }
-        }
-    }
-}
-
-#[component]
-fn StudentRoute() -> Element {
-    rsx! {
-        RoleGuard {
-            required_role: domain::SystemRole::Student,
-            fallback: None,
-            children: rsx! { RoleBasedDashboard {} }
-        }
-    }
-}
-
-#[component]
-fn ParentRoute() -> Element {
-    rsx! {
-        RoleGuard {
-            required_role: domain::SystemRole::Parent,
-            fallback: None,
-            children: rsx! { RoleBasedDashboard {} }
-        }
+    #[test]
+    fn legacy_role_aliases_remain_explicit_and_guardable() {
+        assert_eq!(
+            legacy_role_alias("teacher"),
+            Some(domain::SystemRole::Teacher)
+        );
+        assert_eq!(
+            legacy_role_alias("school-manager"),
+            Some(domain::SystemRole::SchoolManager)
+        );
+        assert_eq!(legacy_role_alias("assignments"), None);
     }
 }
