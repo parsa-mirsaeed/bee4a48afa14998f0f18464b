@@ -1,21 +1,7 @@
 name: Production Operations
 
 on:
-  pull_request:
-    types:
-      - opened
-      - synchronize
-      - reopened
-      - labeled
-      - unlabeled
-    paths:
-      - deploy/production/**
-      - packages/web/src/main.rs
-      - packages/api/src/readiness.rs
-      - docs/adr/0004-production-operations.md
-      - docs/security/production-operations-threat-model.md
-      - .github/workflows/production-operations.yml
-      - .github/FULL_VALIDATION.md
+  workflow_call:
   push:
     branches:
       - main
