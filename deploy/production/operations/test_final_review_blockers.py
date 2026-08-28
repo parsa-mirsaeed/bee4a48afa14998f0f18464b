@@ -13,9 +13,11 @@ from pathlib import Path
 
 OPERATIONS_DIR = Path(__file__).resolve().parent
 PRODUCTION_DIR = OPERATIONS_DIR.parent
+REPOSITORY_ROOT = PRODUCTION_DIR.parent.parent
 SCRIPT_PATH = PRODUCTION_DIR / "edutalent-operations"
 RECOVERY_PATH = OPERATIONS_DIR / "recovery_drill.py"
-WORKFLOW_PATH = PRODUCTION_DIR.parent.parent / ".github/workflows/production-operations.yml"
+WORKFLOW_PATH = REPOSITORY_ROOT / ".github/workflows/production-operations.yml"
+CLASSIFIER_PATH = REPOSITORY_ROOT / "scripts/ci/stage1_change_classifier.py"
 
 spec = importlib.util.spec_from_file_location(
     "edutalent_recovery_final_review", RECOVERY_PATH
@@ -24,6 +26,13 @@ assert spec and spec.loader
 recovery = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = recovery
 spec.loader.exec_module(recovery)
+
+classifier_spec = importlib.util.spec_from_file_location(
+    "edutalent_stage1_classifier_final_review", CLASSIFIER_PATH
+)
+assert classifier_spec and classifier_spec.loader
+classifier = importlib.util.module_from_spec(classifier_spec)
+classifier_spec.loader.exec_module(classifier)
 
 
 class FinalBackupBoundaryTests(unittest.TestCase):
@@ -150,10 +159,20 @@ class FinalBackupBoundaryTests(unittest.TestCase):
     def test_operations_workflow_tracks_the_api_readiness_helper(self) -> None:
         workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
         readiness_path = "      - packages/api/src/readiness.rs"
-        self.assertEqual(workflow.count(readiness_path), 2)
-        pull_request_paths, push_paths = workflow.split("  push:", 1)
-        self.assertIn(readiness_path, pull_request_paths)
-        self.assertIn(readiness_path, push_paths)
+        trigger = workflow.split("on:\n", 1)[1].split("\npermissions:\n", 1)[0]
+
+        # Ordinary PR selection is centralized in AI Change Proof so escalation
+        # labels and the full diff cannot be defeated by workflow-local path
+        # filters. The Operations owner remains reusable and keeps its push
+        # ownership for main-branch validation.
+        self.assertIn("workflow_call:", trigger)
+        self.assertNotIn("pull_request:", trigger)
+        self.assertEqual(workflow.count(readiness_path), 1)
+        self.assertIn(readiness_path, trigger.split("  push:\n", 1)[1])
+
+        result = classifier.classify(["packages/api/src/readiness.rs"])
+        self.assertIn("operations", result["categories"])
+        self.assertTrue(result["derived"]["needs_operations_definition"])
 
 
 class PinnedSupabaseRecoveryTests(unittest.TestCase):
