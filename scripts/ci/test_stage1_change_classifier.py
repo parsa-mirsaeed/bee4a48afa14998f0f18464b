@@ -20,6 +20,7 @@ class ClassifierTests(unittest.TestCase):
             self.assertNotIn(item, categories, (files, result))
         for key, value in derived.items():
             self.assertEqual(result["derived"][key], value, (files, result))
+        self.assertEqual(result["mode"], "control")
         return result
 
     def test_docs_only(self):
@@ -27,6 +28,8 @@ class ClassifierTests(unittest.TestCase):
             ["README.md", "docs/architecture.md"],
             required=("docs",),
             forbidden=("database", "web_logic", "unknown"),
+            rust=False,
+            docs_only=True,
             needs_postgres=False,
             needs_browser=False,
         )
@@ -37,6 +40,8 @@ class ClassifierTests(unittest.TestCase):
             ["packages/web/assets/main.css"],
             required=("web_assets",),
             forbidden=("web_logic", "database", "unknown"),
+            rust=False,
+            web=False,
             needs_postgres=False,
             needs_browser=False,
         )
@@ -46,6 +51,8 @@ class ClassifierTests(unittest.TestCase):
             ["packages/web/assets/fonts/app.woff2", "packages/web/assets/logo.svg"],
             required=("web_assets",),
             forbidden=("database", "unknown"),
+            rust=False,
+            needs_postgres=False,
         )
 
     def test_web_rust_component(self):
@@ -54,7 +61,10 @@ class ClassifierTests(unittest.TestCase):
             required=("web_logic",),
             forbidden=("database", "unknown"),
             rust=True,
+            web=True,
+            api=False,
             needs_postgres=False,
+            needs_browser=False,
         )
 
     def test_ui_crate_rust_component(self):
@@ -63,15 +73,19 @@ class ClassifierTests(unittest.TestCase):
             required=("web_logic",),
             forbidden=("database", "unknown"),
             rust=True,
+            web=True,
             needs_postgres=False,
         )
 
-    def test_login_is_browser_sensitive(self):
+    def test_login_is_browser_sensitive_but_not_db_invariant(self):
         self.assert_categories(
             ["packages/web/src/views/login.rs"],
             required=("web_logic", "web_browser_behavior", "auth_authorization"),
+            rust=True,
+            web=True,
+            api=False,
             needs_browser=True,
-            needs_postgres=True,
+            needs_postgres=False,
         )
 
     def test_api_pure_service(self):
@@ -80,6 +94,8 @@ class ClassifierTests(unittest.TestCase):
             required=("api_logic",),
             forbidden=("api_data_access", "database", "unknown"),
             rust=True,
+            api=True,
+            web=False,
             needs_postgres=False,
         )
 
@@ -87,20 +103,26 @@ class ClassifierTests(unittest.TestCase):
         self.assert_categories(
             ["packages/api/src/repositories/user_repository.rs"],
             required=("api_logic", "api_data_access"),
+            rust=True,
+            api=True,
             needs_postgres=True,
         )
 
-    def test_auth_middleware_requires_db(self):
+    def test_backend_auth_middleware_requires_db(self):
         self.assert_categories(
             ["packages/api/src/middleware/auth.rs"],
             required=("api_logic", "auth_authorization"),
+            rust=True,
+            api=True,
             needs_postgres=True,
         )
 
-    def test_migration_requires_db(self):
+    def test_migration_requires_db_and_api_regression(self):
         self.assert_categories(
             ["migrations/20260828_example.sql"],
             required=("database",),
+            rust=True,
+            api=True,
             needs_postgres=True,
         )
 
@@ -108,6 +130,8 @@ class ClassifierTests(unittest.TestCase):
         self.assert_categories(
             ["scripts/ci/verify_transaction_scoped_rls.sh"],
             required=("database", "auth_authorization"),
+            rust=True,
+            api=True,
             needs_postgres=True,
         )
 
@@ -116,12 +140,17 @@ class ClassifierTests(unittest.TestCase):
             ["packages/api/src/ai_gateway_runtime.rs"],
             required=("api_logic", "ai_gateway"),
             forbidden=("web_browser_behavior",),
+            rust=True,
+            api=True,
+            needs_postgres=False,
         )
 
     def test_knowledge_worker(self):
         self.assert_categories(
             ["packages/api/src/services/knowledge_ingestion_worker.rs"],
             required=("api_logic", "worker_rag"),
+            rust=True,
+            api=True,
             needs_postgres=True,
         )
 
@@ -129,8 +158,21 @@ class ClassifierTests(unittest.TestCase):
         self.assert_categories(
             ["Cargo.lock"],
             required=("dependencies",),
+            rust=True,
+            workspace=True,
             needs_workspace_compile=True,
             needs_dependency_audit=True,
+            needs_postgres=False,
+        )
+
+    def test_api_manifest_is_rust_dependency_change(self):
+        self.assert_categories(
+            ["packages/api/Cargo.toml"],
+            required=("api_logic", "dependencies"),
+            rust=True,
+            api=True,
+            needs_dependency_audit=True,
+            needs_postgres=False,
         )
 
     def test_package_file(self):
@@ -166,6 +208,9 @@ class ClassifierTests(unittest.TestCase):
             [".github/workflows/ci.yml"],
             required=("workflow_policy",),
             forbidden=("unknown",),
+            rust=False,
+            needs_postgres=False,
+            needs_browser=False,
         )
 
     def test_unknown_executable_fails_closed(self):
@@ -190,6 +235,9 @@ class ClassifierTests(unittest.TestCase):
                 "api_data_access",
                 "database",
             ),
+            rust=True,
+            api=True,
+            web=True,
             needs_postgres=True,
             needs_browser=True,
         )

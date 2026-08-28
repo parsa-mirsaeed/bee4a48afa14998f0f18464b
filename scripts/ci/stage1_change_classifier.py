@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Stage-1 shadow change-impact classifier.
+"""Deterministic Stage-1 change-impact classifier.
 
-S1-PR-00 deliberately does not use this classifier to select CI jobs. It is
-executed in shadow mode so S1-PR-01 can compare decisions before changing proof.
+The classifier is intentionally path-first. Heuristics may only escalate proof.
+Unknown executable/configuration files fail closed instead of being treated as
+documentation. S1-PR-01 promotes this classifier from shadow to control mode.
 """
 
 from __future__ import annotations
@@ -73,7 +74,7 @@ WORKER_RAG_RE = re.compile(
 )
 PACKAGING_RE = re.compile(
     r"^(?:Dockerfile(?:\.appliance-tools)?|compose(?:\.release)?\.ya?ml|edutalent|Makefile|"
-    r"\.dockerignore|docker/|scripts/(?:package|release)/|\.github/workflows/package\.yml)"
+    r"\.dockerignore|\.env\.example|docker/|scripts/(?:package|release)/|\.github/workflows/package\.yml)"
 )
 PRODUCTION_RE = re.compile(
     r"^(?:deploy/production/|\.github/workflows/production-foundation\.yml|"
@@ -151,6 +152,8 @@ def classify(files: Iterable[str]) -> dict:
     categories = {name: False for name in CATEGORY_NAMES}
     rust_file_changed = False
     cargo_workspace_changed = False
+    cargo_dependency_changed = False
+    backend_auth_changed = False
 
     for path in changed_files:
         matched = False
@@ -166,6 +169,7 @@ def classify(files: Iterable[str]) -> dict:
             "scripts/ci/stage1_change_classifier.py",
             "scripts/ci/test_stage1_change_classifier.py",
             "scripts/ci/test_stage1_evidence_contract.py",
+            "scripts/ci/test_stage1_legacy_comparison.py",
             "scripts/ci/evidence_schema.json",
         }:
             _mark(categories, "workflow_policy")
@@ -189,6 +193,8 @@ def classify(files: Iterable[str]) -> dict:
         if AUTH_RE.match(path):
             _mark(categories, "auth_authorization")
             matched = True
+            if path.startswith("packages/api/") or path.startswith("scripts/ci/"):
+                backend_auth_changed = True
         if DB_RE.match(path):
             _mark(categories, "database")
             matched = True
@@ -202,6 +208,8 @@ def classify(files: Iterable[str]) -> dict:
         if basename in DEPENDENCY_BASENAMES or DEPENDENCY_PATH_RE.match(path):
             _mark(categories, "dependencies")
             matched = True
+            if basename in {"Cargo.toml", "Cargo.lock", "rust-toolchain.toml"} or path.startswith(".cargo/"):
+                cargo_dependency_changed = True
             if path in {"Cargo.toml", "Cargo.lock", "rust-toolchain.toml"}:
                 cargo_workspace_changed = True
 
@@ -228,10 +236,20 @@ def classify(files: Iterable[str]) -> dict:
             _mark(categories, "unknown")
 
     active = [name for name in CATEGORY_NAMES if categories[name]]
-    rust = rust_file_changed or any(
+    api = any(
         categories[name]
-        for name in ("web_logic", "api_logic", "api_data_access", "auth_authorization", "ai_gateway", "worker_rag")
+        for name in ("api_logic", "api_data_access", "database", "ai_gateway", "worker_rag")
     )
+    web = categories["web_logic"] or categories["web_browser_behavior"]
+    workspace = cargo_workspace_changed
+    rust = rust_file_changed or cargo_dependency_changed or api or web
+    needs_postgres = (
+        categories["api_data_access"]
+        or backend_auth_changed
+        or categories["database"]
+        or categories["worker_rag"]
+    )
+    docs_only = bool(active) and set(active) <= {"docs"}
 
     return {
         "schema_version": 1,
@@ -240,9 +258,13 @@ def classify(files: Iterable[str]) -> dict:
         "category_flags": categories,
         "derived": {
             "rust": rust,
-            "needs_postgres": any(categories[name] for name in ("api_data_access", "auth_authorization", "database", "worker_rag")),
+            "api": api,
+            "web": web,
+            "workspace": workspace,
+            "docs_only": docs_only,
+            "needs_postgres": needs_postgres,
             "needs_browser": categories["web_browser_behavior"],
-            "needs_workspace_compile": cargo_workspace_changed,
+            "needs_workspace_compile": workspace,
             "needs_dependency_audit": categories["dependencies"],
             "needs_package_definition": categories["packaging"],
             "needs_production_definition": categories["production_topology"],
@@ -250,7 +272,7 @@ def classify(files: Iterable[str]) -> dict:
             "needs_appliance_definition": categories["appliance"],
         },
         "safe_to_control_ci": not categories["unknown"],
-        "mode": "shadow",
+        "mode": "control",
     }
 
 
