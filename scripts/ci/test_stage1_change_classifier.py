@@ -1,0 +1,200 @@
+#!/usr/bin/env python3
+import importlib.util
+import pathlib
+import unittest
+
+MODULE_PATH = pathlib.Path(__file__).with_name("stage1_change_classifier.py")
+SPEC = importlib.util.spec_from_file_location("stage1_change_classifier", MODULE_PATH)
+classifier = importlib.util.module_from_spec(SPEC)
+assert SPEC and SPEC.loader
+SPEC.loader.exec_module(classifier)
+
+
+class ClassifierTests(unittest.TestCase):
+    def assert_categories(self, files, required=(), forbidden=(), **derived):
+        result = classifier.classify(files)
+        categories = set(result["categories"])
+        for item in required:
+            self.assertIn(item, categories, (files, result))
+        for item in forbidden:
+            self.assertNotIn(item, categories, (files, result))
+        for key, value in derived.items():
+            self.assertEqual(result["derived"][key], value, (files, result))
+        return result
+
+    def test_docs_only(self):
+        result = self.assert_categories(
+            ["README.md", "docs/architecture.md"],
+            required=("docs",),
+            forbidden=("database", "web_logic", "unknown"),
+            needs_postgres=False,
+            needs_browser=False,
+        )
+        self.assertTrue(result["safe_to_control_ci"])
+
+    def test_css_only(self):
+        self.assert_categories(
+            ["packages/web/assets/main.css"],
+            required=("web_assets",),
+            forbidden=("web_logic", "database", "unknown"),
+            needs_postgres=False,
+            needs_browser=False,
+        )
+
+    def test_local_font_or_image(self):
+        self.assert_categories(
+            ["packages/web/assets/fonts/app.woff2", "packages/web/assets/logo.svg"],
+            required=("web_assets",),
+            forbidden=("database", "unknown"),
+        )
+
+    def test_web_rust_component(self):
+        self.assert_categories(
+            ["packages/web/src/views/role_based/teacher/dashboard.rs"],
+            required=("web_logic",),
+            forbidden=("database", "unknown"),
+            rust=True,
+            needs_postgres=False,
+        )
+
+    def test_ui_crate_rust_component(self):
+        self.assert_categories(
+            ["packages/ui/src/card.rs"],
+            required=("web_logic",),
+            forbidden=("database", "unknown"),
+            rust=True,
+            needs_postgres=False,
+        )
+
+    def test_login_is_browser_sensitive(self):
+        self.assert_categories(
+            ["packages/web/src/views/login.rs"],
+            required=("web_logic", "web_browser_behavior", "auth_authorization"),
+            needs_browser=True,
+            needs_postgres=True,
+        )
+
+    def test_api_pure_service(self):
+        self.assert_categories(
+            ["packages/api/src/services/grade_scale.rs"],
+            required=("api_logic",),
+            forbidden=("api_data_access", "database", "unknown"),
+            rust=True,
+            needs_postgres=False,
+        )
+
+    def test_api_repository_requires_db(self):
+        self.assert_categories(
+            ["packages/api/src/repositories/user_repository.rs"],
+            required=("api_logic", "api_data_access"),
+            needs_postgres=True,
+        )
+
+    def test_auth_middleware_requires_db(self):
+        self.assert_categories(
+            ["packages/api/src/middleware/auth.rs"],
+            required=("api_logic", "auth_authorization"),
+            needs_postgres=True,
+        )
+
+    def test_migration_requires_db(self):
+        self.assert_categories(
+            ["migrations/20260828_example.sql"],
+            required=("database",),
+            needs_postgres=True,
+        )
+
+    def test_rls_verifier_is_policy_and_db(self):
+        self.assert_categories(
+            ["scripts/ci/verify_transaction_scoped_rls.sh"],
+            required=("database", "auth_authorization"),
+            needs_postgres=True,
+        )
+
+    def test_ai_gateway(self):
+        self.assert_categories(
+            ["packages/api/src/ai_gateway_runtime.rs"],
+            required=("api_logic", "ai_gateway"),
+            forbidden=("web_browser_behavior",),
+        )
+
+    def test_knowledge_worker(self):
+        self.assert_categories(
+            ["packages/api/src/services/knowledge_ingestion_worker.rs"],
+            required=("api_logic", "worker_rag"),
+            needs_postgres=True,
+        )
+
+    def test_root_cargo_lock(self):
+        self.assert_categories(
+            ["Cargo.lock"],
+            required=("dependencies",),
+            needs_workspace_compile=True,
+            needs_dependency_audit=True,
+        )
+
+    def test_package_file(self):
+        self.assert_categories(
+            ["Dockerfile"],
+            required=("packaging",),
+            needs_package_definition=True,
+        )
+
+    def test_production_compose(self):
+        self.assert_categories(
+            ["deploy/production/compose.production.yaml"],
+            required=("production_topology",),
+            needs_production_definition=True,
+        )
+
+    def test_operations_script(self):
+        self.assert_categories(
+            ["scripts/operations/verify_backup.sh"],
+            required=("operations",),
+            needs_operations_definition=True,
+        )
+
+    def test_appliance_definition(self):
+        self.assert_categories(
+            ["deploy/appliance/images.lock"],
+            required=("appliance",),
+            needs_appliance_definition=True,
+        )
+
+    def test_workflow_policy(self):
+        self.assert_categories(
+            [".github/workflows/ci.yml"],
+            required=("workflow_policy",),
+            forbidden=("unknown",),
+        )
+
+    def test_unknown_executable_fails_closed(self):
+        result = self.assert_categories(
+            ["tools/new_unclassified_gate.py"],
+            required=("unknown",),
+        )
+        self.assertFalse(result["safe_to_control_ci"])
+
+    def test_mixed_is_union(self):
+        result = self.assert_categories(
+            [
+                "packages/web/src/views/login.rs",
+                "packages/api/src/repositories/session_repository.rs",
+                "migrations/20260828_sessions.sql",
+            ],
+            required=(
+                "web_logic",
+                "web_browser_behavior",
+                "auth_authorization",
+                "api_logic",
+                "api_data_access",
+                "database",
+            ),
+            needs_postgres=True,
+            needs_browser=True,
+        )
+        self.assertFalse(result["category_flags"]["unknown"])
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)
