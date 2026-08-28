@@ -370,7 +370,7 @@ jobs:
           fi
 
           cargo check -p web --features web --target wasm32-unknown-unknown --locked --message-format=short
-          cargo clippy -p web --features web --target wasm32-unknown-unknown --lib --locked --message-format=short -- \
+          cargo clippy -p web --features web --target wasm32-unknown-unknown --bin web --locked --message-format=short -- \
             -A warnings -D clippy::correctness -D clippy::suspicious
           cargo test -p web --locked
 
