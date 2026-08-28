@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
+import re
 import unittest
 
 
@@ -36,6 +37,16 @@ def specialized(files, labels=()):
 
 def on_block(text: str) -> str:
     return text.split("on:\n", 1)[1].split("\npermissions:\n", 1)[0]
+
+
+def job_block(text: str, job: str) -> str:
+    match = re.search(
+        rf"(?ms)^  {re.escape(job)}:\n(.*?)(?=^  [A-Za-z0-9_-]+:\n|\Z)",
+        text,
+    )
+    if not match:
+        raise AssertionError(f"missing workflow job {job}")
+    return match.group(1)
 
 
 class SpecializedTriggerContractTests(unittest.TestCase):
@@ -99,13 +110,13 @@ class SpecializedTriggerContractTests(unittest.TestCase):
             "appliance-proof": ("appliance", "./.github/workflows/air-gapped-appliance.yml"),
         }
         for job, (flag, workflow) in expected.items():
-            section = self.ci.split(f"  {job}:\n", 1)[1].split("\n  ", 1)[0]
+            section = job_block(self.ci, job)
             self.assertIn("needs: classify", section)
             self.assertIn(f"needs.classify.outputs.{flag} == 'true'", section)
             self.assertIn(f"uses: {workflow}", section)
 
     def test_ai_gate_enforces_selected_specialized_results(self):
-        gate = self.ci.split("  gate:\n", 1)[1]
+        gate = job_block(self.ci, "gate")
         for job, env_name, required_env in (
             ("package-proof", "PACKAGE_RESULT", "PACKAGE_REQUIRED"),
             ("production-proof", "PRODUCTION_RESULT", "PRODUCTION_REQUIRED"),
