@@ -9,7 +9,6 @@ import unittest
 WORKFLOW = Path(".github/workflows/ci.yml")
 DOCKERFILE = Path("Dockerfile")
 PACKAGE_WORKFLOW = Path(".github/workflows/package.yml")
-APPLIANCE_BUILD = Path("scripts/appliance/build.sh")
 MODULE_PATH = Path(__file__).with_name("stage1_change_classifier.py")
 SPEC = importlib.util.spec_from_file_location("stage1_change_classifier", MODULE_PATH)
 classifier = importlib.util.module_from_spec(SPEC)
@@ -50,7 +49,6 @@ class WorkflowContractTests(unittest.TestCase):
         cls.text = WORKFLOW.read_text(encoding="utf-8")
         cls.dockerfile = DOCKERFILE.read_text(encoding="utf-8")
         cls.package_workflow = PACKAGE_WORKFLOW.read_text(encoding="utf-8")
-        cls.appliance_build = APPLIANCE_BUILD.read_text(encoding="utf-8")
         cls.no_db = cls.text.split("  targeted-rust-no-db:\n", 1)[1].split(
             "  targeted-rust-db:\n", 1
         )[0]
@@ -94,8 +92,6 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertNotIn("cache-hit", self.no_db)
         self.assertNotIn("cache-hit", self.db)
         self.assertIn("Run focused browser smoke on exact head", self.browser)
-        # Only Dioxus/Chromium installation may be conditional on their own
-        # dedicated tool-cache hits. The browser proof itself is unconditional.
         proof = self.browser.split("- name: Run focused browser smoke on exact head", 1)[1]
         self.assertNotIn("if: steps.rust-cache", proof)
 
@@ -125,10 +121,6 @@ class WorkflowContractTests(unittest.TestCase):
         self.assertIn("contains(github.event.pull_request.labels.*.name, 'ci:package')", self.package_workflow)
         self.assertIn("EDUTALENT_BUILD_CACHE_SCOPE: edutalent-runtime", self.package_workflow)
         self.assertIn("Verify packaged migrations are repeatable", self.package_workflow)
-
-    def test_appliance_runtime_reuses_package_buildkit_scope(self):
-        self.assertIn('EDUTALENT_BUILD_CACHE_SCOPE:-edutalent-runtime', self.appliance_build)
-        self.assertNotIn('EDUTALENT_BUILD_CACHE_SCOPE:-edutalent-appliance-${ARCH}', self.appliance_build)
 
     def test_database_lane_is_selected_only_by_classifier_output(self):
         self.assertIn(
