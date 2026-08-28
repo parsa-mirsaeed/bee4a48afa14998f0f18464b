@@ -186,7 +186,9 @@ class ClassifierTests(unittest.TestCase):
         self.assert_categories(
             ["deploy/production/compose.production.yaml"],
             required=("production_topology",),
+            forbidden=("operations",),
             needs_production_definition=True,
+            needs_operations_definition=False,
         )
 
     def test_operations_script(self):
@@ -194,6 +196,41 @@ class ClassifierTests(unittest.TestCase):
             ["scripts/operations/verify_backup.sh"],
             required=("operations",),
             needs_operations_definition=True,
+        )
+
+    def test_real_production_operations_tree_is_operations_not_topology(self):
+        self.assert_categories(
+            ["deploy/production/operations/edutalent_ops.py"],
+            required=("operations",),
+            forbidden=("production_topology", "unknown"),
+            needs_production_definition=False,
+            needs_operations_definition=True,
+        )
+
+    def test_real_operations_entrypoint_is_operations_not_topology(self):
+        self.assert_categories(
+            ["deploy/production/edutalent-operations"],
+            required=("operations",),
+            forbidden=("production_topology", "unknown"),
+            needs_production_definition=False,
+            needs_operations_definition=True,
+        )
+
+    def test_readiness_boundaries_require_operations_definition(self):
+        self.assert_categories(
+            ["packages/api/src/readiness.rs", "packages/web/src/main.rs"],
+            required=("api_logic", "web_logic", "operations"),
+            needs_operations_definition=True,
+        )
+
+    def test_production_markdown_remains_documentation_only(self):
+        self.assert_categories(
+            ["deploy/production/HOST_BASELINE.md", "deploy/production/README.md"],
+            required=("docs",),
+            forbidden=("production_topology", "operations", "unknown"),
+            docs_only=True,
+            needs_production_definition=False,
+            needs_operations_definition=False,
         )
 
     def test_appliance_definition(self):
