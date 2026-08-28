@@ -170,6 +170,7 @@ def classify(files: Iterable[str]) -> dict:
             "scripts/ci/test_stage1_change_classifier.py",
             "scripts/ci/test_stage1_evidence_contract.py",
             "scripts/ci/test_stage1_legacy_comparison.py",
+            "scripts/ci/test_stage1_workflow_contract.py",
             "scripts/ci/evidence_schema.json",
         }:
             _mark(categories, "workflow_policy")
