@@ -61,61 +61,7 @@ async function navigateWithIcon(page: Page, icon: string): Promise<void> {
 
   const item = page.locator('.et-ui-sidebar-nav__item', {
     has: page.locator('span.material-icons-outlined', {
-      hasText: new RegExp(`^${icon}// @final @roles @workflows — PR-12 final role and persisted core-workflow evidence.
-//
-// The production release deliberately disables unfinished attendance, timetable,
-// reports, messaging, derived metrics, and synthetic-health domains. These
-// journeys cover only enabled core school workflows against the deterministic
-// two-school fixture and the real server-backed UI.
-import { test, expect, type Page } from '@playwright/test';
-import { enforceOfflineAllowlist, assertNoUnexpectedOrigins } from '../fixtures/network-policy';
-import { watchConsole, assertNoConsoleErrors } from '../fixtures/console-guard';
-
-const PASSWORD = 'e2e-password';
-const roles = [
-  { name: 'platform admin', email: 'e2e-admin@example.test', alias: '/dashboard/platform-admin' },
-  { name: 'school manager', email: 'e2e-manager-a@example.test', alias: '/dashboard/school-manager' },
-  { name: 'teacher', email: 'e2e-teacher-a@example.test', alias: '/dashboard/teacher' },
-  { name: 'student', email: 'e2e-student-a@example.test', alias: '/dashboard/student' },
-  { name: 'parent', email: 'e2e-parent-a@example.test', alias: '/dashboard/parent' },
-] as const;
-
-async function signIn(page: Page, email: string): Promise<void> {
-  await page.goto('/');
-  await page.locator('input[type="email"]').fill(email);
-  await page.locator('input[type="password"]').fill(PASSWORD);
-  await page.getByRole('button', { name: /sign in|ورود/i }).click();
-  await expect(page).toHaveURL(/\/dashboard$/);
-}
-
-async function signInEnglish(page: Page, email: string): Promise<void> {
-  await page.addInitScript(() => localStorage.setItem('edutalent_locale', 'en'));
-  await signIn(page, email);
-}
-
-async function endSessionForRoleSwitch(page: Page): Promise<void> {
-  // Logout/session termination has its own Tier-1 browser journey. This final
-  // stateful workflow uses the real logout endpoint only to switch fixture
-  // actors, avoiding coupling the student→teacher→student chain to whether the
-  // responsive shell renders logout inline or behind its mobile profile menu.
-  const response = await page.context().request.post('/api/auth/logout');
-  expect(response.ok(), 'role-switch logout endpoint must succeed').toBeTruthy();
-  await page.goto('/');
-  await expect(page).toHaveURL(/\/$/);
-}
-
-async function establishSession(page: Page, email: string): Promise<void> {
-  // Direct-route acceptance must begin from a valid authenticated browser
-  // context, not by tearing down a live hydrated Dioxus document. The browser
-  // context request client shares its cookie jar with pages in the context, so
-  // the role alias below is the first authenticated document navigation.
-  const response = await page.context().request.post('/api/auth/login', {
-    data: { email, password: PASSWORD },
-  });
-  expect(response.ok(), `session setup failed for ${email}`).toBeTruthy();
-}
-
-),
+      hasText: new RegExp(`^${icon}$`),
     }),
   }).first();
   await expect(item).toBeVisible();
