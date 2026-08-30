@@ -3,6 +3,7 @@
 use crate::i18n::use_locale;
 use crate::views::role_based::components::DashboardSection;
 use crate::views::role_based::shared::common::Modal;
+use api::domain::AssignmentStatus;
 use api::server_functions::assignment_functions::{
     create_assignment, delete_assignment, get_assignment_by_id, AssignmentResponse,
     CreateAssignmentPayload,
@@ -15,7 +16,6 @@ use api::server_functions::dashboard_functions::{
     get_class_materials_for_teacher, get_teacher_assignments, ClassMaterialInfo,
     TeacherAssignmentInfo, TeacherAssignmentProgressState,
 };
-use api::domain::AssignmentStatus;
 use dioxus::prelude::*;
 
 #[component]

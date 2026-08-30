@@ -4,9 +4,9 @@
 //! Provides endpoints for student, teacher, and parent dashboards to fetch
 //! real data from the database.
 
+use crate::domain::AssignmentStatus;
 use dioxus::prelude::*;
 use serde::{Deserialize, Serialize};
-use crate::domain::AssignmentStatus;
 
 #[cfg(feature = "server")]
 use crate::app_state::extract_server_state;
