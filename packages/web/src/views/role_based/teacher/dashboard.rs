@@ -1,5 +1,6 @@
 use crate::application::AuthHooks;
 use crate::i18n::{use_locale, Locale};
+use crate::ui::{DataState, DataStateKind};
 use crate::views::role_based::components::ResponsiveDashboardLayout;
 use api::server_functions::dashboard_functions::{
     get_teacher_assignments, get_teacher_dashboard_stats,
@@ -9,12 +10,11 @@ use dioxus::prelude::*;
 use super::TeacherKnowledgeAssetsScoped;
 
 #[component]
-pub fn TeacherDashboard() -> Element {
+pub fn TeacherDashboard(section: String) -> Element {
     let current_user = AuthHooks::use_current_user().ok().flatten();
-    let mut active_section = use_signal(|| "overview".to_string());
+    let nav = use_navigator();
 
     if let Some(user) = current_user {
-        let section = active_section();
         let content = match section.as_str() {
             "classes" => rsx! { super::classes::Classes {} },
             "assignments" => rsx! { super::assignments::Assignments {} },
@@ -22,19 +22,35 @@ pub fn TeacherDashboard() -> Element {
             "students" => rsx! { super::students::Students {} },
             "submissions" => rsx! { super::submissions::Submissions {} },
             _ => {
-                rsx! { TeacherOverviewSection { on_navigate: move |next| active_section.set(next) } }
+                let nav = nav.clone();
+                rsx! {
+                    TeacherOverviewSection {
+                        on_navigate: move |next: String| {
+                            if next == "overview" {
+                                nav.push(crate::Route::DashboardRoute {});
+                            } else {
+                                nav.push(crate::Route::DashboardSectionRoute { section: next });
+                            }
+                        },
+                    }
+                }
             }
         };
         rsx! {
             ResponsiveDashboardLayout {
                 user,
                 active_section: section,
-                on_navigate: move |next| active_section.set(next),
                 children: rsx! { {content} }
             }
         }
     } else {
-        rsx! { div { class: "flex min-h-screen items-center justify-center", "Loading…" } }
+        rsx! {
+            DataState {
+                kind: DataStateKind::Loading,
+                title: "Loading".to_string(),
+                description: "Checking your session and teacher workspace.".to_string(),
+            }
+        }
     }
 }
 
@@ -130,6 +146,7 @@ pub fn TeacherOverviewSection(on_navigate: EventHandler<String>) -> Element {
                     h3 { class: "et-section-title", "{locale.t(\"assignments.title\")}" }
                     button {
                         class: "et-inline-action",
+                        r#type: "button",
                         onclick: move |_| on_navigate.call("assignments".to_string()),
                         "{view_all}"
                     }
@@ -180,6 +197,7 @@ fn TeacherAction(
     rsx! {
         button {
             class: "et-action-card",
+            r#type: "button",
             onclick: move |_| on_click.call(()),
             div { class: "et-action-card-top",
                 span { class: "et-action-icon",

@@ -162,9 +162,19 @@ fn calculate_gpa_from_percentage(percentage: f64) -> f64 {
 /// Calculate GPA from grade value and scale (scale-aware)
 /// Normalizes to percentage first, then calculates GPA
 #[cfg(feature = "server")]
+fn normalize_grade_to_percentage(grade: f64, grade_scale: i16) -> f64 {
+    (grade / f64::from(grade_scale)) * 100.0
+}
+
+/// Format the original grade value with its declared scale.
+#[cfg(feature = "server")]
+fn format_grade_points(grade: f64, grade_scale: i16) -> String {
+    format!("{grade:.0}/{grade_scale}")
+}
+
+#[cfg(feature = "server")]
 fn calculate_gpa_with_scale(grade: f64, grade_scale: i16) -> f64 {
-    let percentage = (grade / grade_scale as f64) * 100.0;
-    calculate_gpa_from_percentage(percentage)
+    calculate_gpa_from_percentage(normalize_grade_to_percentage(grade, grade_scale))
 }
 
 /// Convert percentage to letter grade
@@ -201,8 +211,7 @@ fn percentage_to_letter_grade(percentage: f64) -> String {
 /// Normalizes to percentage first, then converts to letter
 #[cfg(feature = "server")]
 fn grade_to_letter_with_scale(grade: f64, grade_scale: i16) -> String {
-    let percentage = (grade / grade_scale as f64) * 100.0;
-    percentage_to_letter_grade(percentage)
+    percentage_to_letter_grade(normalize_grade_to_percentage(grade, grade_scale))
 }
 
 #[cfg(feature = "server")]
@@ -266,7 +275,7 @@ pub async fn get_student_dashboard_stats() -> Result<StudentDashboardStats, Serv
 
         let avg_grade_future = sqlx::query_scalar!(
             r#"
-            SELECT CAST(COALESCE(AVG(s.grade), 0.0) AS DOUBLE PRECISION) as "avg!"
+            SELECT CAST(COALESCE(AVG(s.grade * 100.0 / NULLIF(COALESCE(s.grade_scale, 100::SMALLINT), 0)), 0.0) AS DOUBLE PRECISION) as "avg!"
             FROM submissions s
             WHERE s.student_id = $1
             AND s.grade IS NOT NULL
@@ -344,7 +353,7 @@ pub async fn get_student_classes() -> Result<Vec<StudentClassInfo>, ServerFnErro
                 cs.name,
                 sub.name as subject_name,
                 COALESCE(u.name, 'TBD') as "teacher_name!",
-                CAST(COALESCE(AVG(s.grade), 0.0) AS DOUBLE PRECISION) as "avg_grade!"
+                CAST(COALESCE(AVG(s.grade * 100.0 / NULLIF(COALESCE(s.grade_scale, 100::SMALLINT), 0)), 0.0) AS DOUBLE PRECISION) as "avg_grade!"
             FROM enrollments e
             JOIN class_sections cs ON e.class_section_id = cs.id
             JOIN subjects sub ON cs.subject_id = sub.id
@@ -420,7 +429,8 @@ pub async fn get_student_assignments() -> Result<Vec<StudentAssignmentInfo>, Ser
             SELECT
                 ca.id,
                 cs.name AS class_name,
-                latest_submission.grade
+                latest_submission.grade,
+                latest_submission.grade_scale
             FROM custom_assignments ca
             JOIN assignments a ON a.id = ca.assignment_id
             JOIN class_sections cs ON cs.id = a.class_section_id
@@ -431,7 +441,9 @@ pub async fn get_student_assignments() -> Result<Vec<StudentAssignmentInfo>, Ser
               ON enrollment.student_id = student.id
              AND enrollment.class_section_id = a.class_section_id
             LEFT JOIN LATERAL (
-                SELECT CAST(submission.grade AS DOUBLE PRECISION) AS grade
+                SELECT
+                    CAST(submission.grade AS DOUBLE PRECISION) AS grade,
+                    COALESCE(submission.grade_scale, 100::SMALLINT) AS grade_scale
                 FROM submissions submission
                 WHERE submission.custom_assignment_id = ca.id
                   AND submission.student_id = ca.student_id
@@ -463,6 +475,7 @@ pub async fn get_student_assignments() -> Result<Vec<StudentAssignmentInfo>, Ser
                 (
                     row.get::<String, _>("class_name"),
                     row.get::<Option<f64>, _>("grade"),
+                    row.get::<Option<i16>, _>("grade_scale"),
                 ),
             );
         }
@@ -471,7 +484,7 @@ pub async fn get_student_assignments() -> Result<Vec<StudentAssignmentInfo>, Ser
             .into_iter()
             .map(|assignment| {
                 let assignment_id: Uuid = assignment.id.into();
-                let (class_name, grade_value) =
+                let (class_name, grade_value, grade_scale) =
                     metadata.remove(&assignment_id).ok_or_else(|| {
                         tracing::error!(
                             custom_assignment_id = %assignment_id,
@@ -495,8 +508,10 @@ pub async fn get_student_assignments() -> Result<Vec<StudentAssignmentInfo>, Ser
                     class_name,
                     due_date: assignment.due_at.format("%b %d, %Y").to_string(),
                     status,
-                    grade: grade_value.map(percentage_to_letter_grade),
-                    points: grade_value.map(|grade| format!("{grade}/100")),
+                    grade: grade_value
+                        .map(|grade| grade_to_letter_with_scale(grade, grade_scale.unwrap_or(100))),
+                    points: grade_value
+                        .map(|grade| format_grade_points(grade, grade_scale.unwrap_or(100))),
                 })
             })
             .collect()
@@ -795,7 +810,7 @@ pub async fn get_parent_dashboard_stats() -> Result<ParentDashboardStats, Server
         // Calculate average GPA across all children
         let avg_grade = sqlx::query_scalar!(
             r#"
-            SELECT CAST(COALESCE(AVG(s.grade), 0.0) AS DOUBLE PRECISION) as "avg!"
+            SELECT CAST(COALESCE(AVG(s.grade * 100.0 / NULLIF(COALESCE(s.grade_scale, 100::SMALLINT), 0)), 0.0) AS DOUBLE PRECISION) as "avg!"
             FROM submissions s
             JOIN students st ON s.student_id = st.id
             WHERE st.parent_id = $1
@@ -853,7 +868,7 @@ pub async fn get_parent_children() -> Result<Vec<ChildInfo>, ServerFnError> {
             SELECT 
                 st.id,
                 u.name,
-                CAST(COALESCE(AVG(s.grade), 0.0) AS DOUBLE PRECISION) as "avg_grade!",
+                CAST(COALESCE(AVG(s.grade * 100.0 / NULLIF(COALESCE(s.grade_scale, 100::SMALLINT), 0)), 0.0) AS DOUBLE PRECISION) as "avg_grade!",
                 COUNT(DISTINCT e.id) as "enrolled_classes!"
             FROM students st
             JOIN users u ON st.user_id = u.id
@@ -1104,7 +1119,7 @@ pub async fn get_teacher_students() -> Result<Vec<TeacherStudentInfo>, ServerFnE
                 u.name,
                 u.email,
                 COALESCE(
-                    (SELECT CAST(AVG(s.grade) AS DOUBLE PRECISION) 
+                    (SELECT CAST(AVG(s.grade * 100.0 / NULLIF(COALESCE(s.grade_scale, 100::SMALLINT), 0)) AS DOUBLE PRECISION) 
                      FROM submissions s 
                      JOIN custom_assignments ca ON s.custom_assignment_id = ca.id 
                      WHERE ca.student_id = st.id AND s.grade IS NOT NULL),
@@ -1195,6 +1210,7 @@ pub async fn get_student_grades_for_teacher(
                 a.title,
                 cs.name as class_name,
                 CAST(s.grade AS DOUBLE PRECISION) as "grade",
+                COALESCE(s.grade_scale, 100::SMALLINT) as "grade_scale!",
                 ca.graded_at
             FROM submissions s
             JOIN custom_assignments ca ON s.custom_assignment_id = ca.id
@@ -1218,13 +1234,14 @@ pub async fn get_student_grades_for_teacher(
             .into_iter()
             .map(|row| {
                 let grade_f64 = row.grade.unwrap_or(0.0);
-                let letter = percentage_to_letter_grade(grade_f64);
+                let grade_scale = row.grade_scale;
+                let letter = grade_to_letter_with_scale(grade_f64, grade_scale);
 
                 StudentGradeDetail {
                     assignment_title: row.title,
                     class_name: row.class_name,
                     grade: letter,
-                    points: format!("{:.0}/100", grade_f64),
+                    points: format_grade_points(grade_f64, grade_scale),
                     graded_at: row
                         .graded_at
                         .map(|d| d.format("%b %d").to_string())
@@ -1320,7 +1337,8 @@ pub async fn get_class_assignments_for_student(
                 a.title,
                 ca.due_at,
                 ca.status::text as "status!",
-                CAST(s.grade AS DOUBLE PRECISION) as grade
+                CAST(s.grade AS DOUBLE PRECISION) as grade,
+                COALESCE(s.grade_scale, 100::SMALLINT) as "grade_scale!"
             FROM custom_assignments ca
             JOIN assignments a ON ca.assignment_id = a.id
             LEFT JOIN submissions s ON s.custom_assignment_id = ca.id AND s.student_id = ca.student_id
@@ -1338,7 +1356,9 @@ pub async fn get_class_assignments_for_student(
             .into_iter()
             .map(|row| {
                 let status = row.status.to_lowercase();
-                let grade = row.grade.map(|g| format!("{}%", g as i32));
+                let grade = row
+                    .grade
+                    .map(|value| format_grade_points(value, row.grade_scale));
 
                 ClassAssignmentInfo {
                     id: row.id.to_string(),
@@ -1389,6 +1409,7 @@ pub async fn get_class_grades_for_student(
             SELECT 
                 a.title,
                 CAST(s.grade AS DOUBLE PRECISION) as "grade!",
+                COALESCE(s.grade_scale, 100::SMALLINT) as "grade_scale!",
                 ca.graded_at
             FROM submissions s
             JOIN custom_assignments ca ON s.custom_assignment_id = ca.id
@@ -1406,13 +1427,12 @@ pub async fn get_class_grades_for_student(
         let grades = rows
             .into_iter()
             .map(|row| {
-                let grade_pct = row.grade as i32;
-                let letter = percentage_to_letter_grade(row.grade);
+                let letter = grade_to_letter_with_scale(row.grade, row.grade_scale);
 
                 ClassGradeInfo {
                     assignment_title: row.title,
                     grade: letter,
-                    points: format!("{}/100", grade_pct),
+                    points: format_grade_points(row.grade, row.grade_scale),
                     graded_at: row
                         .graded_at
                         .map(|d| d.format("%b %d").to_string())
@@ -1705,6 +1725,7 @@ pub async fn get_child_grades_for_parent(
                 a.title,
                 cs.name as class_name,
                 CAST(s.grade AS DOUBLE PRECISION) as "grade",
+                COALESCE(s.grade_scale, 100::SMALLINT) as "grade_scale!",
                 ca.graded_at
             FROM submissions s
             JOIN custom_assignments ca ON s.custom_assignment_id = ca.id
@@ -1725,13 +1746,14 @@ pub async fn get_child_grades_for_parent(
             .into_iter()
             .map(|row| {
                 let grade_f64 = row.grade.unwrap_or(0.0);
-                let letter = percentage_to_letter_grade(grade_f64);
+                let grade_scale = row.grade_scale;
+                let letter = grade_to_letter_with_scale(grade_f64, grade_scale);
 
                 ChildGradeInfo {
                     assignment_title: row.title,
                     class_name: row.class_name,
                     grade: letter,
-                    points: format!("{:.0}/100", grade_f64),
+                    points: format_grade_points(grade_f64, grade_scale),
                     graded_at: row
                         .graded_at
                         .map(|d| d.format("%b %d").to_string())
@@ -1798,7 +1820,8 @@ pub async fn get_child_assignments_for_parent(
                 cs.name as class_name,
                 ca.due_at,
                 ca.status::text as "status!",
-                CAST(s.grade AS DOUBLE PRECISION) as "grade"
+                CAST(s.grade AS DOUBLE PRECISION) as "grade",
+                COALESCE(s.grade_scale, 100::SMALLINT) as "grade_scale!"
             FROM custom_assignments ca
             JOIN assignments a ON ca.assignment_id = a.id
             JOIN class_sections cs ON a.class_section_id = cs.id
@@ -1817,7 +1840,9 @@ pub async fn get_child_assignments_for_parent(
             .into_iter()
             .map(|row| {
                 let status = row.status.to_lowercase();
-                let grade = row.grade.map(|g| percentage_to_letter_grade(g));
+                let grade = row
+                    .grade
+                    .map(|value| grade_to_letter_with_scale(value, row.grade_scale));
 
                 ChildAssignmentInfo {
                     id: row.id.to_string(),
@@ -1918,6 +1943,7 @@ pub struct TeacherSubmissionInfo {
     pub submitted_at: String,
     pub status: String, // "pending", "graded"
     pub grade: Option<f64>,
+    pub grade_scale: i16,
     pub feedback: Option<String>,
 }
 
@@ -1960,6 +1986,7 @@ pub async fn get_pending_submissions_for_teacher(
                 s.content,
                 s.submitted_at,
                 s.grade,
+                COALESCE(s.grade_scale, 100::SMALLINT) AS grade_scale,
                 s.feedback
             FROM submissions s
             JOIN custom_assignments ca ON s.custom_assignment_id = ca.id
@@ -2009,6 +2036,7 @@ pub async fn get_pending_submissions_for_teacher(
                         "pending".to_string()
                     },
                     grade,
+                    grade_scale: row.get("grade_scale"),
                     feedback,
                 }
             })
@@ -2070,6 +2098,7 @@ pub async fn get_submissions_for_assignment(
                 s.content,
                 s.submitted_at,
                 CAST(s.grade AS DOUBLE PRECISION) as grade,
+                COALESCE(s.grade_scale, 100::SMALLINT) AS grade_scale,
                 s.feedback
             FROM submissions s
             JOIN custom_assignments ca ON s.custom_assignment_id = ca.id
@@ -2117,6 +2146,7 @@ pub async fn get_submissions_for_assignment(
                         "pending".to_string()
                     },
                     grade,
+                    grade_scale: row.get("grade_scale"),
                     feedback,
                 }
             })
@@ -2150,7 +2180,7 @@ pub async fn grade_submission(
             .map_err(|_| ServerFnError::new("Invalid submission ID"))?;
 
         // Validate grade range
-        if grade < 0.0 || grade > 100.0 {
+        if !(0.0..=100.0).contains(&grade) {
             return Err(ServerFnError::new("Grade must be between 0 and 100"));
         }
 
@@ -2184,7 +2214,7 @@ pub async fn grade_submission(
         sqlx::query(
             r#"
             UPDATE submissions 
-            SET grade = $1, feedback = $2, graded_by = $3
+            SET grade = $1, grade_scale = 100, feedback = $2, graded_by = $3
             WHERE id = $4
             "#,
         )
@@ -2781,4 +2811,16 @@ pub async fn cancel_vectorization(material_id: String) -> Result<bool, ServerFnE
     }
     #[cfg(not(feature = "server"))]
     Ok(false)
+}
+
+#[cfg(all(test, feature = "server"))]
+mod grade_scale_tests {
+    use super::{calculate_gpa_with_scale, format_grade_points, grade_to_letter_with_scale};
+
+    #[test]
+    fn twenty_point_grades_keep_their_percentage_meaning() {
+        assert_eq!(grade_to_letter_with_scale(18.0, 20), "A-");
+        assert_eq!(format_grade_points(18.0, 20), "18/20");
+        assert_eq!(calculate_gpa_with_scale(18.0, 20), 4.0);
+    }
 }

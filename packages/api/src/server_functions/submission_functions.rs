@@ -19,6 +19,11 @@ use uuid::Uuid;
 
 const MAX_SUBMISSION_CONTENT_BYTES: usize = 100_000;
 
+#[cfg(feature = "server")]
+fn format_grade_points(grade: f64, grade_scale: i16) -> String {
+    format!("{grade:.0}/{grade_scale}")
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SubmissionResponse {
     pub id: String,
@@ -181,6 +186,7 @@ pub async fn get_submission_for_assignment(
                    submission.content,
                    submission.submitted_at,
                    CAST(submission.grade AS DOUBLE PRECISION) AS grade,
+                   COALESCE(submission.grade_scale, 100::SMALLINT) AS grade_scale,
                    submission.feedback
             FROM custom_assignments ca
             JOIN assignments a ON a.id = ca.assignment_id
@@ -214,6 +220,7 @@ pub async fn get_submission_for_assignment(
             let content_json: serde_json::Value = row.get("content");
             let submitted_at: Option<chrono::DateTime<chrono::Utc>> = row.get("submitted_at");
             let grade: Option<f64> = row.get("grade");
+            let grade_scale: i16 = row.get("grade_scale");
             StudentSubmission {
                 id: row.get::<Uuid, _>("id").to_string(),
                 content: content_json
@@ -222,7 +229,7 @@ pub async fn get_submission_for_assignment(
                     .unwrap_or("")
                     .to_string(),
                 submitted_at: submitted_at.map(|value| value.to_rfc3339()),
-                grade: grade.map(|value| format!("{value:.0}%")),
+                grade: grade.map(|value| format_grade_points(value, grade_scale)),
                 feedback: row.get("feedback"),
             }
         }))
@@ -264,4 +271,15 @@ fn map_state_error(error: ServerFnError) -> ServerFnError {
 fn map_database_error(error: sqlx::Error) -> ServerFnError {
     tracing::error!(%error, "Submission database operation failed");
     ServerFnError::new("Unable to process submission")
+}
+
+#[cfg(all(test, feature = "server"))]
+mod grade_scale_tests {
+    use super::format_grade_points;
+
+    #[test]
+    fn grade_display_preserves_the_declared_scale() {
+        assert_eq!(format_grade_points(18.0, 20), "18/20");
+        assert_eq!(format_grade_points(90.0, 100), "90/100");
+    }
 }

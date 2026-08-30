@@ -205,7 +205,7 @@ pub fn TeacherKnowledgeAssetsSection() -> Element {
 #[component]
 pub fn PlatformAdminDashboard() -> Element {
     let current_user = AuthHooks::use_current_user().ok().flatten();
-    let mut active_section = use_signal(|| "knowledge-assets".to_string());
+    let active_section = use_signal(|| "knowledge-assets".to_string());
     let section = active_section();
 
     if let Some(user) = current_user {
@@ -217,7 +217,6 @@ pub fn PlatformAdminDashboard() -> Element {
             ResponsiveDashboardLayout {
                 user,
                 active_section: section,
-                on_navigate: move |next| active_section.set(next),
                 children: rsx! { {content} }
             }
         }
@@ -315,12 +314,12 @@ fn PlatformKnowledgeAssetsSection() -> Element {
                                                                 busy.set(true);
                                                                 spawn(async move {
                                                                     match embed_admin_knowledge_asset(asset_id).await {
-                                                                    Ok(job_id) => {
-                                                                        notice.set(Some(format!("Embedding queued as job {job_id}.")));
-                                                                        assets.restart();
+                                                                        Ok(job_id) => {
+                                                                            notice.set(Some(format!("Embedding queued as job {job_id}.")));
+                                                                            assets.restart();
+                                                                        }
+                                                                        Err(error) => notice.set(Some(format!("Unable to queue embedding: {error}"))),
                                                                     }
-                                                                    Err(error) => notice.set(Some(format!("Unable to queue embedding: {error}"))),
-                                                                }
                                                                     busy.set(false);
                                                                 });
                                                             },

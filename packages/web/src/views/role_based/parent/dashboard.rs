@@ -5,12 +5,11 @@ use api::server_functions::parent_scoped_functions::get_parent_children_scoped;
 use dioxus::prelude::*;
 
 #[component]
-pub fn ParentDashboard() -> Element {
+pub fn ParentDashboard(section: String) -> Element {
     let current_user = AuthHooks::use_current_user().ok().flatten();
-    let mut active_section = use_signal(|| "overview".to_string());
+    let nav = use_navigator();
 
     if let Some(user) = current_user {
-        let section = active_section();
         let content = match section.as_str() {
             "children" => rsx! { super::children::ChildrenSection {} },
             "reports"
@@ -25,14 +24,24 @@ pub fn ParentDashboard() -> Element {
                 rsx! { super::communication::CommunicationSection {} }
             }
             _ => {
-                rsx! { ParentOverviewSection { on_navigate: move |next| active_section.set(next) } }
+                let nav = nav.clone();
+                rsx! {
+                    ParentOverviewSection {
+                        on_navigate: move |next: String| {
+                            if next == "overview" {
+                                nav.push(crate::Route::DashboardRoute {});
+                            } else {
+                                nav.push(crate::Route::DashboardSectionRoute { section: next });
+                            }
+                        },
+                    }
+                }
             }
         };
         rsx! {
             ResponsiveDashboardLayout {
                 user,
                 active_section: section,
-                on_navigate: move |next| active_section.set(next),
                 children: rsx! { {content} }
             }
         }

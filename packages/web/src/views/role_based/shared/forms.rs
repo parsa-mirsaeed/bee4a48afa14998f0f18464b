@@ -1,6 +1,11 @@
+use crate::i18n::use_locale;
+use crate::ui::{
+    Checkbox as UiCheckbox, IconButton, Select as UiSelect, SelectOption as UiSelectOption,
+    TextArea as UiTextArea, TextField as UiTextField,
+};
 use dioxus::prelude::*;
+use uuid::Uuid;
 
-/// Form input component
 #[component]
 pub fn FormInput(
     label: String,
@@ -13,54 +18,21 @@ pub fn FormInput(
     error: Option<String>,
     on_change: Callback<String>,
 ) -> Element {
-    let input_type = input_type.unwrap_or("text".to_string());
-    let is_required = required.unwrap_or(false);
-    let is_disabled = disabled.unwrap_or(false);
-
-    let border_class = if error.is_some() { "border-red-500 focus:ring-red-500" } else { "border-transparent focus:ring-primary" };
-    let bg_class = if is_disabled { "opacity-50 cursor-not-allowed" } else { "" };
-
     rsx! {
-        div {
-            class: "mb-4",
-
-            label {
-                class: "block text-gray-700 dark:text-gray-200 font-medium mb-2 text-sm",
-                r#for: "{name}",
-                "{label}"
-                if is_required {
-                    span {
-                        class: "text-red-500 ml-1",
-                        "*"
-                    }
-                }
-            }
-
-            input {
-                r#type: "{input_type}",
-                name: "{name}",
-                value: "{value}",
-                placeholder: placeholder.unwrap_or_default(),
-                required: is_required,
-                disabled: is_disabled,
-                class: "w-full px-4 py-2.5 rounded-lg glassmorphism border-none focus:ring-2 {border_class} placeholder-gray-500 dark:placeholder-gray-400 text-gray-800 dark:text-gray-100 bg-transparent transition-all duration-200 {bg_class}",
-                oninput: move |evt| {
-                    on_change.call(evt.value());
-                }
-            }
-
-            if let Some(error_message) = error {
-                div {
-                    class: "text-red-500 text-xs mt-1 flex items-center gap-1",
-                    span { class: "material-icons-outlined text-sm", "error_outline" }
-                    "{error_message}"
-                }
-            }
+        UiTextField {
+            label,
+            name,
+            value,
+            input_type,
+            placeholder,
+            required,
+            disabled,
+            error,
+            on_change: move |next| on_change.call(next),
         }
     }
 }
 
-/// Form select component
 #[component]
 pub fn FormSelect(
     label: String,
@@ -72,59 +44,24 @@ pub fn FormSelect(
     error: Option<String>,
     on_change: Callback<String>,
 ) -> Element {
-    let is_required = required.unwrap_or(false);
-    let is_disabled = disabled.unwrap_or(false);
-
-    let border_class = if error.is_some() { "border-red-500 focus:ring-red-500" } else { "border-transparent focus:ring-primary" };
-    let bg_class = if is_disabled { "opacity-50 cursor-not-allowed" } else { "" };
-
+    let _ = name;
+    let options = options
+        .into_iter()
+        .map(|option| UiSelectOption::new(option.value, option.label))
+        .collect();
     rsx! {
-        div {
-            class: "mb-4",
-
-            label {
-                class: "block text-gray-700 dark:text-gray-200 font-medium mb-2 text-sm",
-                r#for: "{name}",
-                "{label}"
-                if is_required {
-                    span {
-                        class: "text-red-500 ml-1",
-                        "*"
-                    }
-                }
-            }
-
-            select {
-                name: "{name}",
-                required: is_required,
-                disabled: is_disabled,
-                class: "w-full px-4 py-2.5 rounded-lg glassmorphism border-none focus:ring-2 {border_class} text-gray-800 dark:text-gray-100 bg-transparent transition-all duration-200 {bg_class} appearance-none",
-                onchange: move |evt| {
-                    on_change.call(evt.value());
-                },
-
-                for option in options.iter() {
-                    option {
-                        value: "{option.value}",
-                        selected: option.value == value,
-                        class: "text-gray-800 bg-white dark:bg-gray-800", // dropdown options need solid bg
-                        "{option.label}"
-                    }
-                }
-            }
-
-            if let Some(error_message) = error {
-                div {
-                    class: "text-red-500 text-xs mt-1 flex items-center gap-1",
-                    span { class: "material-icons-outlined text-sm", "error_outline" }
-                    "{error_message}"
-                }
-            }
+        UiSelect {
+            label,
+            value,
+            options,
+            required,
+            disabled,
+            error,
+            on_change: move |next| on_change.call(next),
         }
     }
 }
 
-/// Select option structure
 #[derive(Debug, Clone, PartialEq)]
 pub struct SelectOption {
     pub value: String,
@@ -140,7 +77,6 @@ impl SelectOption {
     }
 }
 
-/// Form textarea component
 #[component]
 pub fn FormTextarea(
     label: String,
@@ -153,54 +89,21 @@ pub fn FormTextarea(
     error: Option<String>,
     on_change: Callback<String>,
 ) -> Element {
-    let is_required = required.unwrap_or(false);
-    let is_disabled = disabled.unwrap_or(false);
-    let textarea_rows = rows.unwrap_or(4);
-
-    let border_class = if error.is_some() { "border-red-500 focus:ring-red-500" } else { "border-transparent focus:ring-primary" };
-    let bg_class = if is_disabled { "opacity-50 cursor-not-allowed" } else { "" };
-
+    let _ = (name, placeholder);
+    let rows = rows.map(|value| value.clamp(1, u8::MAX as i32) as u8);
     rsx! {
-        div {
-            class: "mb-4",
-
-            label {
-                class: "block text-gray-700 dark:text-gray-200 font-medium mb-2 text-sm",
-                r#for: "{name}",
-                "{label}"
-                if is_required {
-                    span {
-                        class: "text-red-500 ml-1",
-                        "*"
-                    }
-                }
-            }
-
-            textarea {
-                name: "{name}",
-                value: "{value}",
-                placeholder: placeholder.unwrap_or_default(),
-                required: is_required,
-                disabled: is_disabled,
-                rows: textarea_rows,
-                class: "w-full px-4 py-2.5 rounded-lg glassmorphism border-none focus:ring-2 {border_class} placeholder-gray-500 dark:placeholder-gray-400 text-gray-800 dark:text-gray-100 bg-transparent transition-all duration-200 resize-y {bg_class}",
-                oninput: move |evt| {
-                    on_change.call(evt.value());
-                }
-            }
-
-            if let Some(error_message) = error {
-                div {
-                    class: "text-red-500 text-xs mt-1 flex items-center gap-1",
-                    span { class: "material-icons-outlined text-sm", "error_outline" }
-                    "{error_message}"
-                }
-            }
+        UiTextArea {
+            label,
+            value,
+            rows,
+            required,
+            disabled,
+            error,
+            on_change: move |next| on_change.call(next),
         }
     }
 }
 
-/// Form checkbox component
 #[component]
 pub fn FormCheckbox(
     label: String,
@@ -211,52 +114,20 @@ pub fn FormCheckbox(
     error: Option<String>,
     on_change: Callback<bool>,
 ) -> Element {
-    let is_required = required.unwrap_or(false);
-    let is_disabled = disabled.unwrap_or(false);
-    let cursor_class = if is_disabled { "cursor-not-allowed opacity-50" } else { "cursor-pointer" };
-
+    let _ = (name, required);
     rsx! {
-        div {
-            class: "mb-4",
-
-            label {
-                class: "flex items-center gap-3 text-gray-700 dark:text-gray-200 font-medium {cursor_class}",
-
-                input {
-                    r#type: "checkbox",
-                    name: "{name}",
-                    checked: checked,
-                    required: is_required,
-                    disabled: is_disabled,
-                    class: "w-5 h-5 text-primary rounded border-gray-300 focus:ring-primary dark:bg-gray-700 dark:border-gray-600",
-                    onchange: move |evt| {
-                        on_change.call(evt.checked());
-                    }
-                }
-
-                span {
-                    "{label}"
-                    if is_required {
-                        span {
-                            class: "text-red-500 ml-1",
-                            "*"
-                        }
-                    }
-                }
-            }
-
-            if let Some(error_message) = error {
-                div {
-                    class: "text-red-500 text-xs mt-1 flex items-center gap-1",
-                    span { class: "material-icons-outlined text-sm", "error_outline" }
-                    "{error_message}"
-                }
-            }
+        UiCheckbox {
+            label,
+            checked,
+            disabled,
+            error,
+            on_change: move |next| on_change.call(next),
         }
     }
 }
 
-/// Search box component
+/// Accessible compatibility search field. The label is visually hidden but is
+/// still bound to the generated input ID; layout uses logical CSS properties.
 #[component]
 pub fn SearchBox(
     placeholder: String,
@@ -264,34 +135,34 @@ pub fn SearchBox(
     on_change: Callback<String>,
     on_clear: Option<Callback<()>>,
 ) -> Element {
+    let locale = use_locale();
+    let input_id = use_signal(|| format!("et-search-{}", Uuid::new_v4().simple()))
+        .read()
+        .clone();
+
     rsx! {
-        div {
-            class: "relative",
-
-            span {
-                class: "material-icons-outlined absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500 select-none",
-                "search"
-            }
-
+        div { class: "et-ui-searchbox",
+            label { class: "sr-only", r#for: "{input_id}", "{locale.t(\"common.search\")}" }
+            span { class: "material-icons-outlined et-ui-searchbox__icon", "aria-hidden": "true", "search" }
             input {
-                r#type: "text",
+                id: "{input_id}",
+                class: "et-ui-input",
+                r#type: "search",
                 value: "{value}",
-                placeholder: "{placeholder}",
-                class: "w-full pl-10 pr-10 py-2.5 rounded-lg glassmorphism border-none focus:ring-2 focus:ring-primary placeholder-gray-500 dark:placeholder-gray-400 text-gray-800 dark:text-gray-100 bg-transparent transition-all duration-200",
-                oninput: move |evt| {
-                    on_change.call(evt.value());
-                }
+                placeholder,
+                oninput: move |event| on_change.call(event.value()),
             }
-
             if !value.is_empty() {
-                button {
-                    class: "absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors",
-                    onclick: move |_| {
-                        if let Some(clear_callback) = on_clear {
-                            clear_callback.call(());
-                        }
-                    },
-                    span { class: "material-icons-outlined text-sm", "close" }
+                div { class: "et-ui-searchbox__clear",
+                    IconButton {
+                        label: locale.t("common.clear"),
+                        icon: "close".to_string(),
+                        onclick: move |_| {
+                            if let Some(clear) = on_clear {
+                                clear.call(());
+                            }
+                        },
+                    }
                 }
             }
         }

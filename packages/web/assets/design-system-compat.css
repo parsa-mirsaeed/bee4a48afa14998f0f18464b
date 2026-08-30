@@ -1,0 +1,135 @@
+/* Transitional PR-2 adapters for legacy shared component APIs.
+ * Feature-specific legacy markup is migrated in PR-3; these rules ensure the
+ * compatibility wrappers use semantic design-system surfaces without glass or
+ * inline presentation styles.
+ */
+
+.locale-wrapper {
+  min-block-size: 100dvh;
+}
+
+.et-language-switcher-icon {
+  margin-inline-start: var(--et-space-1);
+}
+
+/* PR-2 interaction-size acceptance. The canonical primitive layer defines the
+ * visual proportions; these late-loaded adapters enforce the plan's 44px
+ * default/touch target while preserving a 36px compact size for fine pointers.
+ */
+.et-ui-button {
+  min-block-size: 44px;
+}
+
+.et-ui-button--sm {
+  min-block-size: 36px;
+}
+
+.et-ui-icon-button {
+  inline-size: 44px;
+  block-size: 44px;
+  flex-basis: 44px;
+}
+
+.et-ui-input-action {
+  inline-size: 2.75rem;
+  block-size: 2.75rem;
+}
+
+@media (pointer: coarse) {
+  .et-ui-button--sm {
+    min-block-size: 44px;
+  }
+}
+
+/* In RTL the closed mobile sidebar translates in the opposite direction.
+ * Match that selector's specificity when opening so the drawer actually
+ * returns to the viewport instead of remaining translated off-canvas.
+ */
+@media (max-width: 1199px) {
+  [dir="rtl"] .et-sidebar.et-sidebar--mobile-open {
+    translate: 0 0;
+  }
+}
+
+.et-ui-button--success {
+  background: var(--et-color-success);
+  color: #fff;
+}
+
+.et-ui-button--success:not(:disabled):hover,
+.et-ui-button--warning:not(:disabled):hover {
+  filter: brightness(0.92);
+}
+
+.et-ui-button--warning {
+  background: var(--et-color-warning);
+  color: #fff;
+}
+
+.et-ui-compat-loading {
+  inline-size: min(20rem, 100%);
+  margin-inline: auto;
+  padding-block: var(--et-space-8);
+}
+
+.et-ui-compat-card-title {
+  margin-block-end: var(--et-space-4);
+  color: var(--et-color-text);
+  font-size: var(--et-font-lg);
+  font-weight: 700;
+}
+
+.et-ui-searchbox {
+  position: relative;
+}
+
+.et-ui-searchbox__icon {
+  position: absolute;
+  inset-inline-start: 0.8rem;
+  inset-block-start: 50%;
+  translate: 0 -50%;
+  color: var(--et-color-text-muted);
+  pointer-events: none;
+}
+
+.et-ui-searchbox .et-ui-input {
+  padding-inline-start: 2.65rem;
+  padding-inline-end: 2.65rem;
+}
+
+.et-ui-searchbox__clear {
+  position: absolute;
+  inset-inline-end: 0.3rem;
+  inset-block-start: 50%;
+  translate: 0 -50%;
+}
+
+.et-ui-validation-list {
+  margin-block-start: var(--et-space-2);
+  padding-inline-start: 1.2rem;
+  list-style: disc;
+  font-size: var(--et-font-sm);
+}
+
+.et-ui-validation-list li + li {
+  margin-block-start: var(--et-space-1);
+}
+
+.et-ui-error-page {
+  min-block-size: 60vh;
+  display: grid;
+  place-items: center;
+  padding: var(--et-space-8) var(--et-space-4);
+}
+
+.et-ui-error-page__content {
+  inline-size: min(34rem, 100%);
+}
+
+.et-ui-error-page__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--et-space-2);
+  justify-content: center;
+  margin-block-start: var(--et-space-5);
+}

@@ -7,13 +7,12 @@ use api::server_functions::dashboard_functions::{
 use dioxus::prelude::*;
 
 #[component]
-pub fn StudentDashboard() -> Element {
+pub fn StudentDashboard(section: String) -> Element {
     let current_user = AuthHooks::use_current_user().ok().flatten();
-    let mut active_section = use_signal(|| "overview".to_string());
     let locale = use_locale();
+    let nav = use_navigator();
 
     if let Some(user) = current_user {
-        let section = active_section();
         let content = match section.as_str() {
             "classes" => rsx! { super::classes::Classes {} },
             "assignments" => rsx! { super::assignments::AssignmentsSection {} },
@@ -21,15 +20,25 @@ pub fn StudentDashboard() -> Element {
             "schedule" if api::product_capabilities::PRODUCTION_PRODUCT_CAPABILITIES.timetable => {
                 rsx! { super::schedule::ScheduleSection {} }
             }
-            _ => rsx! {
-                StudentOverviewSection { on_navigate: move |next| active_section.set(next) }
-            },
+            _ => {
+                let nav = nav.clone();
+                rsx! {
+                    StudentOverviewSection {
+                        on_navigate: move |next: String| {
+                            if next == "overview" {
+                                nav.push(crate::Route::DashboardRoute {});
+                            } else {
+                                nav.push(crate::Route::DashboardSectionRoute { section: next });
+                            }
+                        },
+                    }
+                }
+            }
         };
         rsx! {
             ResponsiveDashboardLayout {
                 user,
                 active_section: section,
-                on_navigate: move |next| active_section.set(next),
                 children: rsx! { {content} }
             }
         }

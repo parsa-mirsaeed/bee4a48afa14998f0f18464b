@@ -1,10 +1,10 @@
 use crate::application::{AuthHooks, RoutingService};
-use crate::components::DashboardSkeleton;
 use crate::domain::{SystemRole, User};
+use crate::i18n::use_locale;
 use crate::infrastructure::auth_provider::{CURRENT_USER_STATE, IS_INITIALIZING};
+use crate::ui::{DataState, DataStateKind};
 use crate::Route;
 use dioxus::prelude::*;
-use web_sys::window;
 
 fn use_login_redirect() {
     let nav = use_navigator();
@@ -17,7 +17,18 @@ fn use_login_redirect() {
     });
 }
 
-/// Role guard component that only renders children if user has required role.
+#[component]
+fn GuardLoading() -> Element {
+    let locale = use_locale();
+    rsx! {
+        DataState {
+            kind: DataStateKind::Loading,
+            title: locale.t("common.loading"),
+            description: locale.t("session.checking"),
+        }
+    }
+}
+
 #[component]
 pub fn RoleGuard(
     required_role: SystemRole,
@@ -25,27 +36,18 @@ pub fn RoleGuard(
     children: Element,
 ) -> Element {
     use_login_redirect();
-    let is_initializing = *IS_INITIALIZING.read();
-    let current_user = AuthHooks::use_current_user().ok().flatten();
-
-    if is_initializing {
-        return rsx! { DashboardSkeleton {} };
+    if *IS_INITIALIZING.read() {
+        return rsx! { GuardLoading {} };
     }
 
-    match current_user {
+    match AuthHooks::use_current_user().ok().flatten() {
         Some(user) if user.role == required_role => rsx! { {children} },
         Some(_) if fallback.is_some() => fallback.unwrap(),
-        Some(user) => rsx! {
-            RoleAccessDeniedMessage {
-                user,
-                required_role,
-            }
-        },
-        None => rsx! { DashboardSkeleton {} },
+        Some(user) => rsx! { RoleAccessDeniedMessage { user, required_role } },
+        None => rsx! { GuardLoading {} },
     }
 }
 
-/// Multi-role guard that allows access if user has any required role.
 #[component]
 pub fn MultiRoleGuard(
     required_roles: Vec<SystemRole>,
@@ -53,27 +55,18 @@ pub fn MultiRoleGuard(
     children: Element,
 ) -> Element {
     use_login_redirect();
-    let is_initializing = *IS_INITIALIZING.read();
-    let current_user = AuthHooks::use_current_user().ok().flatten();
-
-    if is_initializing {
-        return rsx! { DashboardSkeleton {} };
+    if *IS_INITIALIZING.read() {
+        return rsx! { GuardLoading {} };
     }
 
-    match current_user {
+    match AuthHooks::use_current_user().ok().flatten() {
         Some(user) if required_roles.contains(&user.role) => rsx! { {children} },
         Some(_) if fallback.is_some() => fallback.unwrap(),
-        Some(user) => rsx! {
-            MultiRoleAccessDeniedMessage {
-                user,
-                required_roles,
-            }
-        },
-        None => rsx! { DashboardSkeleton {} },
+        Some(user) => rsx! { MultiRoleAccessDeniedMessage { user, required_roles } },
+        None => rsx! { GuardLoading {} },
     }
 }
 
-/// Permission guard that only renders children if user has required permission.
 #[component]
 pub fn PermissionGuard(
     required_permission: String,
@@ -81,250 +74,113 @@ pub fn PermissionGuard(
     children: Element,
 ) -> Element {
     use_login_redirect();
-    let is_initializing = *IS_INITIALIZING.read();
-    let current_user = AuthHooks::use_current_user().ok().flatten();
-
-    if is_initializing {
-        return rsx! { LoadingSpinner {} };
+    if *IS_INITIALIZING.read() {
+        return rsx! { GuardLoading {} };
     }
 
-    match current_user {
+    match AuthHooks::use_current_user().ok().flatten() {
         Some(user) if user.has_permission(&required_permission) => rsx! { {children} },
         Some(_) if fallback.is_some() => fallback.unwrap(),
-        Some(user) => rsx! {
-            PermissionDeniedMessage {
-                user,
-                required_permission,
-            }
-        },
-        None => rsx! { DashboardSkeleton {} },
+        Some(user) => rsx! { PermissionDeniedMessage { user, required_permission } },
+        None => rsx! { GuardLoading {} },
     }
 }
 
-/// Authentication guard that only renders children if user is authenticated.
 #[component]
 pub fn AuthGuard(fallback: Option<Element>, children: Element) -> Element {
     use_login_redirect();
-    let is_initializing = *IS_INITIALIZING.read();
-    let current_user = AuthHooks::use_current_user().ok().flatten();
-
-    if is_initializing {
-        return rsx! { DashboardSkeleton {} };
+    if *IS_INITIALIZING.read() {
+        return rsx! { GuardLoading {} };
     }
 
-    if current_user.is_some() {
+    if AuthHooks::use_current_user().ok().flatten().is_some() {
         rsx! { {children} }
     } else if let Some(fallback_content) = fallback {
         fallback_content
     } else {
-        rsx! { DashboardSkeleton {} }
+        rsx! { GuardLoading {} }
     }
 }
 
-/// Route guard component for protecting routes.
 #[component]
 pub fn RouteGuard(route: String, fallback: Option<Element>, children: Element) -> Element {
     use_login_redirect();
-    let is_initializing = *IS_INITIALIZING.read();
-    let current_user = AuthHooks::use_current_user().ok().flatten();
-
-    if is_initializing {
-        return rsx! { DashboardSkeleton {} };
+    if *IS_INITIALIZING.read() {
+        return rsx! { GuardLoading {} };
     }
 
-    match current_user {
+    match AuthHooks::use_current_user().ok().flatten() {
         Some(user) if RoutingService::can_access_route(&user, &route) => rsx! { {children} },
         Some(_) if fallback.is_some() => fallback.unwrap(),
-        Some(user) => rsx! {
-            RouteAccessDeniedMessage {
-                user,
-                route,
-            }
-        },
-        None => rsx! { DashboardSkeleton {} },
+        Some(user) => rsx! { RouteAccessDeniedMessage { user, route } },
+        None => rsx! { GuardLoading {} },
     }
 }
 
-/// Access denied message component.
+#[component]
+fn DeniedState(user: User) -> Element {
+    let locale = use_locale();
+    let nav = use_navigator();
+    let dashboard_route = RoutingService::get_role_based_route(&user).to_string();
+    rsx! {
+        DataState {
+            kind: DataStateKind::Permission,
+            title: locale.t("errors.access_denied"),
+            description: locale.t("errors.destination_unavailable"),
+            action_label: locale.t("nav.dashboard"),
+            on_action: move |_| {
+                let _ = nav.push(dashboard_route.clone());
+            },
+        }
+    }
+}
+
 #[component]
 pub fn RoleAccessDeniedMessage(user: User, required_role: SystemRole) -> Element {
-    let nav = use_navigator();
-    let dashboard_route = RoutingService::get_role_based_route(&user);
-
-    rsx! {
-        div {
-            style: "display: flex; justify-content: center; align-items: center; min-height: 60vh; padding: 2rem;",
-            div {
-                style: "text-align: center; max-width: 500px; background: white; padding: 3rem; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);",
-                div {
-                    style: "width: 80px; height: 80px; background: #fee2e2; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 2rem auto;",
-                    span { style: "font-size: 2rem;", "🚫" }
-                }
-                h1 { style: "color: #dc2626; margin-bottom: 1rem; font-size: 1.5rem;", "Access Denied" }
-                p {
-                    style: "color: #6b7280; margin-bottom: 1rem;",
-                    "You need to be a {required_role.display_name()} to access this page."
-                }
-                p {
-                    style: "color: #374151; margin-bottom: 2rem;",
-                    "Your current role: {user.role.display_name()}"
-                }
-                div {
-                    style: "display: flex; gap: 1rem; justify-content: center;",
-                    button {
-                        style: "background: #3b82f6; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 6px; cursor: pointer; font-weight: 500;",
-                        onclick: move |_| {
-                            let _ = nav.push(dashboard_route.clone());
-                        },
-                        "Go to Your Dashboard"
-                    }
-                    button {
-                        style: "background: #6b7280; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 6px; cursor: pointer; font-weight: 500;",
-                        onclick: move |_| {
-                            if let Some(win) = window() {
-                                let _ = win.alert_with_message("Please contact the school administrator for access.");
-                            }
-                        },
-                        "Contact Administrator"
-                    }
-                }
-            }
-        }
-    }
+    let _ = required_role;
+    rsx! { DeniedState { user } }
 }
 
-/// Access denied message for multiple roles.
 #[component]
 pub fn MultiRoleAccessDeniedMessage(user: User, required_roles: Vec<SystemRole>) -> Element {
-    let nav = use_navigator();
-    let dashboard_route = RoutingService::get_role_based_route(&user);
-    let role_names = required_roles
-        .iter()
-        .map(|role| role.display_name())
-        .collect::<Vec<_>>()
-        .join(" or ");
-
-    rsx! {
-        div {
-            style: "display: flex; justify-content: center; align-items: center; min-height: 60vh; padding: 2rem;",
-            div {
-                style: "text-align: center; max-width: 500px; background: white; padding: 3rem; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);",
-                h1 { style: "color: #dc2626; margin-bottom: 1rem; font-size: 1.5rem;", "Access Denied" }
-                p {
-                    style: "color: #6b7280; margin-bottom: 1rem;",
-                    "You need to be one of these roles to access this page: {role_names}"
-                }
-                p {
-                    style: "color: #374151; margin-bottom: 2rem;",
-                    "Your current role: {user.role.display_name()}"
-                }
-                button {
-                    style: "background: #3b82f6; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 6px; cursor: pointer; font-weight: 500;",
-                    onclick: move |_| {
-                        let _ = nav.push(dashboard_route.clone());
-                    },
-                    "Go to Your Dashboard"
-                }
-            }
-        }
-    }
+    let _ = required_roles;
+    rsx! { DeniedState { user } }
 }
 
-/// Permission denied message component.
 #[component]
 pub fn PermissionDeniedMessage(user: User, required_permission: String) -> Element {
-    let nav = use_navigator();
-    let dashboard_route = RoutingService::get_role_based_route(&user);
-
-    rsx! {
-        div {
-            style: "display: flex; justify-content: center; align-items: center; min-height: 60vh; padding: 2rem;",
-            div {
-                style: "text-align: center; max-width: 500px; background: white; padding: 3rem; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);",
-                h1 { style: "color: #dc2626; margin-bottom: 1rem; font-size: 1.5rem;", "Permission Denied" }
-                p {
-                    style: "color: #6b7280; margin-bottom: 2rem;",
-                    "You don't have the required permission ({required_permission}) to access this page."
-                }
-                button {
-                    style: "background: #3b82f6; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 6px; cursor: pointer; font-weight: 500;",
-                    onclick: move |_| {
-                        let _ = nav.push(dashboard_route.clone());
-                    },
-                    "Go to Dashboard"
-                }
-            }
-        }
-    }
+    let _ = required_permission;
+    rsx! { DeniedState { user } }
 }
 
-/// Route access denied message component.
 #[component]
 pub fn RouteAccessDeniedMessage(user: User, route: String) -> Element {
-    let nav = use_navigator();
-    let dashboard_route = RoutingService::get_role_based_route(&user);
-
-    rsx! {
-        div {
-            style: "display: flex; justify-content: center; align-items: center; min-height: 60vh; padding: 2rem;",
-            div {
-                style: "text-align: center; max-width: 500px; background: white; padding: 3rem; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);",
-                h1 { style: "color: #dc2626; margin-bottom: 1rem; font-size: 1.5rem;", "Route Access Denied" }
-                p {
-                    style: "color: #6b7280; margin-bottom: 2rem;",
-                    "You don't have permission to access the route: {route}"
-                }
-                button {
-                    style: "background: #3b82f6; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 6px; cursor: pointer; font-weight: 500;",
-                    onclick: move |_| {
-                        let _ = nav.push(dashboard_route.clone());
-                    },
-                    "Go to Dashboard"
-                }
-            }
-        }
-    }
+    let _ = route;
+    rsx! { DeniedState { user } }
 }
 
-/// Not authenticated message component.
 #[component]
 pub fn NotAuthenticatedMessage() -> Element {
+    let locale = use_locale();
     let nav = use_navigator();
-
     rsx! {
-        div {
-            style: "display: flex; justify-content: center; align-items: center; min-height: 60vh; padding: 2rem;",
-            div {
-                style: "text-align: center; max-width: 400px; background: white; padding: 3rem; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);",
-                h1 { style: "color: #dc2626; margin-bottom: 1rem; font-size: 1.5rem;", "Authentication Required" }
-                p { style: "color: #6b7280; margin-bottom: 2rem;", "Please log in to access this page." }
-                button {
-                    style: "background: #3b82f6; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 6px; cursor: pointer; font-weight: 500;",
-                    onclick: move |_| {
-                        let _ = nav.push(Route::LoginPage {});
-                    },
-                    "Go to Login"
-                }
-            }
+        DataState {
+            kind: DataStateKind::Permission,
+            title: locale.t("session.sign_in_required"),
+            description: locale.t("session.sign_in_required_description"),
+            action_label: locale.t("auth.sign_in"),
+            on_action: move |_| {
+                let _ = nav.push(Route::LoginPage {});
+            },
         }
     }
 }
 
-/// Loading spinner component.
 #[component]
 pub fn LoadingSpinner() -> Element {
-    rsx! {
-        div {
-            style: "text-align: center;",
-            div {
-                style: "width: 40px; height: 40px; border: 3px solid #e5e7eb; border-top: 3px solid #3b82f6; border-radius: 50%; animation: spin 1s linear infinite; margin: 0 auto 1rem;",
-            }
-            p { style: "color: #6b7280;", "Loading..." }
-        }
-    }
+    rsx! { GuardLoading {} }
 }
 
-/// Admin-only guard component (for backward compatibility).
 #[component]
 pub fn AdminOnly(fallback: Option<Element>, children: Element) -> Element {
     rsx! {

@@ -1,23 +1,17 @@
+use crate::i18n::use_locale;
+use crate::ui::{DataState, DataStateKind};
 use dioxus::prelude::*;
 use serde_json::Value;
 
-/// Error boundary component for catching and displaying errors
 #[component]
-pub fn ErrorBoundary(
-    children: Element,
-    fallback: Option<Element>,
-) -> Element {
+pub fn ErrorBoundary(children: Element, fallback: Option<Element>) -> Element {
     let mut error_state = use_signal(|| Option::<String>::None);
     let mut error_info = use_signal(|| Option::<Value>::None);
-
     let error_val = error_state.read().clone();
 
     rsx! {
-        div {
-            class: "error-boundary-wrapper",
-
+        div { class: "error-boundary-wrapper",
             if let Some(error_message) = error_val {
-                // Error state - show fallback or default error UI
                 if let Some(fallback_component) = fallback {
                     {fallback_component}
                 } else {
@@ -31,270 +25,117 @@ pub fn ErrorBoundary(
                     }
                 }
             } else {
-                // Normal state - show children
                 {children}
             }
         }
     }
 }
 
-/// Default error UI component
+/// Logs diagnostic detail but exposes only localized, actionable copy.
 #[component]
-pub fn DefaultErrorUI(
-    error: String,
-    error_info: Option<Value>,
-    on_retry: EventHandler,
-) -> Element {
+pub fn DefaultErrorUI(error: String, error_info: Option<Value>, on_retry: EventHandler) -> Element {
+    let locale = use_locale();
+    use_effect(move || {
+        web_sys::console::error_1(&error.clone().into());
+        if let Some(info) = error_info.as_ref() {
+            web_sys::console::error_1(&info.to_string().into());
+        }
+    });
+
     rsx! {
-        div {
-            class: "error-boundary-error",
-            style: "display: flex; justify-content: center; align-items: center; min-height: 60vh; padding: 2rem;",
-
-            div {
-                style: "max-width: 500px; background: white; padding: 3rem; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); text-align: center;",
-
-                // Error icon
-                div {
-                    style: "width: 80px; height: 80px; background: #fee2e2; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 2rem auto;",
-                    span {
-                        style: "font-size: 2rem;",
-                        "❌"
-                    }
-                }
-
-                // Error title
-                h1 {
-                    style: "color: #dc2626; margin-bottom: 1rem; font-size: 1.5rem;",
-                    "Something went wrong"
-                }
-
-                // Error message
-                p {
-                    style: "color: #6b7280; margin-bottom: 2rem; line-height: 1.6;",
-                    "{error}"
-                }
-
-                // Technical details (in development)
-                if cfg!(debug_assertions) {
-                    if let Some(info) = error_info {
-                        details {
-                            style: "background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 8px; padding: 1rem; margin-bottom: 2rem; text-align: left; font-family: monospace; font-size: 0.875rem; overflow-x: auto;",
-
-                            pre {
-                                style: "margin: 0; white-space: pre-wrap;",
-                                "{info}"
-                            }
-                        }
-                    }
-                }
-
-                // Action buttons
-                div {
-                    style: "display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap;",
-
-                    button {
-                        style: "background: #3b82f6; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 6px; cursor: pointer; font-weight: 500;",
-                        onclick: move |_| on_retry.call(()),
-                        "Try Again"
-                    }
-
-                    button {
-                        style: "background: #6b7280; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 6px; cursor: pointer; font-weight: 500;",
-                        onclick: move |_| {
-                            // Reload the page
-                            web_sys::window().unwrap().location().reload().unwrap();
-                        },
-                        "Reload Page"
-                    }
-
-                    button {
-                        style: "background: #f3f4f6; color: #374151; border: 1px solid #d1d5db; padding: 0.75rem 1.5rem; border-radius: 6px; cursor: pointer; font-weight: 500;",
-                        onclick: move |_| {
-                            // Navigate to home/dashboard
-                        },
-                        "Go to Dashboard"
-                    }
-                }
-            }
+        DataState {
+            kind: DataStateKind::Error,
+            title: locale.t("errors.generic_title"),
+            description: locale.t("errors.generic_description"),
+            action_label: locale.t("common.retry"),
+            on_action: move |_| on_retry.call(()),
         }
     }
 }
 
-/// Network error component
 #[component]
-pub fn NetworkError(
-    message: Option<String>,
-    on_retry: EventHandler,
-) -> Element {
+pub fn NetworkError(message: Option<String>, on_retry: EventHandler) -> Element {
+    let locale = use_locale();
+    if let Some(message) = message {
+        web_sys::console::warn_1(&message.into());
+    }
     rsx! {
-        div {
-            class: "network-error",
-            style: "display: flex; justify-content: center; align-items: center; min-height: 40vh; padding: 2rem;",
-
-            div {
-                style: "max-width: 400px; text-align: center;",
-
-                div {
-                    style: "width: 60px; height: 60px; background: #fee2e2; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 1.5rem auto;",
-                    span {
-                        style: "font-size: 1.5rem;",
-                        "🌐"
-                    }
-                }
-
-                h3 {
-                    style: "color: #dc2626; margin-bottom: 1rem;",
-                    "Connection Error"
-                }
-
-                p {
-                    style: "color: #6b7280; margin-bottom: 2rem;",
-                    {message.unwrap_or_else(|| "Unable to connect to the server. Please check your internet connection and try again.".to_string())}
-                }
-
-                button {
-                    style: "background: #dc2626; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 6px; cursor: pointer; font-weight: 500;",
-                    onclick: move |_| on_retry.call(()),
-                    "Retry Connection"
-                }
-            }
+        DataState {
+            kind: DataStateKind::Error,
+            title: locale.t("errors.network_title"),
+            description: locale.t("errors.network_description"),
+            action_label: locale.t("common.retry"),
+            on_action: move |_| on_retry.call(()),
         }
     }
 }
 
-/// Not found error component
 #[component]
-pub fn NotFoundError(
-    resource: Option<String>,
-    on_go_home: EventHandler,
-) -> Element {
-    let error_message = resource.as_ref()
-        .map(|r| format!("{} not found", r))
-        .unwrap_or_else(|| "Page not found".to_string());
-
+pub fn NotFoundError(resource: Option<String>, on_go_home: EventHandler) -> Element {
+    let locale = use_locale();
+    if let Some(resource) = resource {
+        web_sys::console::warn_1(&format!("Requested resource not found: {resource}").into());
+    }
     rsx! {
-        div {
-            class: "not-found-error",
-            style: "display: flex; justify-content: center; align-items: center; min-height: 60vh; padding: 2rem;",
-
-            div {
-                style: "max-width: 500px; text-align: center;",
-
-                h1 {
-                    style: "font-size: 6rem; font-weight: 700; color: #e5e7eb; margin-bottom: 1rem;",
-                    "404"
-                }
-
-                h2 {
-                    style: "color: #374151; margin-bottom: 1rem;",
-                    "{error_message}"
-                }
-
-                p {
-                    style: "color: #6b7280; margin-bottom: 2rem; line-height: 1.6;",
-                    "The page you're looking for doesn't exist or has been moved."
-                }
-
-                button {
-                    style: "background: #3b82f6; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 6px; cursor: pointer; font-weight: 500;",
-                    onclick: move |_| on_go_home.call(()),
-                    "Go Home"
-                }
-            }
+        DataState {
+            kind: DataStateKind::Unavailable,
+            title: locale.t("errors.not_found_title"),
+            description: locale.t("errors.not_found_description"),
+            action_label: locale.t("common.go_home"),
+            on_action: move |_| on_go_home.call(()),
         }
     }
 }
 
-/// Permission denied error component
 #[component]
 pub fn PermissionDeniedError(
     resource: Option<String>,
     required_permission: Option<String>,
     on_go_back: EventHandler,
 ) -> Element {
+    let locale = use_locale();
+    if let Some(resource) = resource {
+        web_sys::console::warn_1(&format!("Denied resource: {resource}").into());
+    }
+    if let Some(permission) = required_permission {
+        web_sys::console::warn_1(&format!("Required permission: {permission}").into());
+    }
     rsx! {
-        div {
-            class: "permission-denied-error",
-            style: "display: flex; justify-content: center; align-items: center; min-height: 60vh; padding: 2rem;",
-            
-            div {
-                style: "max-width: 500px; background: white; padding: 3rem; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); text-align: center;",
-                
-                div {
-                    style: "width: 80px; height: 80px; background: #fef3c7; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 2rem auto;",
-                    span {
-                        style: "font-size: 2rem;",
-                        "🔒"
-                    }
-                }
-                
-                h1 {
-                    style: "color: #d97706; margin-bottom: 1rem; font-size: 1.5rem;",
-                    "Access Denied"
-                }
-                
-                p {
-                    style: "color: #6b7280; margin-bottom: 1rem;",
-                    "You don't have permission to access this resource."
-                }
-                
-                if let Some(perm) = required_permission {
-                    p {
-                        style: "color: #92400e; background: #fef3c7; padding: 0.75rem; border-radius: 6px; margin-bottom: 2rem; font-size: 0.875rem;",
-                        "Required permission: {perm}"
-                    }
-                }
-                
-                if let Some(res) = resource {
-                    p {
-                        style: "color: #6b7280; font-style: italic; margin-bottom: 2rem;",
-                        "Resource: {res}"
-                    }
-                }
-                
-                button {
-                    style: "background: #d97706; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 6px; cursor: pointer; font-weight: 500;",
-                    onclick: move |_| on_go_back.call(()),
-                    "Go Back"
-                }
-            }
+        DataState {
+            kind: DataStateKind::Permission,
+            title: locale.t("errors.access_denied"),
+            description: locale.t("errors.destination_unavailable"),
+            action_label: locale.t("common.go_back"),
+            on_action: move |_| on_go_back.call(()),
         }
     }
 }
 
-/// Error boundary hook for catching async errors
 pub struct ErrorBoundaryHooks;
 
 impl ErrorBoundaryHooks {
-    /// Hook to catch and handle async errors
     pub fn use_async_error_handler() -> EventHandler<String> {
         let mut error_state = use_signal(|| Option::<String>::None);
-
         Callback::new(move |error: String| {
             error_state.set(Some(error.clone()));
-            // Additional error logging can be added here
             web_sys::console::error_1(&error.into());
         })
     }
 
-    /// Hook to clear error state - Updated to return FnMut
     pub fn use_clear_error() -> impl FnMut() {
         let mut error_state = use_signal(|| Option::<String>::None);
-
         move || {
             *error_state.write() = None;
         }
     }
 
-    /// Hook to check if there's an error
     pub fn use_has_error() -> bool {
         let error_state = use_signal(|| Option::<String>::None);
-        let val = error_state.read().is_some(); // Copy value out
-        val
+        let has_error = error_state.read().is_some();
+        has_error
     }
 }
 
-/// Error types for better error handling
 #[derive(Debug, Clone, PartialEq)]
 pub enum AppError {
     NetworkError(String),
@@ -307,20 +148,20 @@ pub enum AppError {
 }
 
 impl AppError {
-    /// Get user-friendly error message
+    /// Stable category copy for UI decisions. The underlying detail remains
+    /// available for diagnostics but is not returned to end-user surfaces.
     pub fn user_message(&self) -> String {
         match self {
-            AppError::NetworkError(msg) => format!("Network error: {}", msg),
-            AppError::ValidationError(msg) => format!("Validation error: {}", msg),
-            AppError::AuthenticationError(msg) => format!("Authentication error: {}", msg),
-            AppError::AuthorizationError(msg) => format!("Access denied: {}", msg),
-            AppError::NotFoundError(msg) => format!("Not found: {}", msg),
-            AppError::ServerError(msg) => format!("Server error: {}", msg),
-            AppError::UnknownError(msg) => format!("An error occurred: {}", msg),
+            AppError::NetworkError(_) => "Network error".to_string(),
+            AppError::ValidationError(_) => "Validation error".to_string(),
+            AppError::AuthenticationError(_) => "Authentication error".to_string(),
+            AppError::AuthorizationError(_) => "Access denied".to_string(),
+            AppError::NotFoundError(_) => "Not found".to_string(),
+            AppError::ServerError(_) => "Service unavailable".to_string(),
+            AppError::UnknownError(_) => "Unexpected error".to_string(),
         }
     }
 
-    /// Get error type for UI decisions
     pub fn error_type(&self) -> &str {
         match self {
             AppError::NetworkError(_) => "network",
@@ -335,13 +176,13 @@ impl AppError {
 }
 
 impl From<String> for AppError {
-    fn from(s: String) -> Self {
-        AppError::UnknownError(s)
+    fn from(value: String) -> Self {
+        AppError::UnknownError(value)
     }
 }
 
 impl From<&str> for AppError {
-    fn from(s: &str) -> Self {
-        AppError::UnknownError(s.to_string())
+    fn from(value: &str) -> Self {
+        AppError::UnknownError(value.to_string())
     }
 }

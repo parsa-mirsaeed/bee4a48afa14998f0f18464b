@@ -19,6 +19,7 @@ web-sys = { version = "0.3.82", features = [
     "Clipboard",
     "Document",
     "Element",
+    "HtmlElement",
     "HtmlInputElement",
     "HtmlFormElement",
     "File",
@@ -28,6 +29,7 @@ web-sys = { version = "0.3.82", features = [
     "FormData",
     "Event",
     "EventTarget",
+    "NodeList",
 ] }
 wasm-bindgen = "0.2"
 chrono = { version = "0.4", features = ["serde", "wasmbind"] }

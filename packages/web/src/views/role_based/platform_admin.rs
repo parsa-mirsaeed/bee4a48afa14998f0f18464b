@@ -11,10 +11,8 @@ use api::server_functions::knowledge_functions::{
 use dioxus::prelude::*;
 
 #[component]
-pub fn PlatformAdminDashboard() -> Element {
+pub fn PlatformAdminDashboard(section: String) -> Element {
     let current_user = AuthHooks::use_current_user().ok().flatten();
-    let mut active_section = use_signal(|| "knowledge-assets".to_string());
-    let section = active_section();
 
     if let Some(user) = current_user {
         let content = match section.as_str() {
@@ -25,7 +23,6 @@ pub fn PlatformAdminDashboard() -> Element {
             ResponsiveDashboardLayout {
                 user,
                 active_section: section,
-                on_navigate: move |next| active_section.set(next),
                 children: rsx! { {content} }
             }
         }

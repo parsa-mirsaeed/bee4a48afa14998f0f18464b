@@ -1,4 +1,4 @@
-// @final @rtl @accessibility — PR-12 Tier-2 layout and accessibility evidence.
+// @final @rtl @accessibility — Tier-2 layout and accessibility evidence.
 import AxeBuilder from '@axe-core/playwright';
 import { test, expect, type Page } from '@playwright/test';
 import { enforceOfflineAllowlist, assertNoUnexpectedOrigins } from '../fixtures/network-policy';
@@ -19,12 +19,20 @@ async function signInEnglish(page: Page, email: string): Promise<void> {
   await signIn(page, email);
 }
 
-function actionWithIcon(page: Page, icon: string) {
-  return page.locator('button', {
+async function navigateWithIcon(page: Page, icon: string): Promise<void> {
+  const mobileMenu = page.locator('.et-mobile-menu-button');
+  if (await mobileMenu.isVisible()) {
+    await mobileMenu.click();
+    await expect(page.locator('.et-sidebar')).toHaveClass(/et-sidebar--mobile-open/);
+  }
+
+  const item = page.locator('.et-ui-sidebar-nav__item', {
     has: page.locator('span.material-icons-outlined', {
       hasText: new RegExp(`^${icon}$`),
     }),
   }).first();
+  await expect(item).toBeVisible();
+  await item.click();
 }
 
 test.beforeEach(async ({ page }) => {
@@ -51,7 +59,7 @@ test('Persian grade dates and numbers are isolated LTR inside the RTL document @
   await signIn(page, 'e2e-student-a@example.test');
   await expect.poll(() => page.evaluate(() => document.documentElement.dir)).toBe('rtl');
 
-  await actionWithIcon(page, 'grade').click();
+  await navigateWithIcon(page, 'grade');
   const classCard = page
     .getByText('E2E Class A1', { exact: true })
     .locator('xpath=ancestor::div[contains(@class,"glass-card")][1]');
@@ -69,9 +77,9 @@ test('Persian grade dates and numbers are isolated LTR inside the RTL document @
   }
 });
 
-test('shared grading modal exposes dialog semantics and moves keyboard focus inside @final @accessibility', async ({ page }) => {
+test('shared grading modal exposes generated dialog semantics and keyboard focus entry @final @accessibility', async ({ page }) => {
   await signInEnglish(page, 'e2e-teacher-a@example.test');
-  await actionWithIcon(page, 'grading').click();
+  await navigateWithIcon(page, 'grading');
 
   const assignmentTitle = page.getByText('E2E Authorization Submission A', { exact: true });
   await expect(assignmentTitle).toBeVisible();
@@ -88,10 +96,13 @@ test('shared grading modal exposes dialog semantics and moves keyboard focus ins
   const dialog = page.getByRole('dialog');
   await expect(dialog).toBeVisible();
   await expect(dialog).toHaveAttribute('aria-modal', 'true');
-  await expect(dialog).toHaveAttribute('aria-labelledby', 'edutalent-modal-title');
-  await expect(dialog.locator('#edutalent-modal-title')).toContainText('Grade Submission');
+  const labelledBy = await dialog.getAttribute('aria-labelledby');
+  expect(labelledBy).toMatch(/^et-dialog-title-/);
+  await expect(dialog.locator(`#${labelledBy}`)).toContainText('Grade Submission');
   await expect(dialog).toContainText('Grade (0-100)');
+  await expect(dialog).toBeFocused();
 
+  await page.keyboard.press('Tab');
   const closeButton = dialog.getByRole('button', { name: 'Close', exact: true });
   await expect(closeButton).toBeFocused();
   await page.keyboard.press('Tab');
@@ -118,13 +129,13 @@ test('login form controls follow the visible keyboard order @final @accessibilit
   });
 
   const visited: string[] = [];
-  for (let step = 0; step < 16; step += 1) {
+  for (let step = 0; step < 18; step += 1) {
     await page.keyboard.press('Tab');
     visited.push(
       await page.evaluate(() => {
         const element = document.activeElement;
         if (!(element instanceof HTMLElement)) return '';
-        if (element.id) return `id:${element.id}`;
+        if (element instanceof HTMLInputElement) return `input:${element.type}`;
         if (element instanceof HTMLAnchorElement) return `href:${element.getAttribute('href') ?? ''}`;
         if (element instanceof HTMLButtonElement) return `button:${element.type}`;
         return element.tagName.toLowerCase();
@@ -132,8 +143,8 @@ test('login form controls follow the visible keyboard order @final @accessibilit
     );
   }
 
-  const emailIndex = visited.indexOf('id:login-email');
-  const passwordIndex = visited.indexOf('id:login-password');
+  const emailIndex = visited.indexOf('input:email');
+  const passwordIndex = visited.indexOf('input:password');
   const submitIndex = visited.indexOf('button:submit');
 
   expect(emailIndex, `email not keyboard reachable: ${visited.join(' -> ')}`).toBeGreaterThanOrEqual(0);

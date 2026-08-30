@@ -1,10 +1,11 @@
-use crate::application::routing_service::NavigationItem;
+use crate::application::routing_service::{NavigationItem, RoutingService};
 use crate::domain::User;
 use crate::i18n::{use_locale, LanguageSwitcher, Locale};
+use crate::ui::{NavItem, SidebarNav};
 use dioxus::prelude::*;
 
-/// Shared role-aware navigation. On desktop this is persistent; on compact
-/// viewports the same component becomes the mobile drawer.
+/// Shared role-aware navigation. Desktop keeps it persistent; compact viewports
+/// expose the exact same destinations in a keyboard-operable drawer.
 #[component]
 pub fn Sidebar(
     user: User,
@@ -12,9 +13,9 @@ pub fn Sidebar(
     active_section: String,
     mobile_open: bool,
     on_close_mobile: EventHandler,
-    on_navigate: EventHandler<String>,
 ) -> Element {
     let locale = use_locale();
+    let nav = use_navigator();
     let t_sign_out = locale.t("auth.sign_out");
     let t_portal = if locale.current() == Locale::Fa {
         "پرتال"
@@ -26,24 +27,46 @@ pub fn Sidebar(
     } else {
         "et-sidebar"
     };
-    let home_section = navigation_items
-        .first()
-        .map(|item| item.id.clone())
-        .unwrap_or_else(|| "overview".to_string());
+    let home_section = RoutingService::default_dashboard_section(&user).to_string();
+    let ui_items = navigation_items
+        .iter()
+        .map(|item| NavItem {
+            id: item.id.clone(),
+            label: item.label.clone(),
+            icon: item.icon.clone(),
+            active: item.id == active_section,
+        })
+        .collect::<Vec<_>>();
 
     rsx! {
         aside {
             class: "{sidebar_class}",
-            "aria-label": "Primary navigation",
+            "aria-label": locale.t("navigation.primary"),
+            onkeydown: move |event| {
+                if mobile_open && event.key() == Key::Escape {
+                    event.stop_propagation();
+                    on_close_mobile.call(());
+                }
+            },
 
             div { class: "et-sidebar-brand",
                 button {
                     class: "et-brand-button",
+                    r#type: "button",
                     "aria-label": "EduTalent dashboard",
-                    onclick: move |_| on_navigate.call(home_section.clone()),
-                    span { class: "et-brand-mark",
-                        span { class: "material-icons-outlined", "school" }
-                    }
+                    onclick: {
+                        let nav = nav.clone();
+                        let home_section = home_section.clone();
+                        move |_| {
+                            on_close_mobile.call(());
+                            if home_section == "overview" {
+                                nav.push(crate::Route::DashboardRoute {});
+                            } else {
+                                nav.push(crate::Route::DashboardSectionRoute { section: home_section.clone() });
+                            }
+                        }
+                    },
+                    span { class: "et-brand-mark", span { class: "material-icons-outlined", "aria-hidden": "true", "school" } }
                     span { class: "et-brand-copy",
                         span { class: "et-brand-name", "EduTalent" }
                         span { class: "et-brand-context", "{t_portal}" }
@@ -52,40 +75,29 @@ pub fn Sidebar(
 
                 button {
                     class: "et-sidebar-mobile-close",
-                    "aria-label": "Close navigation",
+                    r#type: "button",
+                    "aria-label": locale.t("navigation.close"),
                     onclick: move |_| on_close_mobile.call(()),
-                    span { class: "material-icons-outlined", "close" }
+                    span { class: "material-icons-outlined", "aria-hidden": "true", "close" }
                 }
             }
 
-            nav { class: "et-sidebar-nav",
-                div { class: "et-nav-list",
-                    for item in navigation_items.iter() {
-                        {
-                            let is_active = item.id == active_section;
-                            let item_id = item.id.clone();
-                            let item_class = if is_active {
-                                "et-nav-item et-nav-item--active"
+            div { class: "et-sidebar-nav",
+                SidebarNav {
+                    label: locale.t("navigation.primary"),
+                    items: ui_items,
+                    on_select: {
+                        let nav = nav.clone();
+                        move |section: String| {
+                            on_close_mobile.call(());
+                            if section == "overview" {
+                                nav.push(crate::Route::DashboardRoute {});
                             } else {
-                                "et-nav-item"
-                            };
-                            rsx! {
-                                button {
-                                    key: "{item.id}",
-                                    class: "{item_class}",
-                                    "aria-label": item.label.as_str(),
-                                    "aria-current": if is_active { "page" } else { "false" },
-                                    onclick: move |_| on_navigate.call(item_id.clone()),
-                                    span {
-                                        class: "material-icons-outlined et-nav-item-icon",
-                                        "aria-hidden": "true",
-                                        "{item.icon}"
-                                    }
-                                    span { "{item.label}" }
-                                }
+                                nav.push(crate::Route::DashboardSectionRoute { section });
                             }
+                            focus_main_content_after_navigation();
                         }
-                    }
+                    },
                 }
             }
 
@@ -99,18 +111,17 @@ pub fn Sidebar(
                 }
 
                 div { class: "et-sidebar-utilities",
-                    div { class: "et-language-row",
-                        LanguageSwitcher { class: "text-sm".to_string() }
-                    }
+                    div { class: "et-language-row", LanguageSwitcher { class: "text-sm".to_string() } }
                     button {
                         class: "et-logout-button",
+                        r#type: "button",
                         onclick: move |_| {
                             let nav = use_navigator();
                             spawn(async move {
                                 if let Err(error) = crate::application::SessionManager::clear_session().await {
                                     eprintln!("Logout error: {error:?}");
                                 }
-                                nav.push(crate::Route::LoginPage {});
+                                nav.replace(crate::Route::LoginPage {});
                             });
                         },
                         span { class: "material-icons-outlined text-lg", "aria-hidden": "true", "logout" }
@@ -118,6 +129,32 @@ pub fn Sidebar(
                     }
                 }
             }
+        }
+    }
+}
+
+fn focus_main_content_after_navigation() {
+    #[cfg(target_arch = "wasm32")]
+    {
+        use wasm_bindgen::{closure::Closure, JsCast};
+
+        // Route navigation replaces the current dashboard subtree. Run focus
+        // restoration on the next rendered frame without using eval/new Function,
+        // preserving the production CSP's no-unsafe-eval contract.
+        let callback = Closure::once_into_js(move |_: f64| {
+            let Some(document) = web_sys::window().and_then(|window| window.document()) else {
+                return;
+            };
+            let Some(element) = document.get_element_by_id("dashboard-main-content") else {
+                return;
+            };
+            if let Ok(element) = element.dyn_into::<web_sys::HtmlElement>() {
+                let _ = element.focus();
+            }
+        });
+
+        if let Some(window) = web_sys::window() {
+            let _ = window.request_animation_frame(callback.unchecked_ref());
         }
     }
 }

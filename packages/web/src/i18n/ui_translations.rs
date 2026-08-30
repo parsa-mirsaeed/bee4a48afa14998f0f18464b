@@ -8,6 +8,131 @@ pub(crate) fn supplemental_translation(key: &'static str, locale: Locale) -> Opt
     match (locale, key) {
         (Locale::En, "common.refresh") => Some("Refresh"),
         (Locale::Fa, "common.refresh") => Some("تازه‌سازی"),
+        (Locale::En, "common.search") => Some("Search"),
+        (Locale::Fa, "common.search") => Some("جستجو"),
+        (Locale::En, "common.clear") => Some("Clear"),
+        (Locale::Fa, "common.clear") => Some("پاک کردن"),
+        (Locale::En, "common.data") => Some("Data"),
+        (Locale::Fa, "common.data") => Some("داده‌ها"),
+        (Locale::En, "common.go_home") => Some("Go home"),
+        (Locale::Fa, "common.go_home") => Some("رفتن به خانه"),
+        (Locale::En, "common.go_back") => Some("Go back"),
+        (Locale::Fa, "common.go_back") => Some("بازگشت"),
+
+        (Locale::En, "navigation.close") => Some("Close navigation"),
+        (Locale::Fa, "navigation.close") => Some("بستن ناوبری"),
+        (Locale::En, "navigation.open") => Some("Open navigation"),
+        (Locale::Fa, "navigation.open") => Some("باز کردن ناوبری"),
+        (Locale::En, "navigation.primary") => Some("Primary navigation"),
+        (Locale::Fa, "navigation.primary") => Some("ناوبری اصلی"),
+        (Locale::En, "navigation.redirecting_dashboard") => Some("Opening your dashboard."),
+        (Locale::Fa, "navigation.redirecting_dashboard") => Some("در حال باز کردن داشبورد شما."),
+
+        (Locale::En, "nav.knowledge_assets") => Some("Knowledge assets"),
+        (Locale::Fa, "nav.knowledge_assets") => Some("منابع دانشی"),
+        (Locale::En, "nav.knowledge_audit") => Some("Knowledge audit"),
+        (Locale::Fa, "nav.knowledge_audit") => Some("ممیزی دانش"),
+        (Locale::En, "nav.knowledge_submissions") => Some("Knowledge submissions"),
+        (Locale::Fa, "nav.knowledge_submissions") => Some("ارسال منابع دانشی"),
+
+        (Locale::En, "errors.destination_unavailable") => {
+            Some("This destination is not available for your current role or enabled product capabilities.")
+        }
+        (Locale::Fa, "errors.destination_unavailable") => {
+            Some("این بخش برای نقش فعلی شما یا قابلیت‌های فعال سامانه در دسترس نیست.")
+        }
+        (Locale::En, "errors.generic_title") => Some("Something went wrong"),
+        (Locale::Fa, "errors.generic_title") => Some("مشکلی پیش آمد"),
+        (Locale::En, "errors.generic_description") => {
+            Some("The page could not complete the requested operation. Try again.")
+        }
+        (Locale::Fa, "errors.generic_description") => {
+            Some("صفحه نتوانست عملیات درخواستی را کامل کند. دوباره تلاش کنید.")
+        }
+        (Locale::En, "errors.network_title") => Some("Connection problem"),
+        (Locale::Fa, "errors.network_title") => Some("مشکل اتصال"),
+        (Locale::En, "errors.network_description") => {
+            Some("The server could not be reached. Check the connection and try again.")
+        }
+        (Locale::Fa, "errors.network_description") => {
+            Some("ارتباط با سرور برقرار نشد. اتصال را بررسی کنید و دوباره تلاش کنید.")
+        }
+        (Locale::En, "errors.not_found_title") => Some("Page not found"),
+        (Locale::Fa, "errors.not_found_title") => Some("صفحه پیدا نشد"),
+        (Locale::En, "errors.not_found_description") => {
+            Some("This destination does not exist or is no longer available.")
+        }
+        (Locale::Fa, "errors.not_found_description") => {
+            Some("این بخش وجود ندارد یا دیگر در دسترس نیست.")
+        }
+
+        (Locale::En, "session.checking") => Some("Checking your session and access."),
+        (Locale::Fa, "session.checking") => Some("در حال بررسی نشست و سطح دسترسی شما."),
+        (Locale::En, "session.unavailable_title") => Some("Unable to load your account"),
+        (Locale::Fa, "session.unavailable_title") => Some("بارگذاری حساب شما ممکن نیست"),
+        (Locale::En, "session.unavailable_description") => {
+            Some("Refresh the page or sign in again if the problem continues.")
+        }
+        (Locale::Fa, "session.unavailable_description") => {
+            Some("صفحه را تازه‌سازی کنید و اگر مشکل ادامه داشت دوباره وارد شوید.")
+        }
+        (Locale::En, "session.sign_in_required") => Some("Sign in required"),
+        (Locale::Fa, "session.sign_in_required") => Some("ورود لازم است"),
+        (Locale::En, "session.sign_in_required_description") => {
+            Some("Sign in to continue to the dashboard.")
+        }
+        (Locale::Fa, "session.sign_in_required_description") => {
+            Some("برای ادامه به داشبورد وارد شوید.")
+        }
+
+        (Locale::En, "notifications.loading") => Some("Loading notifications…"),
+        (Locale::Fa, "notifications.loading") => Some("در حال بارگذاری اعلان‌ها…"),
+        (Locale::En, "notifications.failed_load") => Some("Notifications could not be loaded."),
+        (Locale::Fa, "notifications.failed_load") => Some("بارگذاری اعلان‌ها ناموفق بود."),
+        (Locale::En, "notifications.action_failed") => {
+            Some("The notification update could not be saved. Try again.")
+        }
+        (Locale::Fa, "notifications.action_failed") => {
+            Some("به‌روزرسانی اعلان ذخیره نشد. دوباره تلاش کنید.")
+        }
+
+        (Locale::En, "validation.valid") => Some("Valid"),
+        (Locale::Fa, "validation.valid") => Some("معتبر"),
+        (Locale::En, "validation.all_valid") => Some("All fields are valid."),
+        (Locale::Fa, "validation.all_valid") => Some("همه فیلدها معتبر هستند."),
+        (Locale::En, "validation.fix_errors") => Some("Review the highlighted fields"),
+        (Locale::Fa, "validation.fix_errors") => Some("فیلدهای مشخص‌شده را بررسی کنید"),
+
+        (Locale::En, "auth.context_headline") => Some("A focused workspace for every school role."),
+        (Locale::Fa, "auth.context_headline") => Some("فضای کاری متمرکز برای هر نقش مدرسه."),
+        (Locale::En, "auth.context_copy") => Some("Sign in to the same private school workspace used for classes, assignments, grading and governed knowledge."),
+        (Locale::Fa, "auth.context_copy") => Some("برای دسترسی به همان فضای خصوصی مدرسه برای کلاس‌ها، تکلیف‌ها، ارزیابی و دانش کنترل‌شده وارد شوید."),
+        (Locale::En, "auth.offline_note") => Some("Designed for the school's private deployment."),
+        (Locale::Fa, "auth.offline_note") => Some("طراحی‌شده برای استقرار خصوصی مدرسه."),
+        (Locale::En, "auth.reveal_password") => Some("Show password"),
+        (Locale::Fa, "auth.reveal_password") => Some("نمایش رمز عبور"),
+        (Locale::En, "auth.hide_password") => Some("Hide password"),
+        (Locale::Fa, "auth.hide_password") => Some("پنهان کردن رمز عبور"),
+        (Locale::En, "auth.email_required") => Some("Email is required."),
+        (Locale::Fa, "auth.email_required") => Some("ایمیل الزامی است."),
+        (Locale::En, "auth.email_invalid") => Some("Enter a valid email address."),
+        (Locale::Fa, "auth.email_invalid") => Some("یک نشانی ایمیل معتبر وارد کنید."),
+        (Locale::En, "auth.password_required") => Some("Password is required."),
+        (Locale::Fa, "auth.password_required") => Some("رمز عبور الزامی است."),
+        (Locale::En, "auth.account_inactive") => Some("This account is inactive. Contact your administrator."),
+        (Locale::Fa, "auth.account_inactive") => Some("این حساب غیرفعال است. با مدیر سامانه تماس بگیرید."),
+        (Locale::En, "auth.account_locked") => Some("This account is locked. Contact your administrator."),
+        (Locale::Fa, "auth.account_locked") => Some("این حساب قفل شده است. با مدیر سامانه تماس بگیرید."),
+        (Locale::En, "auth.email_not_confirmed") => Some("This account is not ready for sign-in. Contact your administrator."),
+        (Locale::Fa, "auth.email_not_confirmed") => Some("این حساب هنوز برای ورود آماده نیست. با مدیر سامانه تماس بگیرید."),
+        (Locale::En, "auth.account_requires_admin") => Some("This account requires administrator assistance before sign-in."),
+        (Locale::Fa, "auth.account_requires_admin") => Some("این حساب پیش از ورود به راهنمایی مدیر سامانه نیاز دارد."),
+        (Locale::En, "auth.service_unavailable") => Some("Sign-in is temporarily unavailable. Try again shortly."),
+        (Locale::Fa, "auth.service_unavailable") => Some("ورود موقتاً در دسترس نیست. کمی بعد دوباره تلاش کنید."),
+        (Locale::En, "auth.recovery_unavailable_title") => Some("Password recovery is unavailable"),
+        (Locale::Fa, "auth.recovery_unavailable_title") => Some("بازیابی رمز عبور در دسترس نیست"),
+        (Locale::En, "auth.recovery_unavailable_description") => Some("Email password reset is not enabled in this release. Contact your administrator for assistance."),
+        (Locale::Fa, "auth.recovery_unavailable_description") => Some("بازنشانی رمز عبور از طریق ایمیل در این نسخه فعال نیست. برای راهنمایی با مدیر سامانه تماس بگیرید."),
 
         (Locale::En, "submissions.review_description") => {
             Some("Review and grade student submissions")
@@ -42,6 +167,66 @@ pub(crate) fn supplemental_translation(key: &'static str, locale: Locale) -> Opt
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pr2_shared_copy_is_localized_in_both_languages() {
+        for key in [
+            "common.search",
+            "common.clear",
+            "common.data",
+            "common.go_home",
+            "common.go_back",
+            "navigation.close",
+            "navigation.open",
+            "navigation.primary",
+            "navigation.redirecting_dashboard",
+            "nav.knowledge_assets",
+            "nav.knowledge_audit",
+            "nav.knowledge_submissions",
+            "errors.destination_unavailable",
+            "errors.generic_title",
+            "errors.generic_description",
+            "errors.network_title",
+            "errors.network_description",
+            "errors.not_found_title",
+            "errors.not_found_description",
+            "session.checking",
+            "session.unavailable_title",
+            "session.unavailable_description",
+            "session.sign_in_required",
+            "session.sign_in_required_description",
+            "notifications.loading",
+            "notifications.failed_load",
+            "notifications.action_failed",
+            "validation.valid",
+            "validation.all_valid",
+            "validation.fix_errors",
+            "auth.context_headline",
+            "auth.context_copy",
+            "auth.offline_note",
+            "auth.reveal_password",
+            "auth.hide_password",
+            "auth.email_required",
+            "auth.email_invalid",
+            "auth.password_required",
+            "auth.account_inactive",
+            "auth.account_locked",
+            "auth.email_not_confirmed",
+            "auth.account_requires_admin",
+            "auth.service_unavailable",
+            "auth.recovery_unavailable_title",
+            "auth.recovery_unavailable_description",
+        ] {
+            assert!(
+                supplemental_translation(key, Locale::En).is_some(),
+                "missing English {key}"
+            );
+            assert!(
+                supplemental_translation(key, Locale::Fa).is_some(),
+                "missing Farsi {key}"
+            );
+        }
+    }
 
     #[test]
     fn teacher_submission_copy_is_localized_in_english() {
