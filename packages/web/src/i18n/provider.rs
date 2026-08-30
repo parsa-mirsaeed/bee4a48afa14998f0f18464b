@@ -119,7 +119,9 @@ pub fn LocaleProvider(children: Element) -> Element {
             hydrated_locale.set(locale);
         }
     });
-    use_effect(move || apply_document_locale(locale));
+    // Read the signal inside the effect so the document attributes are updated
+    // after hydration restores a persisted preference.
+    use_effect(move || apply_document_locale(*stored_locale.read()));
 
     rsx! {
         div {
