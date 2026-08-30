@@ -62,7 +62,7 @@ test('Persian grade dates and numbers are isolated LTR inside the RTL document @
   await navigateWithIcon(page, 'grade');
   const classCard = page
     .getByText('E2E Class A1', { exact: true })
-    .locator('xpath=ancestor::div[contains(@class,"glass-card")][1]');
+    .locator('xpath=ancestor::div[contains(@class,"et-ui-card")][1]');
   await classCard.getByRole('button').click();
 
   const dialog = page.getByRole('dialog');
