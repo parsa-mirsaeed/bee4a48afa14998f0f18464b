@@ -53,7 +53,7 @@ test('shared login fields, reveal control, recovery dialog and WCAG scan are acc
   await page.goto('/');
 
   const email = page.locator('input[type="email"]');
-  const password = page.locator('input[type="password"]');
+  const password = page.locator('input[name="password"]');
   for (const input of [email, password]) {
     const id = await input.getAttribute('id');
     expect(id, 'shared fields must generate a control ID').toBeTruthy();

@@ -44,36 +44,67 @@ fn trap_tab(event: &KeyboardEvent, root_id: &str) {
         return;
     }
 
-    event.prevent_default();
-    let backwards = event.modifiers().contains(Modifiers::SHIFT);
-    let root_id = serde_json::to_string(root_id).unwrap_or_else(|_| "\"\"".to_string());
-    let backwards = if backwards { "true" } else { "false" };
+    let Some(document) = web_sys::window().and_then(|window| window.document()) else {
+        return;
+    };
+    let Some(root) = document.get_element_by_id(root_id) else {
+        return;
+    };
+    let Ok(nodes) = root.query_selector_all(
+        "a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [contenteditable=\"true\"], [tabindex]:not([tabindex=\"-1\"])",
+    ) else {
+        return;
+    };
 
-    let _ = document::eval(&format!(
-        r#"(() => {{
-            const root = document.getElementById({root_id});
-            if (!root) return;
-            const focusable = Array.from(root.querySelectorAll(
-                'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [contenteditable="true"], [tabindex]:not([tabindex="-1"])'
-            )).filter((element) =>
-                !element.hasAttribute('hidden') &&
-                element.getAttribute('aria-hidden') !== 'true' &&
-                element.getClientRects().length > 0
-            );
-            if (focusable.length === 0) {{
-                root.focus();
-                return;
-            }}
-            const current = focusable.indexOf(document.activeElement);
-            let next;
-            if (current < 0) {{
-                next = {backwards} ? focusable.length - 1 : 0;
-            }} else {{
-                next = (current + ({backwards} ? -1 : 1) + focusable.length) % focusable.length;
-            }}
-            focusable[next].focus();
-        }})()"#
-    ));
+    let mut focusable = Vec::new();
+    for index in 0..nodes.length() {
+        let Some(node) = nodes.item(index) else {
+            continue;
+        };
+        let Ok(element) = node.dyn_into::<HtmlElement>() else {
+            continue;
+        };
+        if element.has_attribute("hidden")
+            || element.get_attribute("aria-hidden").as_deref() == Some("true")
+            || (element.offset_width() == 0 && element.offset_height() == 0)
+        {
+            continue;
+        }
+        focusable.push(element);
+    }
+
+    if focusable.is_empty() {
+        event.prevent_default();
+        if let Ok(root) = root.dyn_into::<HtmlElement>() {
+            let _ = root.focus();
+        }
+        return;
+    }
+
+    let backwards = event.modifiers().contains(Modifiers::SHIFT);
+    let active_index = document.active_element().and_then(|active| {
+        focusable.iter().position(|candidate| {
+            js_sys::Object::is(active.as_ref(), candidate.as_ref())
+        })
+    });
+
+    let target = match active_index {
+        None => {
+            if backwards {
+                focusable.last()
+            } else {
+                focusable.first()
+            }
+        }
+        Some(0) if backwards => focusable.last(),
+        Some(index) if !backwards && index + 1 == focusable.len() => focusable.first(),
+        _ => None,
+    };
+
+    if let Some(target) = target {
+        event.prevent_default();
+        let _ = target.focus();
+    }
 }
 
 #[component]
