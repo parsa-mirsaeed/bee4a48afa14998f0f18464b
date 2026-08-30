@@ -140,9 +140,9 @@ pub fn ManagerKnowledgeUploadSection() -> Element {
                     if let Some((success, message)) = notice() {
                         p {
                             class: if success {
-                                "rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800 dark:border-green-800 dark:bg-green-900/20 dark:text-green-200"
+                                "et-ui-alert et-ui-tone--success"
                             } else {
-                                "rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-800 dark:bg-red-900/20 dark:text-red-200"
+                                "et-ui-alert et-ui-tone--danger"
                             },
                             role: if success { "status" } else { "alert" },
                             "aria-live": if success { "polite" } else { "assertive" },
@@ -183,7 +183,7 @@ pub fn ManagerKnowledgeUploadSection() -> Element {
                                 label { r#for: "knowledge-description", class: "block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1", "Description" }
                                 textarea {
                                     id: "knowledge-description",
-                                    class: "et-ui-input",
+                                    class: "et-ui-textarea",
                                     name: "description",
                                     maxlength: "8000",
                                     rows: "4",
