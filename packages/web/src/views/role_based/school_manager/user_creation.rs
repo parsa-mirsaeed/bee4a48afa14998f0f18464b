@@ -14,7 +14,7 @@ pub fn UserCreationHub(on_cancel: EventHandler<()>) -> Element {
 
     rsx! {
         div { class: "space-y-6",
-            div { class: "glass-card p-6",
+            div { class: "et-ui-card p-6",
                 div { class: "flex flex-col gap-4 md:flex-row md:items-center md:justify-between",
                     div {
                         h2 { class: "text-2xl font-bold text-gray-900 dark:text-white",
@@ -249,7 +249,7 @@ fn ProvisioningForm(role: String) -> Element {
     };
 
     rsx! {
-        form { class: "glass-card space-y-6 p-6", onsubmit: submit, novalidate: true,
+        form { class: "et-ui-card space-y-6 p-6", onsubmit: submit, novalidate: true,
             div {
                 h3 { class: "text-lg font-semibold text-gray-900 dark:text-white",
                     if role == "Student" { "Create student" }
@@ -503,7 +503,7 @@ fn GuidePanel(role: String) -> Element {
         ),
     };
     rsx! {
-        aside { class: "glass-card h-fit p-6",
+        aside { class: "et-ui-card h-fit p-6",
             h3 { class: "font-semibold text-gray-900 dark:text-white", "{title}" }
             p { class: "mt-2 text-sm leading-6 text-gray-600 dark:text-gray-300", "{body}" }
             div { class: "mt-5 rounded-lg bg-gray-50 p-4 text-sm text-gray-600 dark:bg-gray-800 dark:text-gray-300",
