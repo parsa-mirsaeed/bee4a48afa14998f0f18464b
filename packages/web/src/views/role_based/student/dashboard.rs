@@ -87,6 +87,11 @@ pub fn StudentOverviewSection(on_navigate: EventHandler<String>) -> Element {
     } else {
         "Unable to load classes."
     };
+    let no_upcoming_assignments = if is_fa {
+        "تکلیف آینده‌ای وجود ندارد."
+    } else {
+        "No upcoming assignments."
+    };
 
     rsx! {
         div { class: "et-page-stack",
@@ -142,7 +147,7 @@ pub fn StudentOverviewSection(on_navigate: EventHandler<String>) -> Element {
                             }
                             if upcoming.is_empty() {
                                 StudentState {
-                                    message: "No upcoming assignments.",
+                                    message: no_upcoming_assignments.to_string(),
                                     error: false,
                                 }
                             } else {

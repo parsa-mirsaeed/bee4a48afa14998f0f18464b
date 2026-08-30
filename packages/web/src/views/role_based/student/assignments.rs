@@ -246,16 +246,25 @@ fn AssignmentDetails(
         let id = submission_id.clone();
         async move { get_submission_for_assignment(id).await }
     });
+    let latest_is_graded = matches!(
+        submission.read().as_ref(),
+        Some(Ok(Some(saved))) if saved.grade.is_some()
+    );
+    let current_state = if latest_is_graded {
+        StudentAssignmentPresentationState::Graded
+    } else {
+        presentation_state
+    };
 
     rsx! {
         div { class: "space-y-5",
             div {
                 h3 { class: "text-xl font-bold text-gray-900 dark:text-white", "{item.title}" }
-                p { class: "mt-1 text-sm text-gray-500", "Status: {presentation_state.display_name()}" }
+                p { class: "mt-1 text-sm text-gray-500", "Status: {current_state.display_name()}" }
             }
             div { class: "max-h-72 overflow-y-auto whitespace-pre-wrap rounded-lg bg-gray-50 p-4 text-sm dark:bg-gray-800", "{item.body}" }
             p { class: "text-sm text-gray-500", "Due {item.due_at}" }
-            if presentation_state == StudentAssignmentPresentationState::Graded {
+            if current_state == StudentAssignmentPresentationState::Graded {
                 match submission.read().as_ref() {
                     Some(Ok(Some(saved))) => rsx! {
                         div { class: "rounded-lg bg-green-50 p-4 text-sm text-green-900 dark:bg-green-900/20 dark:text-green-100",
