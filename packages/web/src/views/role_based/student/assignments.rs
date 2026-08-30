@@ -119,10 +119,7 @@ pub fn StudentAssignments() -> Element {
     }
 }
 
-fn assignment_matches_filter(
-    state: StudentAssignmentPresentationState,
-    filter: &str,
-) -> bool {
+fn assignment_matches_filter(state: StudentAssignmentPresentationState, filter: &str) -> bool {
     match filter {
         "all" => true,
         "pending" => state == StudentAssignmentPresentationState::Pending,

@@ -5,8 +5,7 @@ use crate::views::role_based::shared::common::Modal;
 use api::server_functions::dashboard_functions::{
     get_class_assignments_for_student, get_class_grades_for_student,
     get_class_materials_for_student, get_student_classes_view, ClassAssignmentInfo, ClassGradeInfo,
-    StudentAssignmentPresentationState,
-    ClassMaterialInfo, StudentClassView,
+    ClassMaterialInfo, StudentAssignmentPresentationState, StudentClassView,
 };
 use dioxus::prelude::*;
 
