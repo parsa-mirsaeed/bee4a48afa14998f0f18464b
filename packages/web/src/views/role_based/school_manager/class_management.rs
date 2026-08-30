@@ -157,7 +157,7 @@ pub fn ClassManagementSection() -> Element {
                 }
             }
 
-            div { class: "glass-card p-6 mb-6",
+            div { class: "et-ui-card p-6 mb-6",
                 div { class: "flex justify-between items-center flex-wrap gap-4",
                     h2 { class: "text-xl font-bold text-gray-900 dark:text-white",
                         "{locale.t(\"school_manager.classes.active_classes\")}"
@@ -202,7 +202,7 @@ pub fn ClassManagementSection() -> Element {
             match classes_resource.read().as_ref() {
                 Some(Ok(classes)) => rsx! {
                     if classes.is_empty() {
-                        div { class: "glass-card p-12 text-center flex flex-col items-center justify-center min-h-[400px]",
+                        div { class: "et-ui-card p-12 text-center flex flex-col items-center justify-center min-h-[400px]",
                             div { class: "w-24 h-24 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center mb-6",
                                 span { class: "text-4xl", "📚" }
                             }
@@ -358,7 +358,7 @@ fn ClassCard(class: ClassSectionResponse, on_click: EventHandler) -> Element {
     let locale = use_locale();
     rsx! {
         div {
-            class: "glass-card p-0 transition-all duration-300 hover:-translate-y-1 hover:shadow-xl cursor-pointer group flex flex-col h-full",
+            class: "et-ui-card p-0 transition-all duration-300 hover:-translate-y-1 hover:shadow-xl cursor-pointer group flex flex-col h-full",
             onclick: move |_| on_click.call(()),
 
             div { class: "p-6 flex-1",
