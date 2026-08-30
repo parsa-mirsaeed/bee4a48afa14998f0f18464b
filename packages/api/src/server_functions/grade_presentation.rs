@@ -109,7 +109,10 @@ mod tests {
 
     #[test]
     fn invalid_scale_or_grade_is_rejected() {
-        assert_eq!(present_grade(18.0, 0), Err(GradePresentationError::InvalidScale));
+        assert_eq!(
+            present_grade(18.0, 0),
+            Err(GradePresentationError::InvalidScale)
+        );
         assert_eq!(
             present_grade(f64::NAN, 20),
             Err(GradePresentationError::InvalidGrade)
