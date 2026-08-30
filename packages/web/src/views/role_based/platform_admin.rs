@@ -92,7 +92,7 @@ fn PlatformKnowledgeReviewSection() -> Element {
             description: Some("Review the private source, verify OCR, embed, then publish explicitly. The next legal lifecycle action is shown for each asset.".to_string()),
             children: rsx! {
                 div { class: "space-y-6",
-                    div { class: "glass-card p-5",
+                    div { class: "et-ui-card p-5",
                         ol { class: "grid grid-cols-1 gap-3 text-sm md:grid-cols-3",
                             LifecycleStep { number: "1", title: "Review & verify OCR", detail: "Inspect the private PDF and save only verified text." }
                             LifecycleStep { number: "2", title: "Embed", detail: "Queue embedding only after verified OCR exists." }
@@ -106,7 +106,7 @@ fn PlatformKnowledgeReviewSection() -> Element {
                         None => rsx! { p { class: "text-gray-500", "Loading governed assets..." } },
                         Some(Err(_)) => rsx! { p { class: "text-red-600", "Unable to load governed assets. Refresh and try again." } },
                         Some(Ok(items)) if items.is_empty() => rsx! {
-                            div { class: "glass-card p-8 text-center text-gray-500", "No manager submissions are waiting." }
+                            div { class: "et-ui-card p-8 text-center text-gray-500", "No manager submissions are waiting." }
                         },
                         Some(Ok(items)) => rsx! {
                             div { class: "grid grid-cols-1 gap-4 xl:grid-cols-2",
@@ -125,7 +125,7 @@ fn PlatformKnowledgeReviewSection() -> Element {
                         }
                     }
                     if let Some((_, title)) = selected_ocr_asset() {
-                        form { class: "glass-card space-y-4 p-6", onsubmit: submit_ocr,
+                        form { class: "et-ui-card space-y-4 p-6", onsubmit: submit_ocr,
                             div {
                                 h3 { class: "font-semibold text-gray-900 dark:text-white", "Verify OCR for {title}" }
                                 p { class: "mt-1 text-sm text-gray-500", "Confirm the text against the private source PDF before saving. Saving verified OCR does not publish the asset." }
@@ -200,7 +200,7 @@ fn render_review_card(
     let source_description = source_description(item);
 
     rsx! {
-        article { key: "{asset.id}", class: "glass-card space-y-4 p-5",
+        article { key: "{asset.id}", class: "et-ui-card space-y-4 p-5",
             div { class: "flex items-start justify-between gap-3",
                 div {
                     h3 { class: "font-semibold text-gray-900 dark:text-white", "{asset.title}" }
@@ -379,10 +379,10 @@ fn PlatformKnowledgeAuditSection() -> Element {
                     None => rsx! { p { class: "text-gray-500", "Loading audit events..." } },
                     Some(Err(_)) => rsx! { p { class: "text-red-600", "Unable to load audit events. Refresh and try again." } },
                     Some(Ok(items)) if items.is_empty() => rsx! {
-                        div { class: "glass-card p-8 text-center text-gray-500", "No audit events have been recorded." }
+                        div { class: "et-ui-card p-8 text-center text-gray-500", "No audit events have been recorded." }
                     },
                     Some(Ok(items)) => rsx! {
-                        div { class: "glass-card overflow-x-auto",
+                        div { class: "et-ui-card overflow-x-auto",
                             table { class: "min-w-full text-sm",
                                 thead { class: "border-b border-gray-200 dark:border-gray-700",
                                     tr {
