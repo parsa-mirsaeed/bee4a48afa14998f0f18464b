@@ -73,7 +73,7 @@ pub fn NotificationSettings() -> Element {
     };
 
     rsx! {
-        div { class: "glass-card p-6 space-y-6",
+        div { class: "et-ui-card et-ui-stack et-ui-stack--lg",
             div {
                 h3 { class: "text-lg font-semibold text-gray-900 dark:text-white",
                     "{locale.t(\"school_manager.settings.notifications.title\")}"
@@ -150,7 +150,7 @@ pub fn NotificationSettings() -> Element {
 
                     div { class: "flex justify-end",
                         button {
-                            class: "rounded-lg bg-primary px-5 py-2.5 font-semibold text-white disabled:opacity-50",
+                            class: "et-ui-button et-ui-button--primary et-ui-button--md",
                             disabled: saving(),
                             onclick: save,
                             if saving() { "Saving…" } else { "{locale.t(\"school_manager.settings.notifications.save_btn\")}" }
@@ -170,7 +170,7 @@ fn PreferenceSwitch(
     checked: Signal<bool>,
 ) -> Element {
     rsx! {
-        div { class: "flex min-h-[56px] items-center justify-between gap-4 rounded-lg border border-gray-200 px-4 py-3 dark:border-gray-700",
+        div { class: "et-ui-card flex min-h-[56px] items-center justify-between gap-4",
             div { class: "min-w-0",
                 label { r#for: "{id}", class: "block text-sm font-medium text-gray-900 dark:text-white", "{label}" }
                 if !description.is_empty() {
