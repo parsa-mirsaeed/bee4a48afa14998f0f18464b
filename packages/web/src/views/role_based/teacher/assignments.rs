@@ -242,8 +242,11 @@ fn AssignmentCard(
                     span { "Due {assignment.due_date}" }
                     span { "{assignment.submitted_count}/{assignment.total_count} submitted" }
                 }
-                div { class: "mt-2 h-2 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-700",
-                    div { class: "h-full rounded-full bg-primary", style: "width: {progress}%;" }
+                progress {
+                    class: "et-ui-progress mt-2",
+                    max: "100",
+                    value: "{progress}",
+                    "aria-label": "Submission progress"
                 }
             }
             div { class: "flex gap-2 border-t border-gray-100 p-3 dark:border-gray-800",
