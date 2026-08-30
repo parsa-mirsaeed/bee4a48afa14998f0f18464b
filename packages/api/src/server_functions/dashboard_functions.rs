@@ -18,6 +18,8 @@ use crate::repositories::{AuthorizedAssignmentRepository, RepositoryError};
 #[cfg(feature = "server")]
 use crate::rls_context::AuthorizedPool;
 #[cfg(feature = "server")]
+use crate::server_functions::grade_presentation::present_grade;
+#[cfg(feature = "server")]
 use axum::Extension;
 #[cfg(feature = "server")]
 use sqlx::Row;
@@ -169,7 +171,9 @@ fn normalize_grade_to_percentage(grade: f64, grade_scale: i16) -> f64 {
 /// Format the original grade value with its declared scale.
 #[cfg(feature = "server")]
 fn format_grade_points(grade: f64, grade_scale: i16) -> String {
-    format!("{grade:.0}/{grade_scale}")
+    present_grade(grade, grade_scale)
+        .map(|presentation| presentation.points)
+        .unwrap_or_else(|_| "—".to_owned())
 }
 
 #[cfg(feature = "server")]
@@ -211,7 +215,9 @@ fn percentage_to_letter_grade(percentage: f64) -> String {
 /// Normalizes to percentage first, then converts to letter
 #[cfg(feature = "server")]
 fn grade_to_letter_with_scale(grade: f64, grade_scale: i16) -> String {
-    percentage_to_letter_grade(normalize_grade_to_percentage(grade, grade_scale))
+    present_grade(grade, grade_scale)
+        .map(|presentation| presentation.letter_grade)
+        .unwrap_or_else(|_| "—".to_owned())
 }
 
 #[cfg(feature = "server")]

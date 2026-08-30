@@ -10,6 +10,8 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "server")]
 use crate::server_functions::dashboard_functions::{ChildAssignmentInfo, ChildGradeInfo};
 #[cfg(feature = "server")]
+use crate::server_functions::grade_presentation::present_grade;
+#[cfg(feature = "server")]
 use sqlx::Row;
 #[cfg(feature = "server")]
 use uuid::Uuid;
@@ -104,6 +106,7 @@ pub async fn get_child_grades_for_parent_scoped(
                 a.title,
                 cs.name AS class_name,
                 CAST(s.grade AS DOUBLE PRECISION) AS grade,
+                COALESCE(s.grade_scale, 100::SMALLINT) AS grade_scale,
                 ca.graded_at
             FROM submissions s
             JOIN custom_assignments ca ON s.custom_assignment_id = ca.id
@@ -125,6 +128,11 @@ pub async fn get_child_grades_for_parent_scoped(
         rows.into_iter()
             .map(|row| {
                 let grade = row.try_get::<Option<f64>, _>("grade")?.unwrap_or(0.0);
+                let grade_scale = row.try_get::<i16, _>("grade_scale")?;
+                let presentation = present_grade(grade, grade_scale).map_err(|error| {
+                    tracing::error!(%error, grade, grade_scale, "invalid persisted parent grade presentation");
+                    Box::new(error) as Box<dyn std::error::Error + Send + Sync>
+                })?;
                 let graded_at = row
                     .try_get::<Option<chrono::DateTime<chrono::Utc>>, _>("graded_at")?
                     .map(|value| value.format("%b %d").to_string())
@@ -132,12 +140,12 @@ pub async fn get_child_grades_for_parent_scoped(
                 Ok(ChildGradeInfo {
                     assignment_title: row.try_get("title")?,
                     class_name: row.try_get("class_name")?,
-                    grade: percentage_to_letter_grade(grade),
-                    points: format!("{grade:.0}/100"),
+                    grade: presentation.letter_grade,
+                    points: presentation.points,
                     graded_at,
                 })
             })
-            .collect::<Result<Vec<_>, sqlx::Error>>()
+            .collect::<Result<Vec<_>, Box<dyn std::error::Error + Send + Sync>>>()
             .map_err(|error| {
                 tracing::error!(%error, "parent child grade decode failed");
                 ServerFnError::new("parent.grades_unavailable")
@@ -232,35 +240,6 @@ async fn require_child_owner(
     Ok(())
 }
 
-fn percentage_to_letter_grade(percentage: f64) -> String {
-    if percentage >= 93.0 {
-        "A"
-    } else if percentage >= 90.0 {
-        "A-"
-    } else if percentage >= 87.0 {
-        "B+"
-    } else if percentage >= 83.0 {
-        "B"
-    } else if percentage >= 80.0 {
-        "B-"
-    } else if percentage >= 77.0 {
-        "C+"
-    } else if percentage >= 73.0 {
-        "C"
-    } else if percentage >= 70.0 {
-        "C-"
-    } else if percentage >= 67.0 {
-        "D+"
-    } else if percentage >= 63.0 {
-        "D"
-    } else if percentage >= 60.0 {
-        "D-"
-    } else {
-        "F"
-    }
-    .to_string()
-}
-
 #[cfg(test)]
 mod tests {
     #[test]
@@ -269,5 +248,13 @@ mod tests {
         assert!(source.contains("WHERE st.parent_id = $1"));
         assert!(source.contains("SELECT 1 FROM students WHERE id = $1 AND parent_id = $2"));
         assert!(!source.contains("grade_level: \"Grade\""));
+    }
+
+    #[test]
+    fn parent_grade_query_preserves_declared_scale_and_uses_shared_formatter() {
+        let source = include_str!("parent_scoped_functions.rs");
+        assert!(source.contains("COALESCE(s.grade_scale, 100::SMALLINT) AS grade_scale"));
+        assert!(source.contains("present_grade(grade, grade_scale)"));
+        assert!(!source.contains("format!(\"{grade:.0}/100\")"));
     }
 }

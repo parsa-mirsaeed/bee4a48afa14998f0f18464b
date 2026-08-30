@@ -14,6 +14,7 @@ pub mod class_functions;
 pub mod class_section_functions;
 pub mod dashboard_functions;
 pub mod form_data;
+pub mod grade_presentation;
 pub mod invite_functions;
 pub mod knowledge_audit_functions;
 pub mod knowledge_functions;
