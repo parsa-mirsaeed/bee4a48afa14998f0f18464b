@@ -63,7 +63,7 @@ pub fn GeneralSettings() -> Element {
     };
 
     rsx! {
-        div { class: "glass-card p-6 space-y-6",
+        div { class: "et-ui-card et-ui-stack et-ui-stack--lg",
             div {
                 h3 { class: "text-lg font-semibold text-gray-900 dark:text-white",
                     "{locale.t(\"school_manager.settings.general.title\")}"
@@ -129,7 +129,7 @@ pub fn GeneralSettings() -> Element {
 
                     div { class: "flex justify-end",
                         button {
-                            class: "rounded-lg bg-primary px-5 py-2.5 font-semibold text-white disabled:opacity-50",
+                            class: "et-ui-button et-ui-button--primary et-ui-button--md",
                             disabled: saving(),
                             onclick: save,
                             if saving() { "Saving…" } else { "{locale.t(\"school_manager.settings.general.save_btn\")}" }
@@ -153,7 +153,7 @@ fn SelectSetting(
             label { r#for: "{id}", class: "mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300", "{label}" }
             select {
                 id: "{id}",
-                class: "w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-white",
+                class: "et-ui-select",
                 value: "{value}",
                 onchange: move |event| value.set(event.value()),
                 for (option_value, option_label) in options {
