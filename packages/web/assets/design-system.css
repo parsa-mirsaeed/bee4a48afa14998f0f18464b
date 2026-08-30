@@ -201,6 +201,41 @@ body {
   background: var(--et-color-border);
 }
 
+
+/* Accessible, scrollable tabs used by role settings screens. */
+.et-ui-tabs {
+  display: flex;
+  gap: var(--et-space-1);
+  overflow-x: auto;
+  border-block-end: 1px solid var(--et-color-border);
+  scrollbar-width: thin;
+}
+
+.et-ui-tab {
+  min-block-size: 44px;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--et-space-2);
+  flex: 0 0 auto;
+  padding-inline: var(--et-space-4);
+  border-block-end: 2px solid transparent;
+  color: var(--et-color-text-muted);
+  font-size: var(--et-font-sm);
+  font-weight: 650;
+  white-space: nowrap;
+  transition: color var(--et-motion-fast) ease, background-color var(--et-motion-fast) ease, border-color var(--et-motion-fast) ease;
+}
+
+.et-ui-tab:hover {
+  color: var(--et-color-text);
+  background: var(--et-color-surface-subtle);
+}
+
+.et-ui-tab--active {
+  border-block-end-color: var(--et-color-primary);
+  color: var(--et-color-primary);
+}
+
 .et-ui-stack {
   display: flex;
   flex-direction: column;
