@@ -55,10 +55,13 @@ impl KnowledgeAssetStatus {
 
     /// Verified OCR is a review-stage operation. Later lifecycle states must
     /// never be revived through this write path, even when it is invoked
-    /// directly instead of through the browser. `ocr_ready` permits an
-    /// explicit governed correction of existing verified text.
+    /// directly instead of through the browser. `ocr_ready` and `failed`
+    /// permit explicit governed correction/recovery of verified text.
     pub fn accepts_verified_ocr(self) -> bool {
-        matches!(self, Self::Submitted | Self::OcrPending | Self::OcrReady)
+        matches!(
+            self,
+            Self::Submitted | Self::OcrPending | Self::OcrReady | Self::Failed
+        )
     }
 }
 
@@ -414,7 +417,7 @@ impl KnowledgeAssetRepository {
         .await?;
 
         let updated = sqlx::query(
-            "UPDATE knowledge_assets SET status = 'ocr_ready', reviewed_by = $2, failure_reason = NULL WHERE id = $1 AND status IN ('submitted', 'ocr_pending', 'ocr_ready')",
+            "UPDATE knowledge_assets SET status = 'ocr_ready', reviewed_by = $2, failure_reason = NULL WHERE id = $1 AND status IN ('submitted', 'ocr_pending', 'ocr_ready', 'failed')",
         )
         .bind(asset_id)
         .bind(verified_by)
