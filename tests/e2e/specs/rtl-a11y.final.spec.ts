@@ -28,28 +28,7 @@ async function navigateWithIcon(page: Page, icon: string): Promise<void> {
 
   const item = page.locator('.et-ui-sidebar-nav__item', {
     has: page.locator('span.material-icons-outlined', {
-      hasText: new RegExp(`^${icon}// @final @rtl @accessibility — Tier-2 layout and accessibility evidence.
-import AxeBuilder from '@axe-core/playwright';
-import { test, expect, type Page } from '@playwright/test';
-import { enforceOfflineAllowlist, assertNoUnexpectedOrigins } from '../fixtures/network-policy';
-import { watchConsole, assertNoConsoleErrors } from '../fixtures/console-guard';
-
-const PASSWORD = 'e2e-password';
-
-async function signIn(page: Page, email: string): Promise<void> {
-  await page.goto('/');
-  await page.locator('input[type="email"]').fill(email);
-  await page.locator('input[type="password"]').fill(PASSWORD);
-  await page.getByRole('button', { name: /sign in|ورود/i }).click();
-  await expect(page).toHaveURL(/\/dashboard$/);
-}
-
-async function signInEnglish(page: Page, email: string): Promise<void> {
-  await page.addInitScript(() => localStorage.setItem('edutalent_locale', 'en'));
-  await signIn(page, email);
-}
-
-),
+      hasText: new RegExp(`^${icon}$`),
     }),
   }).first();
   await expect(item).toBeVisible();
