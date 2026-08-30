@@ -508,10 +508,10 @@ pub async fn get_student_assignments() -> Result<Vec<StudentAssignmentInfo>, Ser
                     class_name,
                     due_date: assignment.due_at.format("%b %d, %Y").to_string(),
                     status,
-                    grade: grade_value.map(|grade| {
-                        grade_to_letter_with_scale(grade, grade_scale.unwrap_or(100))
-                    }),
-                    points: grade_value.map(|grade| format_grade_points(grade, grade_scale.unwrap_or(100))),
+                    grade: grade_value
+                        .map(|grade| grade_to_letter_with_scale(grade, grade_scale.unwrap_or(100))),
+                    points: grade_value
+                        .map(|grade| format_grade_points(grade, grade_scale.unwrap_or(100))),
                 })
             })
             .collect()
