@@ -33,7 +33,9 @@ pub fn SettingsSection() -> Element {
                 role: "tab",
                 "aria-selected": if selected { "true" } else { "false" },
                 "aria-controls": "manager-settings-panel-{id}",
-                tabindex: if selected { "0" } else { "-1" },
+                // Every tab remains in the normal Tab sequence. This is intentionally
+                // not a roving-tabindex widget until arrow-key focus movement is present.
+                tabindex: "0",
                 onclick: move |_| active_tab.set(id.to_string()),
                 span { class: "material-icons-outlined", "aria-hidden": "true", "{icon}" }
                 "{label}"
