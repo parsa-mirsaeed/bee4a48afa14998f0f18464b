@@ -27,7 +27,7 @@ pub fn StudentGrades() -> Element {
 
     rsx! {
         div { class: "space-y-6",
-            div { class: "glass-card p-5 border-l-4 border-blue-500",
+            div { class: "et-ui-card p-5 border-l-4 border-blue-500",
                 h3 { class: "font-semibold text-gray-900 dark:text-white", "Recorded grades" }
                 p { class: "mt-1 text-sm text-gray-500 dark:text-gray-400",
                     "Only persisted assignment grades are shown. Aggregate GPA, credits, attendance, and trend analytics are omitted until their source domains are defined."
@@ -35,15 +35,15 @@ pub fn StudentGrades() -> Element {
             }
             match &*classes.read() {
                 None => rsx! { div { class: "grid grid-cols-1 md:grid-cols-2 gap-4", SkeletonCard {} SkeletonCard {} } },
-                Some(Err(_)) => rsx! { div { class: "glass-card p-8 text-center text-red-600", "Unable to load grades." } },
-                Some(Ok(items)) if items.is_empty() => rsx! { div { class: "glass-card p-8 text-center text-gray-500", "{locale.t(\"grades.no_classes\")}" } },
+                Some(Err(_)) => rsx! { div { class: "et-ui-card p-8 text-center text-red-600", "Unable to load grades." } },
+                Some(Ok(items)) if items.is_empty() => rsx! { div { class: "et-ui-card p-8 text-center text-gray-500", "{locale.t(\"grades.no_classes\")}" } },
                 Some(Ok(items)) => rsx! {
                     div { class: "grid grid-cols-1 md:grid-cols-2 gap-4",
                         for class in items.iter() {
                             {
                                 let selected = class.clone();
                                 rsx! {
-                                    div { key: "{class.id}", class: "glass-card p-5",
+                                    div { key: "{class.id}", class: "et-ui-card p-5",
                                         h3 { class: "font-semibold text-gray-900 dark:text-white", "{class.name}" }
                                         p { class: "mt-1 text-sm text-gray-500 dark:text-gray-400", "{class.subject_name} · {class.teacher_name}" }
                                         p { class: "mt-1 text-xs text-gray-400", "{class.term}" }
