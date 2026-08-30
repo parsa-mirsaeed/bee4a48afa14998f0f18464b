@@ -641,8 +641,8 @@ body {
 .et-auth-context__brand { display: inline-flex; align-items: center; gap: var(--et-space-3); font-size: var(--et-font-lg); font-weight: 750; }
 .et-auth-context__mark { inline-size: 2.5rem; block-size: 2.5rem; display: grid; place-items: center; border-radius: var(--et-radius-md); background: rgb(255 255 255 / 0.14); }
 .et-auth-context__headline { max-inline-size: 42rem; font-size: clamp(2rem, 4.5vw, 4rem); font-weight: 760; line-height: 1.08; letter-spacing: -0.04em; }
-.et-auth-context__copy { max-inline-size: 38rem; margin-block-start: var(--et-space-5); color: rgb(255 255 255 / 0.78); line-height: 1.7; }
-.et-auth-context__footnote { color: rgb(255 255 255 / 0.7); font-size: var(--et-font-xs); }
+.et-auth-context__copy { max-inline-size: 38rem; margin-block-start: var(--et-space-5); color: #fff; line-height: 1.7; }
+.et-auth-context__footnote { color: #fff; font-size: var(--et-font-xs); }
 
 .et-auth-panel {
   min-block-size: 100dvh;
