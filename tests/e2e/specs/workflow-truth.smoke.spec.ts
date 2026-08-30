@@ -144,6 +144,16 @@ test('manager provisions Student Teacher Parent and guided publish persists @smo
 
   // The teacher first proves an empty class cannot be falsely published.
   await signIn(page, TEACHER_EMAIL);
+  await actionWithIcon(page, 'assignment').click();
+  const draftCard = page
+    .getByText(GUIDED_ASSIGNMENT, { exact: true })
+    .locator('xpath=ancestor::article[1]');
+  await page.getByRole('button', { name: 'Draft', exact: true }).click();
+  await expect(draftCard).toBeVisible();
+  await expect(draftCard).toContainText('Draft');
+  await page.getByRole('button', { name: 'Active', exact: true }).click();
+  await expect(draftCard).toHaveCount(0);
+  await page.getByRole('button', { name: 'All', exact: true }).click();
   await openGuidedAssignment(page);
   await page.getByRole('dialog').getByRole('button', { name: 'Publish', exact: true }).click();
   await expect(page.getByRole('dialog')).toContainText(/no active enrolled students/i);
@@ -168,10 +178,11 @@ test('manager provisions Student Teacher Parent and guided publish persists @smo
   const publishedCard = page
     .getByText(GUIDED_ASSIGNMENT, { exact: true })
     .locator('xpath=ancestor::article[1]');
-  // The dashboard presents persisted Published assignments that are still open
-  // as "active"; the generated student assignment count and student journey
-  // below prove the publication transaction persisted its downstream record.
-  await expect(publishedCard).toContainText('active');
+  // Lifecycle remains Published while the separate derived phase is Active;
+  // the generated student assignment count and journey below prove the
+  // publication transaction persisted its downstream record.
+  await expect(publishedCard).toContainText('Published');
+  await expect(publishedCard).toContainText('Active');
   await expect(publishedCard).toContainText('0/1 submitted');
   await endSession(page);
 
