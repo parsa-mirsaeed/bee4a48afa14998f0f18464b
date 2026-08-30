@@ -536,8 +536,9 @@ mod tests {
 
     #[test]
     fn shared_control_ids_are_stable_and_distinct_by_semantic_key() {
-        assert_eq!(stable_id("field", "Email address"), "et-field-email-address");
-        assert_eq!(stable_id("field", "Email address"), "et-field-email-address");
-        assert_ne!(stable_id("field", "Email address"), stable_id("field", "Password"));
+        let email_id = stable_id("field", "Email address");
+        assert_eq!(email_id, "et-field-email-address");
+        assert_eq!(email_id, stable_id("field", "Email address"));
+        assert_ne!(email_id, stable_id("field", "Password"));
     }
 }
