@@ -4,6 +4,7 @@
 //! Provides endpoints for student, teacher, and parent dashboards to fetch
 //! real data from the database.
 
+use crate::domain::AssignmentStatus;
 use dioxus::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -55,6 +56,30 @@ fn log_query_timing(query_name: &str, start: Instant) {
         eprintln!("[SLOW QUERY] {} took {}ms", query_name, elapsed_ms);
     } else if std::env::var("LOG_QUERY_TIMING").is_ok() {
         println!("[QUERY] {} took {}ms", query_name, elapsed_ms);
+    }
+}
+
+/// Draft/Published is authoritative workflow state. Submission counts only
+/// describe the progress of work that was actually published.
+fn teacher_assignment_progress_state(
+    lifecycle_status: AssignmentStatus,
+    due_at: chrono::DateTime<chrono::Utc>,
+    submitted_count: i64,
+    total_count: i64,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Option<TeacherAssignmentProgressState> {
+    if lifecycle_status != AssignmentStatus::Published {
+        return None;
+    }
+
+    if total_count > 0 && submitted_count == total_count {
+        // Product policy: completion is visible as soon as every assigned
+        // student has submitted, even if the due date is still in the future.
+        Some(TeacherAssignmentProgressState::Complete)
+    } else if due_at < now {
+        Some(TeacherAssignmentProgressState::Grading)
+    } else {
+        Some(TeacherAssignmentProgressState::Active)
     }
 }
 
@@ -119,7 +144,31 @@ pub struct TeacherAssignmentInfo {
     pub due_date: String,
     pub submitted_count: i64,
     pub total_count: i64,
-    pub status: String, // "active", "grading", "completed"
+    /// Authoritative persisted assignment workflow state. This must never be
+    /// inferred from a due date or submission counts.
+    pub lifecycle_status: AssignmentStatus,
+    /// Presentation phase for a published assignment. Drafts intentionally
+    /// have no progress phase because they are not student-facing work.
+    pub progress_state: Option<TeacherAssignmentProgressState>,
+}
+
+/// Teacher-facing phase derived only after lifecycle has been respected.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TeacherAssignmentProgressState {
+    Active,
+    Grading,
+    Complete,
+}
+
+impl TeacherAssignmentProgressState {
+    pub const fn display_name(self) -> &'static str {
+        match self {
+            Self::Active => "Active",
+            Self::Grading => "Grading",
+            Self::Complete => "Complete",
+        }
+    }
 }
 
 /// Parent dashboard statistics
@@ -756,13 +805,14 @@ pub async fn get_teacher_assignments() -> Result<Vec<TeacherAssignmentInfo>, Ser
                         );
                         ServerFnError::new("Unable to load assignments")
                     })?;
-                let status = if submitted_count == total_count && total_count > 0 {
-                    "completed".to_string()
-                } else if assignment.due_at < chrono::Utc::now() {
-                    "grading".to_string()
-                } else {
-                    "active".to_string()
-                };
+                let lifecycle_status = assignment.status;
+                let progress_state = teacher_assignment_progress_state(
+                    lifecycle_status,
+                    assignment.due_at,
+                    submitted_count,
+                    total_count,
+                    chrono::Utc::now(),
+                );
 
                 Ok(TeacherAssignmentInfo {
                     id: assignment_id.to_string(),
@@ -771,7 +821,8 @@ pub async fn get_teacher_assignments() -> Result<Vec<TeacherAssignmentInfo>, Ser
                     due_date: assignment.due_at.format("%b %d, %Y").to_string(),
                     submitted_count,
                     total_count,
-                    status,
+                    lifecycle_status,
+                    progress_state,
                 })
             })
             .collect()
@@ -2828,5 +2879,63 @@ mod grade_scale_tests {
         assert_eq!(grade_to_letter_with_scale(18.0, 20), "A-");
         assert_eq!(format_grade_points(18.0, 20), "18/20");
         assert_eq!(calculate_gpa_with_scale(18.0, 20), 4.0);
+    }
+}
+
+#[cfg(test)]
+mod teacher_assignment_presentation_tests {
+    use super::*;
+    use chrono::{Duration, Utc};
+
+    #[test]
+    fn drafts_never_receive_a_published_progress_phase() {
+        let now = Utc::now();
+        for (submitted_count, total_count) in [(0, 0), (0, 3), (3, 3)] {
+            assert_eq!(
+                teacher_assignment_progress_state(
+                    AssignmentStatus::Draft,
+                    now - Duration::days(1),
+                    submitted_count,
+                    total_count,
+                    now,
+                ),
+                None
+            );
+        }
+    }
+
+    #[test]
+    fn published_progress_is_derived_after_lifecycle() {
+        let now = Utc::now();
+        assert_eq!(
+            teacher_assignment_progress_state(
+                AssignmentStatus::Published,
+                now + Duration::days(1),
+                0,
+                3,
+                now,
+            ),
+            Some(TeacherAssignmentProgressState::Active)
+        );
+        assert_eq!(
+            teacher_assignment_progress_state(
+                AssignmentStatus::Published,
+                now - Duration::days(1),
+                1,
+                3,
+                now,
+            ),
+            Some(TeacherAssignmentProgressState::Grading)
+        );
+        assert_eq!(
+            teacher_assignment_progress_state(
+                AssignmentStatus::Published,
+                now + Duration::days(1),
+                3,
+                3,
+                now,
+            ),
+            Some(TeacherAssignmentProgressState::Complete)
+        );
     }
 }

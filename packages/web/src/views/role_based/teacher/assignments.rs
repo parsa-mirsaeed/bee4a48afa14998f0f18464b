@@ -3,6 +3,7 @@
 use crate::i18n::use_locale;
 use crate::views::role_based::components::DashboardSection;
 use crate::views::role_based::shared::common::Modal;
+use api::domain::AssignmentStatus;
 use api::server_functions::assignment_functions::{
     create_assignment, delete_assignment, get_assignment_by_id, AssignmentResponse,
     CreateAssignmentPayload,
@@ -13,7 +14,7 @@ use api::server_functions::assignment_workflow::{
 };
 use api::server_functions::dashboard_functions::{
     get_class_materials_for_teacher, get_teacher_assignments, ClassMaterialInfo,
-    TeacherAssignmentInfo,
+    TeacherAssignmentInfo, TeacherAssignmentProgressState,
 };
 use dioxus::prelude::*;
 
@@ -205,12 +206,34 @@ fn assignment_matches_filter(item: &TeacherAssignmentInfo, filter: &str) -> bool
     if filter == "all" {
         return true;
     }
-    let status = item.status.to_ascii_lowercase();
     match filter {
-        "draft" => status == "draft",
-        "active" => status == "active" || status == "grading" || status == "published",
-        "completed" => status == "completed" || status == "closed",
+        "draft" => item.lifecycle_status == AssignmentStatus::Draft,
+        "active" => {
+            item.lifecycle_status == AssignmentStatus::Published
+                && matches!(
+                    item.progress_state,
+                    Some(
+                        TeacherAssignmentProgressState::Active
+                            | TeacherAssignmentProgressState::Grading
+                    )
+                )
+        }
+        "completed" => {
+            item.lifecycle_status == AssignmentStatus::Published
+                && item.progress_state == Some(TeacherAssignmentProgressState::Complete)
+        }
         _ => true,
+    }
+}
+
+fn assignment_status_label(item: &TeacherAssignmentInfo) -> String {
+    match item.progress_state {
+        Some(progress_state) => format!(
+            "{} · {}",
+            item.lifecycle_status,
+            progress_state.display_name()
+        ),
+        None => item.lifecycle_status.to_string(),
     }
 }
 
@@ -227,6 +250,7 @@ fn AssignmentCard(
     } else {
         0
     };
+    let status_label = assignment_status_label(&assignment);
 
     rsx! {
         article { class: "et-ui-card overflow-hidden",
@@ -236,7 +260,7 @@ fn AssignmentCard(
                         h3 { class: "font-semibold text-gray-900 dark:text-white", "{assignment.title}" }
                         p { class: "mt-1 text-sm text-gray-500 dark:text-gray-400", "{assignment.class_name}" }
                     }
-                    span { class: "rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-300", "{assignment.status}" }
+                    span { class: "rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-300", "{status_label}" }
                 }
                 div { class: "mt-4 flex items-center justify-between text-sm text-gray-500 dark:text-gray-400",
                     span { "Due {assignment.due_date}" }
@@ -579,6 +603,22 @@ fn publish_error_message(raw: &str) -> String {
 mod tests {
     use super::*;
 
+    fn assignment(
+        lifecycle_status: AssignmentStatus,
+        progress_state: Option<TeacherAssignmentProgressState>,
+    ) -> TeacherAssignmentInfo {
+        TeacherAssignmentInfo {
+            id: "assignment".into(),
+            title: "Lifecycle fixture".into(),
+            class_name: "Class".into(),
+            due_date: "2026-08-30".into(),
+            submitted_count: 0,
+            total_count: 0,
+            lifecycle_status,
+            progress_state,
+        }
+    }
+
     #[test]
     fn no_student_publish_state_is_actionable() {
         let message = no_eligible_students_message();
@@ -590,5 +630,24 @@ mod tests {
     fn assignment_cards_do_not_invent_points() {
         let source = include_str!("assignments.rs");
         assert!(!source.contains(concat!("100{", "locale.t")));
+    }
+
+    #[test]
+    fn assignment_filters_respect_lifecycle_before_progress() {
+        let draft = assignment(AssignmentStatus::Draft, None);
+        let active = assignment(
+            AssignmentStatus::Published,
+            Some(TeacherAssignmentProgressState::Active),
+        );
+        let complete = assignment(
+            AssignmentStatus::Published,
+            Some(TeacherAssignmentProgressState::Complete),
+        );
+
+        assert!(assignment_matches_filter(&draft, "draft"));
+        assert!(!assignment_matches_filter(&draft, "active"));
+        assert!(!assignment_matches_filter(&draft, "completed"));
+        assert!(assignment_matches_filter(&active, "active"));
+        assert!(assignment_matches_filter(&complete, "completed"));
     }
 }

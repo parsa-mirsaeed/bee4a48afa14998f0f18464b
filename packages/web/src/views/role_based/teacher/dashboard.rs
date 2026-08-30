@@ -9,6 +9,19 @@ use dioxus::prelude::*;
 
 use super::TeacherKnowledgeAssetsScoped;
 
+fn assignment_status_label(
+    assignment: &api::server_functions::dashboard_functions::TeacherAssignmentInfo,
+) -> String {
+    match assignment.progress_state {
+        Some(progress_state) => format!(
+            "{} · {}",
+            assignment.lifecycle_status,
+            progress_state.display_name()
+        ),
+        None => assignment.lifecycle_status.to_string(),
+    }
+}
+
 #[component]
 pub fn TeacherDashboard(section: String) -> Element {
     let current_user = AuthHooks::use_current_user().ok().flatten();
@@ -164,7 +177,7 @@ pub fn TeacherOverviewSection(on_navigate: EventHandler<String>) -> Element {
                                         p { class: "et-list-meta", "{assignment.class_name} · {assignment.submitted_count}/{assignment.total_count} submitted" }
                                     }
                                     div { class: "et-list-aside",
-                                        p { "{assignment.status}" }
+                                        p { "{assignment_status_label(assignment)}" }
                                         p { class: "mt-1", "{assignment.due_date}" }
                                     }
                                 }
