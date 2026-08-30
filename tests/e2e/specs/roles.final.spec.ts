@@ -226,7 +226,7 @@ test('student and parent see the same persisted twenty-point grade @smoke @final
   await expect(studentGrades).toContainText('18/20');
   await endSessionForRoleSwitch(page);
 
-  await signInEnglish(page, 'e2e-parent-a@example.test');
+  await establishSession(page, 'e2e-parent-a@example.test');
   await page.goto('/dashboard/children');
   await page.getByRole('button', { name: 'View Grades', exact: true }).click();
   const parentGrades = page.getByRole('dialog');
