@@ -104,7 +104,9 @@ pub async fn submit_student_assignment(
         .ok_or_else(|| ServerFnError::new("Assignment not found"))?;
         let graded_at: Option<chrono::DateTime<chrono::Utc>> = assignment_state.get("graded_at");
         if graded_at.is_some() {
-            return Err(ServerFnError::new("This assignment has already been graded"));
+            return Err(ServerFnError::new(
+                "This assignment has already been graded",
+            ));
         }
 
         let existing_submission = sqlx::query(
