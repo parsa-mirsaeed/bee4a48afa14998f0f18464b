@@ -213,7 +213,8 @@ test('manager provisions Student Teacher Parent and guided publish persists @smo
 
 test('manager settings tabs are sequentially keyboard reachable @smoke @workflow-truth', async ({ page }) => {
   await signIn(page, MANAGER_EMAIL);
-  await actionWithIcon(page, 'settings').click();
+  await page.getByText(/system settings|تنظیمات سیستم/i).first().click();
+  await expect(page.getByRole('tab')).toHaveCount(4);
 
   const profileTab = page.getByRole('tab').filter({ hasText: /profile|نمایه/i });
   const securityTab = page.getByRole('tab').filter({ hasText: /security|امنیت/i });
