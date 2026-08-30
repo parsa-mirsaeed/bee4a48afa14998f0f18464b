@@ -49,7 +49,7 @@ pub fn StudentsList() -> Element {
 
             // Search and filter
             div {
-                class: "glass-card p-3 md:p-4 flex flex-col md:flex-row gap-3 md:gap-4 items-center",
+                class: "et-ui-card p-3 md:p-4 flex flex-col md:flex-row gap-3 md:gap-4 items-center",
 
                 div {
                     class: "relative flex-1 w-full",
@@ -79,13 +79,13 @@ pub fn StudentsList() -> Element {
                 },
                 Some(Err(e)) => rsx! {
                     div {
-                        class: "glass-card p-12 text-center",
+                        class: "et-ui-card p-12 text-center",
                         p { class: "text-red-500", "{locale.t(\"students.failed_load\")}: {e}" }
                     }
                 },
                 Some(Ok(students)) if students.is_empty() => rsx! {
                     div {
-                        class: "glass-card p-12 text-center flex flex-col items-center justify-center min-h-[300px]",
+                        class: "et-ui-card p-12 text-center flex flex-col items-center justify-center min-h-[300px]",
                         div {
                             class: "w-20 h-20 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center mb-4",
                             span { class: "text-4xl", "👨‍🎓" }
@@ -168,7 +168,7 @@ fn StudentCard(
 
     rsx! {
         div {
-            class: "glass-card p-0 flex flex-col hover:-translate-y-1 transition-transform group",
+            class: "et-ui-card p-0 flex flex-col hover:-translate-y-1 transition-transform group",
 
             div {
                 class: "p-4 md:p-6 flex items-center gap-3 md:gap-4",
