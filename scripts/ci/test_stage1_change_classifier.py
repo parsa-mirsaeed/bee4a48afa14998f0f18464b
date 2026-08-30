@@ -236,12 +236,12 @@ class ClassifierTests(unittest.TestCase):
             needs_operations_definition=True,
         )
 
-    def test_web_entrypoint_is_not_an_operations_definition(self):
+    def test_web_readiness_entrypoint_requires_operations_definition(self):
         self.assert_categories(
             ["packages/web/src/main.rs"],
-            required=("web_logic",),
-            forbidden=("operations", "unknown"),
-            needs_operations_definition=False,
+            required=("web_logic", "operations"),
+            forbidden=("unknown",),
+            needs_operations_definition=True,
         )
 
     def test_production_markdown_remains_documentation_only(self):
