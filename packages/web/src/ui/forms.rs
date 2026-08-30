@@ -1,8 +1,19 @@
 use dioxus::prelude::*;
-use uuid::Uuid;
 
-fn generated_id(prefix: &str) -> String {
-    format!("et-{prefix}-{}", Uuid::new_v4().simple())
+fn stable_id(prefix: &str, key: &str) -> String {
+    let slug: String = key
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() {
+                character.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let slug = slug.trim_matches('-');
+    let slug = if slug.is_empty() { "control" } else { slug };
+    format!("et-{prefix}-{slug}")
 }
 
 fn described_by(
@@ -86,7 +97,7 @@ pub fn TextField(
     disabled: Option<bool>,
     leading_icon: Option<String>,
 ) -> Element {
-    let input_id = use_signal(|| generated_id("field")).read().clone();
+    let input_id = stable_id("field", name.as_deref().unwrap_or(&label));
     let hint_id = format!("{input_id}-hint");
     let error_id = format!("{input_id}-error");
     let described_by = described_by(&hint_id, &error_id, &hint, &error);
@@ -176,7 +187,7 @@ pub fn PasswordField(
     required: Option<bool>,
     disabled: Option<bool>,
 ) -> Element {
-    let input_id = use_signal(|| generated_id("password")).read().clone();
+    let input_id = stable_id("password", name.as_deref().unwrap_or(&label));
     let hint_id = format!("{input_id}-hint");
     let error_id = format!("{input_id}-error");
     let described_by = described_by(&hint_id, &error_id, &hint, &error);
@@ -239,7 +250,7 @@ pub fn TextArea(
     required: Option<bool>,
     disabled: Option<bool>,
 ) -> Element {
-    let input_id = use_signal(|| generated_id("textarea")).read().clone();
+    let input_id = stable_id("textarea", &label);
     let hint_id = format!("{input_id}-hint");
     let error_id = format!("{input_id}-error");
     let described_by = described_by(&hint_id, &error_id, &hint, &error);
@@ -279,7 +290,7 @@ pub fn Select(
     required: Option<bool>,
     disabled: Option<bool>,
 ) -> Element {
-    let input_id = use_signal(|| generated_id("select")).read().clone();
+    let input_id = stable_id("select", &label);
     let hint_id = format!("{input_id}-hint");
     let error_id = format!("{input_id}-error");
     let described_by = described_by(&hint_id, &error_id, &hint, &error);
@@ -339,7 +350,7 @@ pub fn MultiSelect(
     hint: Option<String>,
     disabled: Option<bool>,
 ) -> Element {
-    let input_id = use_signal(|| generated_id("multi-select")).read().clone();
+    let input_id = stable_id("multi-select", &label);
     let hint_id = format!("{input_id}-hint");
     let disabled = disabled.unwrap_or(false);
     rsx! {
@@ -375,7 +386,7 @@ pub fn Checkbox(
     error: Option<String>,
     disabled: Option<bool>,
 ) -> Element {
-    let input_id = use_signal(|| generated_id("checkbox")).read().clone();
+    let input_id = stable_id("checkbox", &label);
     let hint_id = format!("{input_id}-hint");
     let error_id = format!("{input_id}-error");
     let described_by = described_by(&hint_id, &error_id, &hint, &error);
@@ -408,7 +419,7 @@ pub fn Switch(
     on_change: EventHandler<bool>,
     disabled: Option<bool>,
 ) -> Element {
-    let input_id = use_signal(|| generated_id("switch")).read().clone();
+    let input_id = stable_id("switch", &label);
     let disabled = disabled.unwrap_or(false);
     rsx! {
         label { class: "et-ui-switch", r#for: "{input_id}",
@@ -435,7 +446,7 @@ pub fn RadioGroup(
     on_change: EventHandler<String>,
     disabled: Option<bool>,
 ) -> Element {
-    let group_id = use_signal(|| generated_id("radio")).read().clone();
+    let group_id = stable_id("radio", &label);
     let disabled = disabled.unwrap_or(false);
     rsx! {
         fieldset { class: "et-ui-field", disabled,
@@ -496,7 +507,7 @@ pub fn FileDropzone(
     disabled: Option<bool>,
     on_change: EventHandler<FormEvent>,
 ) -> Element {
-    let input_id = use_signal(|| generated_id("file")).read().clone();
+    let input_id = stable_id("file", &label);
     let hint_id = format!("{input_id}-hint");
     let disabled = disabled.unwrap_or(false);
     rsx! {
@@ -516,5 +527,17 @@ pub fn FileDropzone(
             }
             if let Some(ref hint) = hint { p { id: "{hint_id}", class: "et-ui-field__hint", "{hint}" } }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::stable_id;
+
+    #[test]
+    fn shared_control_ids_are_stable_and_distinct_by_semantic_key() {
+        assert_eq!(stable_id("field", "Email address"), "et-field-email-address");
+        assert_eq!(stable_id("field", "Email address"), "et-field-email-address");
+        assert_ne!(stable_id("field", "Email address"), stable_id("field", "Password"));
     }
 }
