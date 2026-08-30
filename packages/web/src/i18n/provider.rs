@@ -100,7 +100,9 @@ fn persist_locale(locale: Locale) {
 
 #[component]
 pub fn LocaleProvider(children: Element) -> Element {
-    let stored_locale = use_signal(|| persisted_locale().unwrap_or_default());
+    // The initial client render must exactly match SSR. Browser storage is read
+    // only after hydration, when a preference can safely replace the default.
+    let stored_locale = use_signal(Locale::default);
     let mut hydrated_locale = stored_locale;
 
     let context = LocaleContext {
