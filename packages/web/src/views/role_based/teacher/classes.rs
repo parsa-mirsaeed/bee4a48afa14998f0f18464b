@@ -60,7 +60,7 @@ pub fn ClassesList() -> Element {
             },
             Some(Ok(classes)) if classes.is_empty() => rsx! {
                 div {
-                    class: "glass-card p-12 text-center flex flex-col items-center justify-center min-h-[300px]",
+                    class: "et-ui-card p-12 text-center flex flex-col items-center justify-center min-h-[300px]",
                     div {
                         class: "w-20 h-20 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center mb-4",
                         span { class: "text-4xl", "📚" }
@@ -141,7 +141,7 @@ fn TeacherClassCard(
 
     rsx! {
         div {
-            class: "glass-card p-0 flex flex-col h-full overflow-hidden group hover:-translate-y-1 transition-transform duration-300",
+            class: "et-ui-card p-0 flex flex-col h-full overflow-hidden group hover:-translate-y-1 transition-transform duration-300",
 
             div {
                 class: "p-4 md:p-6 bg-gradient-to-br {color_class.0} {color_class.1} text-white relative overflow-hidden",
