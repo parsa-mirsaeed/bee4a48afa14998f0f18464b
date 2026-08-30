@@ -181,7 +181,9 @@ test('student submission is graded by the authorized teacher and appears in pers
 
   const gradingDialog = page.getByRole('dialog');
   await expect(gradingDialog).toBeVisible();
-  await expect(gradingDialog.locator('#edutalent-modal-title')).toContainText('Grade Submission');
+  const labelledBy = await gradingDialog.getAttribute('aria-labelledby');
+  expect(labelledBy).toMatch(/^et-dialog-title-/);
+  await expect(gradingDialog.locator(`#${labelledBy}`)).toContainText('Grade Submission');
   await gradingDialog.locator('input[type="number"]').fill('91');
   await gradingDialog.locator('textarea').fill(feedback);
   await gradingDialog.getByRole('button', { name: /Save Grade$/ }).click();
