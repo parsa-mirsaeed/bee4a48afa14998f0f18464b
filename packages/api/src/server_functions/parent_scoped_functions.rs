@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "server")]
 use crate::server_functions::dashboard_functions::{ChildAssignmentInfo, ChildGradeInfo};
 #[cfg(feature = "server")]
-use crate::server_functions::grade_presentation::present_grade;
+use crate::server_functions::grade_presentation::{percentage_to_letter_grade, present_grade};
 #[cfg(feature = "server")]
 use sqlx::Row;
 #[cfg(feature = "server")]
@@ -204,7 +204,7 @@ pub async fn get_child_assignments_for_parent_scoped(
                         .format("%b %d, %Y")
                         .to_string(),
                     status: row.try_get::<String, _>("status")?.to_lowercase(),
-                    grade: grade.map(percentage_to_letter_grade),
+                    grade: grade.map(|value| percentage_to_letter_grade(value).to_owned()),
                 })
             })
             .collect::<Result<Vec<_>, sqlx::Error>>()
