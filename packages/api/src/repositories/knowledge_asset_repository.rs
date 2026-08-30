@@ -52,6 +52,14 @@ impl KnowledgeAssetStatus {
             ))),
         }
     }
+
+    /// Verified OCR is a review-stage operation. Later lifecycle states must
+    /// never be revived through this write path, even when it is invoked
+    /// directly instead of through the browser. `ocr_ready` permits an
+    /// explicit governed correction of existing verified text.
+    pub fn accepts_verified_ocr(self) -> bool {
+        matches!(self, Self::Submitted | Self::OcrPending | Self::OcrReady)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -355,6 +363,31 @@ impl KnowledgeAssetRepository {
         text_sha256: &str,
     ) -> RepositoryResult<()> {
         let mut tx = self.base.pool().begin().await?;
+
+        // Lock and inspect the authoritative lifecycle value before writing
+        // OCR. This serializes an admin review with archive/publish/worker
+        // transitions and prevents stale UI actions from reviving terminal
+        // assets.
+        let asset_row = sqlx::query(
+            "SELECT school_id, status::text AS status FROM knowledge_assets WHERE id = $1 FOR UPDATE",
+        )
+        .bind(asset_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| RepositoryError::NotFound {
+            entity: "KnowledgeAsset".into(),
+            id: asset_id.to_string(),
+        })?;
+        let school_id: Uuid = asset_row.try_get("school_id")?;
+        let current_status =
+            KnowledgeAssetStatus::parse(&asset_row.try_get::<String, _>("status")?)?;
+
+        if !current_status.accepts_verified_ocr() {
+            return Err(RepositoryError::Validation(
+                "Verified OCR can only be attached while an asset is awaiting review".into(),
+            ));
+        }
+
         sqlx::query(
             r#"
             INSERT INTO knowledge_ocr_texts (
@@ -380,18 +413,19 @@ impl KnowledgeAssetRepository {
         .execute(&mut *tx)
         .await?;
 
-        let row = sqlx::query(
-            "UPDATE knowledge_assets SET status = 'ocr_ready', reviewed_by = $2, failure_reason = NULL WHERE id = $1 RETURNING school_id",
+        let updated = sqlx::query(
+            "UPDATE knowledge_assets SET status = 'ocr_ready', reviewed_by = $2, failure_reason = NULL WHERE id = $1 AND status IN ('submitted', 'ocr_pending', 'ocr_ready')",
         )
         .bind(asset_id)
         .bind(verified_by)
-        .fetch_optional(&mut *tx)
+        .execute(&mut *tx)
         .await?
-        .ok_or_else(|| RepositoryError::NotFound {
-            entity: "KnowledgeAsset".into(),
-            id: asset_id.to_string(),
-        })?;
-        let school_id: Uuid = row.try_get("school_id")?;
+        .rows_affected();
+        if updated != 1 {
+            return Err(RepositoryError::Validation(
+                "The asset lifecycle changed before verified OCR could be saved".into(),
+            ));
+        }
 
         Self::append_audit_in_tx(
             &mut *tx,
@@ -400,7 +434,12 @@ impl KnowledgeAssetRepository {
             "knowledge_asset.ocr_verified",
             asset_id,
             school_id,
-            serde_json::json!({"ocr_provider": provider, "text_sha256": text_sha256}),
+            serde_json::json!({
+                "ocr_provider": provider,
+                "text_sha256": text_sha256,
+                "previous_status": current_status.as_str(),
+                "status": "ocr_ready"
+            }),
         )
         .await?;
         tx.commit().await?;
