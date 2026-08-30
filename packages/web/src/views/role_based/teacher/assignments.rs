@@ -229,7 +229,7 @@ fn AssignmentCard(
     };
 
     rsx! {
-        article { class: "glass-card overflow-hidden",
+        article { class: "et-ui-card overflow-hidden",
             div { class: "p-5",
                 div { class: "flex items-start justify-between gap-3",
                     div {
@@ -257,7 +257,7 @@ fn AssignmentCard(
 #[component]
 fn AssignmentSkeleton() -> Element {
     rsx! {
-        div { class: "glass-card animate-pulse p-5",
+        div { class: "et-ui-card animate-pulse p-5",
             div { class: "h-5 w-2/3 rounded bg-gray-200 dark:bg-gray-700" }
             div { class: "mt-3 h-4 w-1/2 rounded bg-gray-200 dark:bg-gray-700" }
             div { class: "mt-6 h-2 rounded bg-gray-200 dark:bg-gray-700" }
