@@ -684,12 +684,11 @@ fn VectorizationProgressBar(
                     }
 
                     // Progress bar
-                    div {
-                        class: "relative h-3 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden",
-                        div {
-                            class: "absolute inset-y-0 left-0 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 rounded-full transition-all duration-500",
-                            style: "width: {progress}%;",
-                        }
+                    progress {
+                        class: "et-ui-progress",
+                        max: "100",
+                        value: "{progress}",
+                        "aria-label": "Content processing progress"
                     }
 
                     // Stats
