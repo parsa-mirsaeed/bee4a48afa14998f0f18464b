@@ -144,7 +144,7 @@ fn StudentAssignmentCard(
         .unwrap_or_else(|| "Points not specified".to_string());
 
     rsx! {
-        article { class: "glass-card p-5",
+        article { class: "et-ui-card p-5",
             div { class: "flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between",
                 div {
                     h3 { class: "font-semibold text-gray-900 dark:text-white", "{assignment.title}" }
@@ -175,7 +175,7 @@ fn AssignmentSkeletonList() -> Element {
     rsx! {
         div { class: "space-y-4",
             for _ in 0..4 {
-                div { class: "glass-card animate-pulse p-5",
+                div { class: "et-ui-card animate-pulse p-5",
                     div { class: "h-5 w-2/3 rounded bg-gray-200 dark:bg-gray-700" }
                     div { class: "mt-3 h-4 w-1/2 rounded bg-gray-200 dark:bg-gray-700" }
                 }

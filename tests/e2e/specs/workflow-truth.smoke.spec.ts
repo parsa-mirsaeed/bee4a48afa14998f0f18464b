@@ -211,6 +211,29 @@ test('manager provisions Student Teacher Parent and guided publish persists @smo
   await expect(page.getByText('E2E Student B', { exact: true })).toHaveCount(0);
 });
 
+test('manager settings tabs are sequentially keyboard reachable @smoke @workflow-truth', async ({ page }) => {
+  await signIn(page, MANAGER_EMAIL);
+  await page.getByText(/system settings|تنظیمات سیستم/i).first().click();
+  await expect(page.getByRole('tab')).toHaveCount(4);
+
+  const roleTabs = page.getByRole('tab');
+  const profileTab = roleTabs.nth(0);
+  const securityTab = roleTabs.nth(1);
+  const generalTab = roleTabs.nth(2);
+  const notificationTab = roleTabs.nth(3);
+
+  for (const tab of [profileTab, securityTab, generalTab, notificationTab]) {
+    await expect(tab).toHaveAttribute('tabindex', '0');
+  }
+
+  await profileTab.focus();
+  await page.keyboard.press('Tab');
+  await expect(securityTab).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(securityTab).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('tabpanel')).toContainText(/password change is unavailable|تغییر رمز عبور/i);
+});
+
 test('knowledge storage unavailable state recovers and real PDF upload persists @smoke @workflow-truth', async ({ page, request }) => {
   const unavailable = await request.post('http://127.0.0.1:9100/__e2e/storage-mode', {
     data: { mode: 'unavailable' },
@@ -241,7 +264,7 @@ test('knowledge storage unavailable state recovers and real PDF upload persists 
   await expect(page.getByRole('status')).toContainText(/uploaded and registered with status submitted/i);
   const submission = page
     .getByText('E2E PR1 Uploaded PDF', { exact: true })
-    .locator('xpath=ancestor::div[contains(@class,"glass-card")][1]');
+    .locator('xpath=ancestor::div[contains(@class,"et-ui-card")][1]');
   await expect(submission).toContainText('submitted');
   await expect(submission).toContainText(/not OCRed, embedded, or published/i);
 });

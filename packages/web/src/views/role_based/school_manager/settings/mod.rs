@@ -1,95 +1,78 @@
-use dioxus::prelude::*;
-use crate::views::role_based::components::DashboardSection;
 use crate::i18n::use_locale;
+use crate::views::role_based::components::DashboardSection;
+use dioxus::prelude::*;
 
-// Make these public so dashboard can route to them if needed
-pub mod profile;
-pub mod security;
 pub mod general;
 pub mod notifications;
+pub mod profile;
+pub mod security;
 
-use profile::ProfileSettings;
-use security::SecuritySettings;
 use general::GeneralSettings;
 use notifications::NotificationSettings;
+use profile::ProfileSettings;
+use security::SecuritySettings;
 
-/// Settings section for School Manager
 #[component]
 pub fn SettingsSection() -> Element {
-    // State for active tab
     let mut active_tab = use_signal(|| "profile".to_string());
     let locale = use_locale();
+    let settings_label = locale.t("school_manager.settings.title");
+
+    let tab = |id: &'static str, label: String, icon: &'static str| {
+        let selected = active_tab() == id;
+        let class = if selected {
+            "et-ui-tab et-ui-tab--active"
+        } else {
+            "et-ui-tab"
+        };
+        rsx! {
+            button {
+                id: "manager-settings-tab-{id}",
+                class: "{class}",
+                r#type: "button",
+                role: "tab",
+                "aria-selected": if selected { "true" } else { "false" },
+                "aria-controls": "manager-settings-panel-{id}",
+                // Every tab remains in the normal Tab sequence. This is intentionally
+                // not a roving-tabindex widget until arrow-key focus movement is present.
+                tabindex: "0",
+                onclick: move |_| active_tab.set(id.to_string()),
+                span { class: "material-icons-outlined", "aria-hidden": "true", "{icon}" }
+                "{label}"
+            }
+        }
+    };
 
     rsx! {
         DashboardSection {
             title: locale.t("school_manager.settings.title"),
             description: Some(locale.t("school_manager.settings.description")),
             children: rsx! {
-                div {
-                    class: "flex flex-col gap-6",
-
-                    // Tabs Container with glassmorphism
+                div { class: "et-ui-stack et-ui-stack--lg",
                     div {
-                        class: "flex gap-1 border-b border-gray-200 dark:border-gray-700 overflow-x-auto",
-                        
-                        TabButton {
-                            id: "profile",
-                            label: "{locale.t(\"school_manager.settings.tabs.profile\")}",
-                            icon: "person_outline",
-                            active_tab: active_tab
-                        }
-                        TabButton {
-                            id: "security",
-                            label: "{locale.t(\"school_manager.settings.tabs.security\")}",
-                            icon: "lock_outline",
-                            active_tab: active_tab
-                        }
-                        TabButton {
-                            id: "general",
-                            label: "{locale.t(\"school_manager.settings.tabs.general\")}",
-                            icon: "settings",
-                            active_tab: active_tab
-                        }
-                        TabButton {
-                            id: "notifications",
-                            label: "{locale.t(\"school_manager.settings.tabs.notifications\")}",
-                            icon: "notifications_none",
-                            active_tab: active_tab
-                        }
+                        class: "et-ui-tabs",
+                        role: "tablist",
+                        "aria-label": "{settings_label}",
+                        {tab("profile", locale.t("school_manager.settings.tabs.profile"), "person_outline")}
+                        {tab("security", locale.t("school_manager.settings.tabs.security"), "lock_outline")}
+                        {tab("general", locale.t("school_manager.settings.tabs.general"), "settings")}
+                        {tab("notifications", locale.t("school_manager.settings.tabs.notifications"), "notifications_none")}
                     }
-
-                    // Tab Content
                     div {
-                        class: "mt-4",
+                        id: "manager-settings-panel-{active_tab}",
+                        role: "tabpanel",
+                        "aria-labelledby": "manager-settings-tab-{active_tab}",
+                        tabindex: "0",
                         match active_tab().as_str() {
                             "profile" => rsx! { ProfileSettings {} },
                             "security" => rsx! { SecuritySettings {} },
                             "general" => rsx! { GeneralSettings {} },
                             "notifications" => rsx! { NotificationSettings {} },
-                            _ => rsx! { ProfileSettings {} }
+                            _ => rsx! { ProfileSettings {} },
                         }
                     }
                 }
             }
-        }
-    }
-}
-
-#[component]
-fn TabButton(id: &'static str, label: String, icon: &'static str, active_tab: Signal<String>) -> Element {
-    let is_active = active_tab() == id;
-    let active_class = if is_active { 
-        "border-b-2 border-primary text-primary bg-white/50 dark:bg-white/10" 
-    } else { 
-        "border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 hover:bg-white/30 dark:hover:bg-white/5" 
-    };
-    
-    rsx! {
-        button {
-            class: "px-6 py-3 flex items-center gap-2 font-medium transition-all duration-200 rounded-t-lg {active_class}",
-            onclick: move |_| active_tab.set(id.to_string()),
-            span { class: "material-icons-outlined text-lg", "{icon}" }
-            "{label}"
         }
     }
 }

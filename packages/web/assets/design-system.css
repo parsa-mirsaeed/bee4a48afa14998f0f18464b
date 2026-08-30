@@ -201,6 +201,41 @@ body {
   background: var(--et-color-border);
 }
 
+
+/* Accessible, scrollable tabs used by role settings screens. */
+.et-ui-tabs {
+  display: flex;
+  gap: var(--et-space-1);
+  overflow-x: auto;
+  border-block-end: 1px solid var(--et-color-border);
+  scrollbar-width: thin;
+}
+
+.et-ui-tab {
+  min-block-size: 44px;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--et-space-2);
+  flex: 0 0 auto;
+  padding-inline: var(--et-space-4);
+  border-block-end: 2px solid transparent;
+  color: var(--et-color-text-muted);
+  font-size: var(--et-font-sm);
+  font-weight: 650;
+  white-space: nowrap;
+  transition: color var(--et-motion-fast) ease, background-color var(--et-motion-fast) ease, border-color var(--et-motion-fast) ease;
+}
+
+.et-ui-tab:hover {
+  color: var(--et-color-text);
+  background: var(--et-color-surface-subtle);
+}
+
+.et-ui-tab--active {
+  border-block-end-color: var(--et-color-primary);
+  color: var(--et-color-primary);
+}
+
 .et-ui-stack {
   display: flex;
   flex-direction: column;
@@ -604,10 +639,6 @@ body {
 .et-ui-breadcrumbs ol { display: flex; flex-wrap: wrap; align-items: center; gap: var(--et-space-2); color: var(--et-color-text-muted); font-size: var(--et-font-xs); }
 .et-ui-breadcrumbs li + li::before { content: "/"; margin-inline-end: var(--et-space-2); color: var(--et-color-border-strong); }
 .et-ui-breadcrumbs a:hover { color: var(--et-color-primary); }
-
-.et-ui-tabs { display: flex; gap: var(--et-space-1); overflow-x: auto; border-block-end: 1px solid var(--et-color-border); }
-.et-ui-tab { min-block-size: 42px; padding-inline: var(--et-space-3); border-block-end: 2px solid transparent; color: var(--et-color-text-muted); white-space: nowrap; font-size: var(--et-font-sm); font-weight: 600; }
-.et-ui-tab--active { border-block-end-color: var(--et-color-primary); color: var(--et-color-primary); }
 
 .et-ui-segmented { display: inline-flex; padding: 0.2rem; border: 1px solid var(--et-color-border); border-radius: var(--et-radius-sm); background: var(--et-color-surface-subtle); }
 .et-ui-segmented__item { min-block-size: 34px; padding-inline: 0.75rem; border-radius: 0.4rem; color: var(--et-color-text-muted); font-size: var(--et-font-xs); font-weight: 650; }

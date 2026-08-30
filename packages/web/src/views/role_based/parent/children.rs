@@ -34,7 +34,7 @@ pub fn ChildrenDetail() -> Element {
 
     rsx! {
         div { class: "space-y-6",
-            div { class: "glass-card p-5 border-l-4 border-blue-500",
+            div { class: "et-ui-card p-5 border-l-4 border-blue-500",
                 p { class: "text-sm text-gray-600 dark:text-gray-300",
                     "Attendance, parent reports, and parent-teacher communication are not enabled in this release. This page shows only linked child identity, enrollment, assignments, and persisted grades."
                 }
@@ -48,7 +48,7 @@ pub fn ChildrenDetail() -> Element {
                     }
                 },
                 Some(Ok(items)) if items.is_empty() => rsx! {
-                    div { class: "glass-card p-10 text-center text-gray-500 dark:text-gray-400",
+                    div { class: "et-ui-card p-10 text-center text-gray-500 dark:text-gray-400",
                         h3 { class: "font-semibold text-gray-900 dark:text-white", "No student is linked to this parent account yet" }
                         p { class: "mt-2 text-sm", "School administration must link a student before academic information appears." }
                     }
@@ -60,7 +60,7 @@ pub fn ChildrenDetail() -> Element {
                                 let for_grades = child.clone();
                                 let for_assignments = child.clone();
                                 rsx! {
-                                    div { key: "{child.id}", class: "glass-card p-5",
+                                    div { key: "{child.id}", class: "et-ui-card p-5",
                                         h3 { class: "text-lg font-bold text-gray-900 dark:text-white", "{child.name}" }
                                         p { class: "mt-1 text-sm text-gray-500 dark:text-gray-400",
                                             if let Some(grade) = child.grade_level.as_ref() { "{grade}" } else { "Grade not recorded" }

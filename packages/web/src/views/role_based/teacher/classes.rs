@@ -60,7 +60,7 @@ pub fn ClassesList() -> Element {
             },
             Some(Ok(classes)) if classes.is_empty() => rsx! {
                 div {
-                    class: "glass-card p-12 text-center flex flex-col items-center justify-center min-h-[300px]",
+                    class: "et-ui-card p-12 text-center flex flex-col items-center justify-center min-h-[300px]",
                     div {
                         class: "w-20 h-20 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center mb-4",
                         span { class: "text-4xl", "📚" }
@@ -141,7 +141,7 @@ fn TeacherClassCard(
 
     rsx! {
         div {
-            class: "glass-card p-0 flex flex-col h-full overflow-hidden group hover:-translate-y-1 transition-transform duration-300",
+            class: "et-ui-card p-0 flex flex-col h-full overflow-hidden group hover:-translate-y-1 transition-transform duration-300",
 
             div {
                 class: "p-4 md:p-6 bg-gradient-to-br {color_class.0} {color_class.1} text-white relative overflow-hidden",
@@ -684,12 +684,11 @@ fn VectorizationProgressBar(
                     }
 
                     // Progress bar
-                    div {
-                        class: "relative h-3 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden",
-                        div {
-                            class: "absolute inset-y-0 left-0 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 rounded-full transition-all duration-500",
-                            style: "width: {progress}%;",
-                        }
+                    progress {
+                        class: "et-ui-progress",
+                        max: "100",
+                        value: "{progress}",
+                        "aria-label": "Content processing progress"
                     }
 
                     // Stats

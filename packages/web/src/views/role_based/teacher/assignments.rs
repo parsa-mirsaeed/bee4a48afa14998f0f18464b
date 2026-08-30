@@ -229,7 +229,7 @@ fn AssignmentCard(
     };
 
     rsx! {
-        article { class: "glass-card overflow-hidden",
+        article { class: "et-ui-card overflow-hidden",
             div { class: "p-5",
                 div { class: "flex items-start justify-between gap-3",
                     div {
@@ -242,8 +242,11 @@ fn AssignmentCard(
                     span { "Due {assignment.due_date}" }
                     span { "{assignment.submitted_count}/{assignment.total_count} submitted" }
                 }
-                div { class: "mt-2 h-2 overflow-hidden rounded-full bg-gray-100 dark:bg-gray-700",
-                    div { class: "h-full rounded-full bg-primary", style: "width: {progress}%;" }
+                progress {
+                    class: "et-ui-progress mt-2",
+                    max: "100",
+                    value: "{progress}",
+                    "aria-label": "Submission progress"
                 }
             }
             div { class: "flex gap-2 border-t border-gray-100 p-3 dark:border-gray-800",
@@ -257,7 +260,7 @@ fn AssignmentCard(
 #[component]
 fn AssignmentSkeleton() -> Element {
     rsx! {
-        div { class: "glass-card animate-pulse p-5",
+        div { class: "et-ui-card animate-pulse p-5",
             div { class: "h-5 w-2/3 rounded bg-gray-200 dark:bg-gray-700" }
             div { class: "mt-3 h-4 w-1/2 rounded bg-gray-200 dark:bg-gray-700" }
             div { class: "mt-6 h-2 rounded bg-gray-200 dark:bg-gray-700" }

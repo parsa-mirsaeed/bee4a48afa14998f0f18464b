@@ -179,7 +179,7 @@ pub fn UserSummaryCard(
 
     rsx! {
         div {
-            class: "glass-card relative overflow-hidden group hover:-translate-y-1 transition-all duration-300",
+            class: "et-ui-card relative overflow-hidden group hover:-translate-y-1 transition-all duration-300",
 
             div {
                 class: "flex justify-between items-start mb-4",
@@ -320,7 +320,7 @@ pub fn UserList() -> Element {
 
     rsx! {
         div {
-            class: "glass-card p-0 rounded-xl overflow-hidden",
+            class: "et-ui-card p-0 rounded-xl overflow-hidden",
 
             div {
                 class: "p-6 flex flex-col md:flex-row justify-between items-center gap-4 border-b border-gray-100 dark:border-gray-800",
