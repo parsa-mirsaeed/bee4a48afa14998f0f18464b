@@ -206,12 +206,13 @@ async fn verified_ocr_cannot_revive_terminal_assets() {
                 .await
                 .expect("count terminal OCR rows in authorized scope");
                 assert_eq!(terminal_ocr_rows, 0);
-                let corrected_text: String =
-                    sqlx::query_scalar("SELECT clean_text FROM knowledge_ocr_texts WHERE asset_id = $1")
-                        .bind(ocr_ready_asset)
-                        .fetch_one(&*repository.pool())
-                        .await
-                        .expect("read corrected verified OCR in authorized scope");
+                let corrected_text: String = sqlx::query_scalar(
+                    "SELECT clean_text FROM knowledge_ocr_texts WHERE asset_id = $1",
+                )
+                .bind(ocr_ready_asset)
+                .fetch_one(&*repository.pool())
+                .await
+                .expect("read corrected verified OCR in authorized scope");
                 assert_eq!(corrected_text, "corrected text");
             },
             |_| true,
