@@ -88,7 +88,7 @@ PRODUCTION_RE = re.compile(
 )
 OPERATIONS_RE = re.compile(
     r"^(?:deploy/production/(?:operations/|edutalent-operations$)|"
-    r"packages/api/src/readiness\.rs|"
+    r"(?:packages/api/src/readiness\.rs|packages/web/src/main\.rs)|"
     r"deploy/(?:operations|monitoring|backup|recovery)/|scripts/(?:operations|backup|recovery)/|"
     r"\.github/workflows/production-operations\.yml|docs/(?:operations|runbooks)/|"
     r"docs/adr/0004-production-operations\.md|"
