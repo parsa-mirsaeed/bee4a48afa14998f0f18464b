@@ -2,7 +2,7 @@ use crate::application::AuthHooks;
 use crate::i18n::{use_locale, Locale};
 use crate::views::role_based::components::ResponsiveDashboardLayout;
 use api::server_functions::dashboard_functions::{
-    get_student_assignments, get_student_classes_view,
+    get_student_assignments, get_student_classes_view, StudentAssignmentPresentationState,
 };
 use dioxus::prelude::*;
 
@@ -113,8 +113,22 @@ pub fn StudentOverviewSection(on_navigate: EventHandler<String>) -> Element {
                     Some(Ok(items)) => {
                         let pending_count = items
                             .iter()
-                            .filter(|item| item.status == "pending" || item.status == "overdue")
+                            .filter(|item| {
+                                matches!(
+                                    item.presentation_state,
+                                    StudentAssignmentPresentationState::Pending
+                                        | StudentAssignmentPresentationState::Overdue
+                                )
+                            })
                             .count();
+                        let upcoming = items
+                            .iter()
+                            .filter(|item| {
+                                item.presentation_state
+                                    == StudentAssignmentPresentationState::Pending
+                            })
+                            .take(5)
+                            .collect::<Vec<_>>();
                         rsx! {
                             div { class: "et-panel grid grid-cols-1 md:grid-cols-2",
                                 div { class: "et-stat",
@@ -126,16 +140,23 @@ pub fn StudentOverviewSection(on_navigate: EventHandler<String>) -> Element {
                                     p { class: "et-stat-value", "{enrolled_class_count}" }
                                 }
                             }
-                            div { class: "et-panel",
-                                for assignment in items.iter().take(5) {
-                                    div { key: "{assignment.id}", class: "et-list-row",
-                                        div { class: "et-list-primary",
-                                            h4 { class: "et-list-title", "{assignment.title}" }
-                                            p { class: "et-list-meta", "{assignment.class_name}" }
-                                        }
-                                        div { class: "et-list-aside",
-                                            p { "{assignment.status}" }
-                                            p { class: "mt-1", "{assignment.due_date}" }
+                            if upcoming.is_empty() {
+                                StudentState {
+                                    message: "No upcoming assignments.",
+                                    error: false,
+                                }
+                            } else {
+                                div { class: "et-panel",
+                                    for assignment in upcoming {
+                                        div { key: "{assignment.id}", class: "et-list-row",
+                                            div { class: "et-list-primary",
+                                                h4 { class: "et-list-title", "{assignment.title}" }
+                                                p { class: "et-list-meta", "{assignment.class_name}" }
+                                            }
+                                            div { class: "et-list-aside",
+                                                p { "{assignment.presentation_state.display_name()}" }
+                                                p { class: "mt-1", "{assignment.due_date}" }
+                                            }
                                         }
                                     }
                                 }
@@ -187,4 +208,14 @@ fn StudentState(message: String, error: bool) -> Element {
         "et-state-panel"
     };
     rsx! { div { class: "{class}", "{message}" } }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn upcoming_queue_excludes_submitted_and_graded_work() {
+        let source = include_str!("dashboard.rs");
+        assert!(source.contains("StudentAssignmentPresentationState::Pending"));
+        assert!(!source.contains("assignment.status"));
+    }
 }

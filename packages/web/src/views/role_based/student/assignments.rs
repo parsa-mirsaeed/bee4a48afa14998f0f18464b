@@ -6,7 +6,9 @@ use crate::views::role_based::shared::common::Modal;
 use api::server_functions::assignment_functions::{
     get_personalized_assignment, PersonalizedAssignmentResponse,
 };
-use api::server_functions::dashboard_functions::{get_student_assignments, StudentAssignmentInfo};
+use api::server_functions::dashboard_functions::{
+    get_student_assignments, StudentAssignmentInfo, StudentAssignmentPresentationState,
+};
 use api::server_functions::submission_functions::{
     get_submission_for_assignment, submit_student_assignment, StudentSubmission,
 };
@@ -27,7 +29,7 @@ pub fn AssignmentsSection() -> Element {
 #[derive(Clone, PartialEq)]
 enum AssignmentModal {
     None,
-    Details(String),
+    Details(String, StudentAssignmentPresentationState),
     Work(String),
 }
 
@@ -42,6 +44,7 @@ pub fn StudentAssignments() -> Element {
             div { class: "flex flex-wrap gap-2",
                 AssignmentFilter { value: "all", label: "All", filter }
                 AssignmentFilter { value: "pending", label: "Pending", filter }
+                AssignmentFilter { value: "overdue", label: "Overdue", filter }
                 AssignmentFilter { value: "submitted", label: "Submitted", filter }
                 AssignmentFilter { value: "graded", label: "Graded", filter }
             }
@@ -58,7 +61,7 @@ pub fn StudentAssignments() -> Element {
                     let selected_filter = filter();
                     let visible = items
                         .iter()
-                        .filter(|item| selected_filter == "all" || item.status == selected_filter)
+                        .filter(|item| assignment_matches_filter(item.presentation_state, &selected_filter))
                         .cloned()
                         .collect::<Vec<_>>();
 
@@ -82,7 +85,7 @@ pub fn StudentAssignments() -> Element {
                                 for assignment in visible {
                                     StudentAssignmentCard {
                                         assignment,
-                                        on_open: move |id| modal.set(AssignmentModal::Details(id)),
+                                        on_open: move |(id, state)| modal.set(AssignmentModal::Details(id, state)),
                                     }
                                 }
                             }
@@ -92,9 +95,10 @@ pub fn StudentAssignments() -> Element {
             }
 
             match modal() {
-                AssignmentModal::Details(id) => rsx! {
+                AssignmentModal::Details(id, presentation_state) => rsx! {
                     AssignmentDetailModal {
                         assignment_id: id,
+                        presentation_state,
                         on_close: move |_| modal.set(AssignmentModal::None),
                         on_work: move |id| modal.set(AssignmentModal::Work(id)),
                     }
@@ -112,6 +116,20 @@ pub fn StudentAssignments() -> Element {
                 AssignmentModal::None => rsx! {},
             }
         }
+    }
+}
+
+fn assignment_matches_filter(
+    state: StudentAssignmentPresentationState,
+    filter: &str,
+) -> bool {
+    match filter {
+        "all" => true,
+        "pending" => state == StudentAssignmentPresentationState::Pending,
+        "overdue" => state == StudentAssignmentPresentationState::Overdue,
+        "submitted" => state == StudentAssignmentPresentationState::Submitted,
+        "graded" => state == StudentAssignmentPresentationState::Graded,
+        _ => false,
     }
 }
 
@@ -134,9 +152,10 @@ fn AssignmentFilter(value: &'static str, label: &'static str, filter: Signal<Str
 #[component]
 fn StudentAssignmentCard(
     assignment: StudentAssignmentInfo,
-    on_open: EventHandler<String>,
+    on_open: EventHandler<(String, StudentAssignmentPresentationState)>,
 ) -> Element {
     let id = assignment.id.clone();
+    let presentation_state = assignment.presentation_state;
     let points = assignment
         .points
         .as_deref()
@@ -150,7 +169,7 @@ fn StudentAssignmentCard(
                     h3 { class: "font-semibold text-gray-900 dark:text-white", "{assignment.title}" }
                     p { class: "mt-1 text-sm text-gray-500 dark:text-gray-400", "{assignment.class_name}" }
                 }
-                span { class: "rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-300", "{assignment.status}" }
+                span { class: "rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-300", "{assignment.presentation_state.display_name()}" }
             }
             div { class: "mt-4 flex flex-wrap gap-4 text-sm text-gray-500 dark:text-gray-400",
                 span { "Due {assignment.due_date}" }
@@ -161,10 +180,8 @@ fn StudentAssignmentCard(
             }
             button {
                 class: "mt-4 min-h-[44px] rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white",
-                onclick: move |_| on_open.call(id.clone()),
-                if assignment.status == "pending" { "Start assignment" }
-                else if assignment.status == "submitted" { "View submission" }
-                else { "View feedback" }
+                onclick: move |_| on_open.call((id.clone(), presentation_state)),
+                "{assignment.presentation_state.action_label()}"
             }
         }
     }
@@ -187,6 +204,7 @@ fn AssignmentSkeletonList() -> Element {
 #[component]
 fn AssignmentDetailModal(
     assignment_id: String,
+    presentation_state: StudentAssignmentPresentationState,
     on_close: EventHandler,
     on_work: EventHandler<String>,
 ) -> Element {
@@ -210,6 +228,7 @@ fn AssignmentDetailModal(
                     Some(Ok(Some(item))) => rsx! {
                         AssignmentDetails {
                             item: item.clone(),
+                            presentation_state,
                             on_work: move |_| on_work.call(id_for_work.clone()),
                         }
                     },
@@ -220,16 +239,45 @@ fn AssignmentDetailModal(
 }
 
 #[component]
-fn AssignmentDetails(item: PersonalizedAssignmentResponse, on_work: EventHandler) -> Element {
+fn AssignmentDetails(
+    item: PersonalizedAssignmentResponse,
+    presentation_state: StudentAssignmentPresentationState,
+    on_work: EventHandler,
+) -> Element {
+    let submission_id = item.id.clone();
+    let submission = use_resource(move || {
+        let id = submission_id.clone();
+        async move { get_submission_for_assignment(id).await }
+    });
+
     rsx! {
         div { class: "space-y-5",
             div {
                 h3 { class: "text-xl font-bold text-gray-900 dark:text-white", "{item.title}" }
-                p { class: "mt-1 text-sm text-gray-500", "Status: {item.status}" }
+                p { class: "mt-1 text-sm text-gray-500", "Status: {presentation_state.display_name()}" }
             }
             div { class: "max-h-72 overflow-y-auto whitespace-pre-wrap rounded-lg bg-gray-50 p-4 text-sm dark:bg-gray-800", "{item.body}" }
             p { class: "text-sm text-gray-500", "Due {item.due_at}" }
-            if item.status != "Graded" {
+            if presentation_state == StudentAssignmentPresentationState::Graded {
+                match submission.read().as_ref() {
+                    Some(Ok(Some(saved))) => rsx! {
+                        div { class: "rounded-lg bg-green-50 p-4 text-sm text-green-900 dark:bg-green-900/20 dark:text-green-100",
+                            if let Some(grade) = saved.grade.as_ref() {
+                                p { class: "font-semibold", "Grade: {grade}" }
+                            }
+                            if let Some(feedback) = saved.feedback.as_ref() {
+                                p { class: "mt-2 whitespace-pre-wrap", "{feedback}" }
+                            } else {
+                                p { class: "mt-2", "Your teacher has not added written feedback." }
+                            }
+                        }
+                    },
+                    Some(Ok(None)) | Some(Err(_)) => rsx! {
+                        p { class: "text-sm text-gray-500", "Feedback is not available yet." }
+                    },
+                    None => rsx! { p { class: "text-sm text-gray-500", "Loading feedback…" } },
+                }
+            } else {
                 button { class: "rounded-lg bg-primary px-4 py-2 font-semibold text-white", onclick: move |_| on_work.call(()), "Open my submission" }
             }
         }
@@ -326,10 +374,51 @@ fn AssignmentWorkModal(
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
     fn missing_points_are_not_invented() {
         let source = include_str!("assignments.rs");
         assert!(source.contains("Points not specified"));
         assert!(!source.contains("unwrap_or_else(|| \"100\""));
+    }
+
+    #[test]
+    fn filters_use_the_canonical_presentation_state() {
+        assert!(assignment_matches_filter(
+            StudentAssignmentPresentationState::Pending,
+            "pending"
+        ));
+        assert!(assignment_matches_filter(
+            StudentAssignmentPresentationState::Overdue,
+            "overdue"
+        ));
+        assert!(!assignment_matches_filter(
+            StudentAssignmentPresentationState::Overdue,
+            "pending"
+        ));
+        assert!(assignment_matches_filter(
+            StudentAssignmentPresentationState::Submitted,
+            "submitted"
+        ));
+        assert!(assignment_matches_filter(
+            StudentAssignmentPresentationState::Graded,
+            "graded"
+        ));
+    }
+
+    #[test]
+    fn overdue_work_never_uses_a_feedback_action() {
+        assert_eq!(
+            StudentAssignmentPresentationState::Overdue.action_label(),
+            "Submit late"
+        );
+    }
+
+    #[test]
+    fn graded_detail_uses_submission_feedback_instead_of_persistence_status() {
+        let source = include_str!("assignments.rs");
+        assert!(source.contains("get_submission_for_assignment"));
+        assert!(!source.contains("Status: {item.status}"));
     }
 }

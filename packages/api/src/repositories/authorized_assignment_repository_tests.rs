@@ -419,3 +419,32 @@ fn production_dashboard_assignment_routes_use_actor_scoped_repository() {
     }
     assert!(!teacher_handler.contains("SELECT id FROM teachers WHERE user_id = $1"));
 }
+
+#[test]
+fn student_class_assignment_route_keeps_authorization_and_presentation_state_centralized() {
+    let source = include_str!("../server_functions/dashboard_functions.rs");
+    let start = source
+        .find("pub async fn get_class_assignments_for_student")
+        .expect("student class assignment handler");
+    let end = source[start..]
+        .find("/// Get student's grades for a specific class")
+        .map(|offset| start + offset)
+        .expect("student class assignment handler end");
+    let handler = &source[start..end];
+
+    for required in [
+        "student_assignment_presentation_state",
+        "student_user.is_active = TRUE",
+        "student_role.name::text = 'Student'",
+        "JOIN enrollments enrollment",
+        "a.status = 'Published'::assignment_status",
+        "cs.school_id = student_user.school_id",
+        "ORDER BY ca.due_at ASC",
+    ] {
+        assert!(
+            handler.contains(required),
+            "student class handler must contain {required}"
+        );
+    }
+    assert!(!handler.contains("ca.status::text as \"status!\""));
+}

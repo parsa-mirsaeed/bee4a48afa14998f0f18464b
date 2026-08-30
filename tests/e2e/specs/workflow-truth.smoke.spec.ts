@@ -190,17 +190,18 @@ test('manager provisions Student Teacher Parent and guided publish persists @smo
   // submits real work, and sees the same persisted submission after a new login.
   await signIn(page, STUDENT_EMAIL, studentPassword);
   let studentCard = await openStudentAssignmentCard(page);
+  await expect(studentCard).toContainText('Pending');
   await studentCard.getByRole('button', { name: 'Start assignment', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Open my submission', exact: true }).click();
   await expect(page.getByRole('dialog')).toContainText('My submission');
   await page.getByRole('dialog').locator('textarea').fill(STUDENT_SUBMISSION);
   await page.getByRole('dialog').getByRole('button', { name: 'Submit work', exact: true }).click();
-  await expect(studentCard).toContainText('submitted');
+  await expect(studentCard).toContainText('Submitted');
   await endSession(page);
 
   await signIn(page, STUDENT_EMAIL, studentPassword);
   studentCard = await openStudentAssignmentCard(page);
-  await expect(studentCard).toContainText('submitted');
+  await expect(studentCard).toContainText('Submitted');
   await studentCard.getByRole('button', { name: 'View submission', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Open my submission', exact: true }).click();
   await expect(page.getByRole('dialog').locator('textarea')).toHaveValue(STUDENT_SUBMISSION);
