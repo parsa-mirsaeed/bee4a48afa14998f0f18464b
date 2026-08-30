@@ -25,7 +25,7 @@ pub fn TeacherKnowledgeAssetsScoped() -> Element {
                         None => rsx! { p { class: "text-gray-500", "Loading published assets..." } },
                         Some(Err(error)) => rsx! { p { class: "text-red-600", "Unable to load assets: {error}" } },
                         Some(Ok(items)) if items.is_empty() => rsx! {
-                            div { class: "glass-card p-8 text-center text-gray-500", "No published assets are available for your school." }
+                            div { class: "et-ui-card p-8 text-center text-gray-500", "No published assets are available for your school." }
                         },
                         Some(Ok(items)) => rsx! {
                             div { class: "grid grid-cols-1 lg:grid-cols-2 gap-4",
@@ -35,7 +35,7 @@ pub fn TeacherKnowledgeAssetsScoped() -> Element {
                                         let next_enabled = !item.enabled;
                                         let title = item.asset.title.clone();
                                         rsx! {
-                                            div { key: "{asset_id}", class: "glass-card p-5 space-y-3",
+                                            div { key: "{asset_id}", class: "et-ui-card p-5 space-y-3",
                                                 div { class: "flex items-start justify-between gap-3",
                                                     div {
                                                         h3 { class: "font-semibold text-gray-900 dark:text-white", "{item.asset.title}" }
