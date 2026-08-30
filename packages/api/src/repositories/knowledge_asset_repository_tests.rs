@@ -44,6 +44,7 @@ fn only_review_stage_assets_accept_verified_ocr() {
         KnowledgeAssetStatus::Submitted,
         KnowledgeAssetStatus::OcrPending,
         KnowledgeAssetStatus::OcrReady,
+        KnowledgeAssetStatus::Failed,
     ] {
         assert!(
             status.accepts_verified_ocr(),
@@ -56,7 +57,6 @@ fn only_review_stage_assets_accept_verified_ocr() {
         KnowledgeAssetStatus::Embedded,
         KnowledgeAssetStatus::Published,
         KnowledgeAssetStatus::Archived,
-        KnowledgeAssetStatus::Failed,
     ] {
         assert!(
             !status.accepts_verified_ocr(),
@@ -84,6 +84,7 @@ async fn verified_ocr_cannot_revive_terminal_assets() {
     let actor_id = Uuid::new_v4();
     let submitted_asset = Uuid::new_v4();
     let ocr_ready_asset = Uuid::new_v4();
+    let failed_asset = Uuid::new_v4();
     let archived_asset = Uuid::new_v4();
     let published_asset = Uuid::new_v4();
     let verified_hash = "a".repeat(64);
@@ -115,6 +116,7 @@ async fn verified_ocr_cannot_revive_terminal_assets() {
     for (asset_id, status) in [
         (submitted_asset, "submitted"),
         (ocr_ready_asset, "ocr_ready"),
+        (failed_asset, "failed"),
         (archived_asset, "archived"),
         (published_asset, "published"),
     ] {
@@ -141,7 +143,7 @@ async fn verified_ocr_cannot_revive_terminal_assets() {
     .expect("insert existing verified OCR");
 
     let actor = AuthorizedActor::new(actor_id, "PlatformAdmin", None).expect("valid actor");
-    let transaction = AuthorizedTx::begin(&pool, actor)
+    let transaction = AuthorizedTx::begin(&pool, actor.clone())
         .await
         .expect("begin RLS transaction");
     let outcome = transaction
@@ -170,9 +172,34 @@ async fn verified_ocr_cannot_revive_terminal_assets() {
                     )
                     .await
                     .expect("OCR-ready asset accepts a governed correction");
+                repository
+                    .attach_verified_ocr(
+                        failed_asset,
+                        "recovered text",
+                        "recovered text",
+                        "manual",
+                        actor_id,
+                        &verified_hash,
+                    )
+                    .await
+                    .expect("failed asset accepts a governed OCR recovery");
+            },
+            |_| true,
+        )
+        .await;
+    outcome.expect("finish lifecycle authorization transaction");
 
-                for asset_id in [archived_asset, published_asset] {
-                    let error = repository
+    // A rejected nested write deliberately rolls back its own outer request
+    // transaction. Run each direct stale/terminal invocation independently so
+    // it cannot roll back the successful OCR verification above.
+    for asset_id in [archived_asset, published_asset] {
+        let transaction = AuthorizedTx::begin(&pool, actor.clone())
+            .await
+            .expect("begin terminal lifecycle transaction");
+        let outcome = transaction
+            .scope(
+                async {
+                    KnowledgeAssetRepository::new(())
                         .attach_verified_ocr(
                             asset_id,
                             "replacement",
@@ -182,13 +209,25 @@ async fn verified_ocr_cannot_revive_terminal_assets() {
                             &rejected_hash,
                         )
                         .await
-                        .expect_err("terminal asset must reject OCR write");
-                    assert!(matches!(error, RepositoryError::Validation(_)));
-                }
+                },
+                |result| result.is_ok(),
+            )
+            .await
+            .expect("finish terminal lifecycle transaction");
+        assert!(matches!(outcome, Err(RepositoryError::Validation(_))));
+    }
 
+    let transaction = AuthorizedTx::begin(&pool, actor)
+        .await
+        .expect("begin persistence verification transaction");
+    let outcome = transaction
+        .scope(
+            async {
+                let repository = KnowledgeAssetRepository::new(());
                 for (asset_id, expected_status) in [
                     (submitted_asset, KnowledgeAssetStatus::OcrReady),
                     (ocr_ready_asset, KnowledgeAssetStatus::OcrReady),
+                    (failed_asset, KnowledgeAssetStatus::OcrReady),
                     (archived_asset, KnowledgeAssetStatus::Archived),
                     (published_asset, KnowledgeAssetStatus::Published),
                 ] {
@@ -218,5 +257,5 @@ async fn verified_ocr_cannot_revive_terminal_assets() {
             |_| true,
         )
         .await;
-    outcome.expect("finish lifecycle authorization transaction");
+    outcome.expect("finish persistence verification transaction");
 }
