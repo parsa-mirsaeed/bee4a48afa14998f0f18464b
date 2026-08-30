@@ -19,12 +19,41 @@ async function signInEnglish(page: Page, email: string): Promise<void> {
   await signIn(page, email);
 }
 
-function actionWithIcon(page: Page, icon: string) {
-  return page.locator('button', {
+async function navigateWithIcon(page: Page, icon: string): Promise<void> {
+  const mobileMenu = page.locator('.et-mobile-menu-button');
+  if (await mobileMenu.isVisible()) {
+    await mobileMenu.click();
+    await expect(page.locator('.et-sidebar')).toHaveClass(/et-sidebar--mobile-open/);
+  }
+
+  const item = page.locator('.et-ui-sidebar-nav__item', {
     has: page.locator('span.material-icons-outlined', {
-      hasText: new RegExp(`^${icon}$`),
+      hasText: new RegExp(`^${icon}// @final @rtl @accessibility — Tier-2 layout and accessibility evidence.
+import AxeBuilder from '@axe-core/playwright';
+import { test, expect, type Page } from '@playwright/test';
+import { enforceOfflineAllowlist, assertNoUnexpectedOrigins } from '../fixtures/network-policy';
+import { watchConsole, assertNoConsoleErrors } from '../fixtures/console-guard';
+
+const PASSWORD = 'e2e-password';
+
+async function signIn(page: Page, email: string): Promise<void> {
+  await page.goto('/');
+  await page.locator('input[type="email"]').fill(email);
+  await page.locator('input[type="password"]').fill(PASSWORD);
+  await page.getByRole('button', { name: /sign in|ورود/i }).click();
+  await expect(page).toHaveURL(/\/dashboard$/);
+}
+
+async function signInEnglish(page: Page, email: string): Promise<void> {
+  await page.addInitScript(() => localStorage.setItem('edutalent_locale', 'en'));
+  await signIn(page, email);
+}
+
+),
     }),
   }).first();
+  await expect(item).toBeVisible();
+  await item.click();
 }
 
 test.beforeEach(async ({ page }) => {
@@ -51,7 +80,7 @@ test('Persian grade dates and numbers are isolated LTR inside the RTL document @
   await signIn(page, 'e2e-student-a@example.test');
   await expect.poll(() => page.evaluate(() => document.documentElement.dir)).toBe('rtl');
 
-  await actionWithIcon(page, 'grade').click();
+  await navigateWithIcon(page, 'grade');
   const classCard = page
     .getByText('E2E Class A1', { exact: true })
     .locator('xpath=ancestor::div[contains(@class,"glass-card")][1]');
@@ -71,7 +100,7 @@ test('Persian grade dates and numbers are isolated LTR inside the RTL document @
 
 test('shared grading modal exposes generated dialog semantics and keyboard focus entry @final @accessibility', async ({ page }) => {
   await signInEnglish(page, 'e2e-teacher-a@example.test');
-  await actionWithIcon(page, 'grading').click();
+  await navigateWithIcon(page, 'grading');
 
   const assignmentTitle = page.getByText('E2E Authorization Submission A', { exact: true });
   await expect(assignmentTitle).toBeVisible();
