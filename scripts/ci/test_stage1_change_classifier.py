@@ -229,11 +229,19 @@ class ClassifierTests(unittest.TestCase):
             needs_operations_definition=True,
         )
 
-    def test_readiness_boundaries_require_operations_definition(self):
+    def test_readiness_boundary_requires_operations_definition(self):
         self.assert_categories(
-            ["packages/api/src/readiness.rs", "packages/web/src/main.rs"],
-            required=("api_logic", "web_logic", "operations"),
+            ["packages/api/src/readiness.rs"],
+            required=("api_logic", "operations"),
             needs_operations_definition=True,
+        )
+
+    def test_web_entrypoint_is_not_an_operations_definition(self):
+        self.assert_categories(
+            ["packages/web/src/main.rs"],
+            required=("web_logic",),
+            forbidden=("operations", "unknown"),
+            needs_operations_definition=False,
         )
 
     def test_production_markdown_remains_documentation_only(self):
