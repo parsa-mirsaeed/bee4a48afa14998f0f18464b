@@ -83,9 +83,9 @@ fn trap_tab(event: &KeyboardEvent, root_id: &str) {
 
     let backwards = event.modifiers().contains(Modifiers::SHIFT);
     let active_index = document.active_element().and_then(|active| {
-        focusable.iter().position(|candidate| {
-            js_sys::Object::is(active.as_ref(), candidate.as_ref())
-        })
+        focusable
+            .iter()
+            .position(|candidate| js_sys::Object::is(active.as_ref(), candidate.as_ref()))
     });
 
     let target = match active_index {
