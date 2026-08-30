@@ -215,7 +215,11 @@ mod tests {
     #[test]
     fn upcoming_queue_excludes_submitted_and_graded_work() {
         let source = include_str!("dashboard.rs");
-        assert!(source.contains("StudentAssignmentPresentationState::Pending"));
-        assert!(!source.contains("assignment.status"));
+        let implementation = source
+            .split("#[cfg(test)]")
+            .next()
+            .expect("dashboard implementation before tests");
+        assert!(implementation.contains("StudentAssignmentPresentationState::Pending"));
+        assert!(!implementation.contains("assignment.status"));
     }
 }

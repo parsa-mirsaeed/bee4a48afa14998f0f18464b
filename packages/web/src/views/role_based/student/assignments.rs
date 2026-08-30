@@ -415,7 +415,11 @@ mod tests {
     #[test]
     fn graded_detail_uses_submission_feedback_instead_of_persistence_status() {
         let source = include_str!("assignments.rs");
-        assert!(source.contains("get_submission_for_assignment"));
-        assert!(!source.contains("Status: {item.status}"));
+        let implementation = source
+            .split("#[cfg(test)]")
+            .next()
+            .expect("assignment implementation before tests");
+        assert!(implementation.contains("get_submission_for_assignment"));
+        assert!(!implementation.contains("Status: {item.status}"));
     }
 }
