@@ -2,7 +2,7 @@ use super::knowledge_asset_repository::KnowledgeAssetStatus;
 #[cfg(feature = "server")]
 use super::KnowledgeAssetRepository;
 #[cfg(feature = "server")]
-use crate::repositories::RepositoryError;
+use crate::repositories::{Repository, RepositoryError};
 
 #[test]
 fn status_strings_round_trip() {
@@ -185,40 +185,37 @@ async fn verified_ocr_cannot_revive_terminal_assets() {
                         .expect_err("terminal asset must reject OCR write");
                     assert!(matches!(error, RepositoryError::Validation(_)));
                 }
+
+                for (asset_id, expected_status) in [
+                    (submitted_asset, KnowledgeAssetStatus::OcrReady),
+                    (ocr_ready_asset, KnowledgeAssetStatus::OcrReady),
+                    (archived_asset, KnowledgeAssetStatus::Archived),
+                    (published_asset, KnowledgeAssetStatus::Published),
+                ] {
+                    let asset = repository
+                        .find_by_id(asset_id)
+                        .await
+                        .expect("read persisted lifecycle state in authorized scope");
+                    assert_eq!(asset.status, expected_status);
+                }
+                let terminal_ocr_rows: i64 = sqlx::query_scalar(
+                    "SELECT COUNT(*) FROM knowledge_ocr_texts WHERE asset_id = ANY($1)",
+                )
+                .bind(vec![archived_asset, published_asset])
+                .fetch_one(&*repository.pool())
+                .await
+                .expect("count terminal OCR rows in authorized scope");
+                assert_eq!(terminal_ocr_rows, 0);
+                let corrected_text: String =
+                    sqlx::query_scalar("SELECT clean_text FROM knowledge_ocr_texts WHERE asset_id = $1")
+                        .bind(ocr_ready_asset)
+                        .fetch_one(&*repository.pool())
+                        .await
+                        .expect("read corrected verified OCR in authorized scope");
+                assert_eq!(corrected_text, "corrected text");
             },
             |_| true,
         )
         .await;
     outcome.expect("finish lifecycle authorization transaction");
-
-    let statuses: Vec<(Uuid, String)> = sqlx::query_as(
-        "SELECT id, status::text FROM knowledge_assets WHERE id = ANY($1) ORDER BY id",
-    )
-    .bind(vec![
-        submitted_asset,
-        ocr_ready_asset,
-        archived_asset,
-        published_asset,
-    ])
-    .fetch_all(&pool)
-    .await
-    .expect("read persisted lifecycle states");
-    assert!(statuses.contains(&(submitted_asset, "ocr_ready".into())));
-    assert!(statuses.contains(&(ocr_ready_asset, "ocr_ready".into())));
-    assert!(statuses.contains(&(archived_asset, "archived".into())));
-    assert!(statuses.contains(&(published_asset, "published".into())));
-    let terminal_ocr_rows: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM knowledge_ocr_texts WHERE asset_id = ANY($1)")
-            .bind(vec![archived_asset, published_asset])
-            .fetch_one(&pool)
-            .await
-            .expect("count terminal OCR rows");
-    assert_eq!(terminal_ocr_rows, 0);
-    let corrected_text: String =
-        sqlx::query_scalar("SELECT clean_text FROM knowledge_ocr_texts WHERE asset_id = $1")
-            .bind(ocr_ready_asset)
-            .fetch_one(&pool)
-            .await
-            .expect("read corrected verified OCR");
-    assert_eq!(corrected_text, "corrected text");
 }
