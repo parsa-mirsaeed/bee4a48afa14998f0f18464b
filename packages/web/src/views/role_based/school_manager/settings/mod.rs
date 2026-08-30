@@ -16,6 +16,7 @@ use security::SecuritySettings;
 pub fn SettingsSection() -> Element {
     let mut active_tab = use_signal(|| "profile".to_string());
     let locale = use_locale();
+    let settings_label = locale.t("school_manager.settings.title");
 
     let tab = |id: &'static str, label: String, icon: &'static str| {
         let selected = active_tab() == id;
@@ -49,7 +50,7 @@ pub fn SettingsSection() -> Element {
                     div {
                         class: "et-ui-tabs",
                         role: "tablist",
-                        "aria-label": "{locale.t("school_manager.settings.title")}",
+                        "aria-label": "{settings_label}",
                         {tab("profile", locale.t("school_manager.settings.tabs.profile"), "person_outline")}
                         {tab("security", locale.t("school_manager.settings.tabs.security"), "lock_outline")}
                         {tab("general", locale.t("school_manager.settings.tabs.general"), "settings")}
