@@ -144,7 +144,8 @@ pub fn ManagerKnowledgeUploadSection() -> Element {
                             } else {
                                 "rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 dark:border-red-800 dark:bg-red-900/20 dark:text-red-200"
                             },
-                            role: "status",
+                            role: if success { "status" } else { "alert" },
+                            "aria-live": if success { "polite" } else { "assertive" },
                             "{message}"
                         }
                     }
@@ -153,7 +154,7 @@ pub fn ManagerKnowledgeUploadSection() -> Element {
                         form {
                             key: "knowledge-upload-{form_epoch}",
                             id: KNOWLEDGE_UPLOAD_FORM_ID,
-                            class: "glass-card p-6 space-y-4",
+                            class: "et-ui-card et-ui-stack et-ui-stack--md",
                             enctype: "multipart/form-data",
                             onsubmit: submit,
                             h3 { class: "text-lg font-semibold text-gray-900 dark:text-white", "Upload a governed PDF" }
@@ -165,7 +166,7 @@ pub fn ManagerKnowledgeUploadSection() -> Element {
                                 label { r#for: "knowledge-pdf-file", class: "block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1", "PDF file *" }
                                 input {
                                     id: "knowledge-pdf-file",
-                                    class: "w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-gray-900 dark:text-white",
+                                    class: "et-ui-input",
                                     r#type: "file",
                                     name: "file",
                                     accept: "application/pdf,.pdf",
@@ -182,7 +183,7 @@ pub fn ManagerKnowledgeUploadSection() -> Element {
                                 label { r#for: "knowledge-description", class: "block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1", "Description" }
                                 textarea {
                                     id: "knowledge-description",
-                                    class: "w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-gray-900 dark:text-white",
+                                    class: "et-ui-input",
                                     name: "description",
                                     maxlength: "8000",
                                     rows: "4",
@@ -191,7 +192,7 @@ pub fn ManagerKnowledgeUploadSection() -> Element {
                                 }
                             }
                             button {
-                                class: "w-full rounded-lg bg-primary px-4 py-2.5 font-semibold text-white disabled:opacity-50",
+                                class: "et-ui-button et-ui-button--primary et-ui-button--md w-full",
                                 r#type: "submit",
                                 disabled: busy() || !storage_ready,
                                 if busy() { "Uploading…" } else { "Upload for review" }
@@ -213,23 +214,23 @@ fn StorageReadinessPanel(
     rsx! {
         match resource.read().as_ref() {
             None => rsx! {
-                div { class: "rounded-lg border border-gray-200 bg-white px-4 py-3 text-sm text-gray-600 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300",
+                div { class: "et-ui-alert et-ui-tone--neutral",
                     "Checking private knowledge storage…"
                 }
             },
             Some(Err(_)) | Some(Ok(KnowledgeStorageReadiness::UnavailableRetryable)) => rsx! {
-                div { class: "rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-100",
+                div { class: "et-ui-alert et-ui-tone--warning",
                     p { "Knowledge storage is temporarily unavailable. Existing submissions remain visible; new PDF uploads are paused." }
                     button { class: "mt-2 font-semibold underline", onclick: move |_| resource.restart(), "Retry storage check" }
                 }
             },
             Some(Ok(KnowledgeStorageReadiness::Misconfigured)) => rsx! {
-                div { class: "rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900 dark:border-red-800 dark:bg-red-900/20 dark:text-red-100",
+                div { class: "et-ui-alert et-ui-tone--danger",
                     "Knowledge storage is not safely configured. New uploads are blocked until an administrator restores the private storage configuration."
                 }
             },
             Some(Ok(KnowledgeStorageReadiness::Ready)) => rsx! {
-                div { class: "rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-900 dark:border-green-800 dark:bg-green-900/20 dark:text-green-100",
+                div { class: "et-ui-alert et-ui-tone--success",
                     "Private knowledge storage is ready for governed PDF uploads."
                 }
             },
@@ -253,7 +254,7 @@ fn UploadTextField(
             }
             input {
                 id: "{id}",
-                class: "w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-gray-900 dark:text-white",
+                class: "et-ui-input",
                 r#type: "text",
                 name: "{name}",
                 maxlength: "{maxlength}",
@@ -282,7 +283,7 @@ fn SubmissionList(
                     }
                 },
                 Some(Ok(items)) if items.is_empty() => rsx! {
-                    div { class: "glass-card p-8 text-center text-gray-500",
+                    div { class: "et-ui-data-state",
                         h4 { class: "font-semibold text-gray-900 dark:text-white", "No governed PDFs yet" }
                         p { class: "mt-1 text-sm", "Upload the first approved school PDF when private storage is ready." }
                     }
@@ -297,7 +298,7 @@ fn SubmissionList(
                                 (None, None) => "General".to_string(),
                             };
                             rsx! {
-                                div { key: "{item.id}", class: "glass-card p-5 space-y-2",
+                                div { key: "{item.id}", class: "et-ui-card et-ui-stack et-ui-stack--sm",
                                     div { class: "flex items-start justify-between gap-3",
                                         h4 { class: "font-semibold text-gray-900 dark:text-white", "{item.title}" }
                                         span { class: "rounded-full bg-gray-100 dark:bg-gray-800 px-2 py-1 text-xs text-gray-700 dark:text-gray-300", "{item.status}" }
