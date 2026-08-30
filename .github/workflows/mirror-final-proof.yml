@@ -22,8 +22,16 @@ jobs:
     permissions:
       contents: read
       actions: write
+    # The workflow-trigger guide reserves Tier D's complete package,
+    # production, operations, and appliance proof for an explicit release
+    # candidate. A Tier B `full-validation` label alone selects only final
+    # product validation and must not rebuild release artifacts for a UI/API PR.
     if: >-
       contains(github.event.pull_request.labels.*.name, 'full-validation') &&
+      contains(github.event.pull_request.labels.*.name, 'ci:package') &&
+      contains(github.event.pull_request.labels.*.name, 'ci:production') &&
+      contains(github.event.pull_request.labels.*.name, 'ci:operations') &&
+      contains(github.event.pull_request.labels.*.name, 'ci:appliance') &&
       github.event.pull_request.draft == false
     runs-on: ubuntu-24.04
     timeout-minutes: 360
