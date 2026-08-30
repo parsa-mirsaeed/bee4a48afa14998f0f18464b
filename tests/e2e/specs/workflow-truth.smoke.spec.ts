@@ -241,7 +241,7 @@ test('knowledge storage unavailable state recovers and real PDF upload persists 
   await expect(page.getByRole('status')).toContainText(/uploaded and registered with status submitted/i);
   const submission = page
     .getByText('E2E PR1 Uploaded PDF', { exact: true })
-    .locator('xpath=ancestor::div[contains(@class,"glass-card")][1]');
+    .locator('xpath=ancestor::div[contains(@class,"et-ui-card")][1]');
   await expect(submission).toContainText('submitted');
   await expect(submission).toContainText(/not OCRed, embedded, or published/i);
 });
