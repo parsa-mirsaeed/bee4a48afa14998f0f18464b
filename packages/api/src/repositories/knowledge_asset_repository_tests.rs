@@ -45,7 +45,10 @@ fn only_review_stage_assets_accept_verified_ocr() {
         KnowledgeAssetStatus::OcrPending,
         KnowledgeAssetStatus::OcrReady,
     ] {
-        assert!(status.accepts_verified_ocr(), "{status:?} should accept OCR");
+        assert!(
+            status.accepts_verified_ocr(),
+            "{status:?} should accept OCR"
+        );
     }
 
     for status in [
@@ -204,13 +207,12 @@ async fn verified_ocr_cannot_revive_terminal_assets() {
     assert!(statuses.contains(&(ocr_ready_asset, "ocr_ready".into())));
     assert!(statuses.contains(&(archived_asset, "archived".into())));
     assert!(statuses.contains(&(published_asset, "published".into())));
-    let terminal_ocr_rows: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM knowledge_ocr_texts WHERE asset_id = ANY($1)",
-    )
-    .bind(vec![archived_asset, published_asset])
-    .fetch_one(&pool)
-    .await
-    .expect("count terminal OCR rows");
+    let terminal_ocr_rows: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM knowledge_ocr_texts WHERE asset_id = ANY($1)")
+            .bind(vec![archived_asset, published_asset])
+            .fetch_one(&pool)
+            .await
+            .expect("count terminal OCR rows");
     assert_eq!(terminal_ocr_rows, 0);
     let corrected_text: String =
         sqlx::query_scalar("SELECT clean_text FROM knowledge_ocr_texts WHERE asset_id = $1")
