@@ -3,8 +3,13 @@
 ALTER TABLE submissions
     ADD COLUMN IF NOT EXISTS grade_scale SMALLINT;
 
+-- Historical persisted grades were percentage values before the scale column
+-- existed. Preserve that meaning; only ungraded rows may use the new default.
 UPDATE submissions
-SET grade_scale = 20
+SET grade_scale = CASE
+    WHEN grade IS NULL THEN 20
+    ELSE 100
+END
 WHERE grade_scale IS NULL;
 
 ALTER TABLE submissions
