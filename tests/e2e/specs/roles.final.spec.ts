@@ -213,6 +213,29 @@ test('parent sees only the authorized child enrollment @final @workflows', async
   await expect(page.getByText('E2E Student B', { exact: true })).toHaveCount(0);
 });
 
+test('student and parent see the same persisted twenty-point grade @smoke @final @workflows', async ({ page }) => {
+  await signInEnglish(page, 'e2e-student-a@example.test');
+  await navigateWithIcon(page, 'grade');
+  const classCard = page
+    .getByText('E2E Class A1', { exact: true })
+    .locator('xpath=ancestor::div[contains(@class,"et-ui-card")][1]');
+  await classCard.getByRole('button', { name: 'View Details', exact: true }).click();
+  const studentGrades = page.getByRole('dialog');
+  await expect(studentGrades.getByText('E2E Assignment A1', { exact: true })).toBeVisible();
+  await expect(studentGrades).toContainText('A-');
+  await expect(studentGrades).toContainText('18/20');
+  await endSessionForRoleSwitch(page);
+
+  await establishSession(page, 'e2e-parent-a@example.test');
+  await page.goto('/dashboard/children');
+  await page.getByRole('button', { name: 'View Grades', exact: true }).click();
+  const parentGrades = page.getByRole('dialog');
+  await expect(parentGrades.getByText('E2E Assignment A1', { exact: true })).toBeVisible();
+  await expect(parentGrades).toContainText('A-');
+  await expect(parentGrades).toContainText('18/20');
+  await expect(parentGrades).not.toContainText('18/100');
+});
+
 test('platform admin sees the governed published asset inventory @final @workflows', async ({ page }) => {
   await signInEnglish(page, 'e2e-admin@example.test');
 
