@@ -216,10 +216,11 @@ test('manager settings tabs are sequentially keyboard reachable @smoke @workflow
   await page.getByText(/system settings|تنظیمات سیستم/i).first().click();
   await expect(page.getByRole('tab')).toHaveCount(4);
 
-  const profileTab = page.getByRole('tab').filter({ hasText: /profile|نمایه/i });
-  const securityTab = page.getByRole('tab').filter({ hasText: /security|امنیت/i });
-  const generalTab = page.getByRole('tab').filter({ hasText: /general|عمومی/i });
-  const notificationTab = page.getByRole('tab').filter({ hasText: /notifications|اعلان/i });
+  const roleTabs = page.getByRole('tab');
+  const profileTab = roleTabs.nth(0);
+  const securityTab = roleTabs.nth(1);
+  const generalTab = roleTabs.nth(2);
+  const notificationTab = roleTabs.nth(3);
 
   for (const tab of [profileTab, securityTab, generalTab, notificationTab]) {
     await expect(tab).toHaveAttribute('tabindex', '0');
