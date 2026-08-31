@@ -486,7 +486,6 @@ mod tests {
     use std::net::TcpListener;
     use std::thread;
 
-
     #[derive(Clone, Copy)]
     enum MockGatewayFault {
         Timeout,
@@ -699,7 +698,10 @@ mod tests {
         let proxy_origin = spawn_mock_gateway(MockGatewayFault::Outage);
         let _client = client_through_local_mock_proxy(&proxy_origin, Duration::from_secs(1));
         let after = names.map(std::env::var_os);
-        assert_eq!(before, after, "test client must not modify process proxy environment");
+        assert_eq!(
+            before, after,
+            "test client must not modify process proxy environment"
+        );
     }
 
     #[test]
