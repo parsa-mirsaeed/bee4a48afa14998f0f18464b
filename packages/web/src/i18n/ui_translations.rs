@@ -257,7 +257,6 @@ pub(crate) fn supplemental_translation(key: &'static str, locale: Locale) -> Opt
     }
 }
 
-
 /// Product role labels are locale-aware presentation, never domain display text.
 pub fn role_label(role: SystemRole, locale: Locale) -> &'static str {
     let key = match role {
