@@ -95,6 +95,18 @@ pub struct KnowledgeAssetWithSelection {
 }
 
 #[derive(Debug, Clone)]
+pub struct VerifiedOcrText {
+    pub asset_id: Uuid,
+    pub raw_text: String,
+    pub ocr_provider: String,
+    pub verified_at: DateTime<Utc>,
+    pub verified_by: Uuid,
+    pub revision: Uuid,
+    pub text_sha256: Option<String>,
+    pub source_sha256: Option<String>,
+}
+
+#[derive(Debug, Clone)]
 pub struct CreateKnowledgeSubmission {
     pub school_id: Uuid,
     pub title: String,
@@ -364,6 +376,7 @@ impl KnowledgeAssetRepository {
         provider: &str,
         verified_by: Uuid,
         text_sha256: &str,
+        expected_revision: Option<Uuid>,
     ) -> RepositoryResult<()> {
         let mut tx = self.base.pool().begin().await?;
 
@@ -391,30 +404,82 @@ impl KnowledgeAssetRepository {
             ));
         }
 
-        sqlx::query(
-            r#"
-            INSERT INTO knowledge_ocr_texts (
-                asset_id, raw_text, clean_text, ocr_provider,
-                ocr_verified_by, ocr_verified_at, text_sha256
-            ) VALUES ($1, $2, $3, $4, $5, NOW(), $6)
-            ON CONFLICT (asset_id) DO UPDATE SET
-                raw_text = EXCLUDED.raw_text,
-                clean_text = EXCLUDED.clean_text,
-                ocr_provider = EXCLUDED.ocr_provider,
-                ocr_verified_by = EXCLUDED.ocr_verified_by,
-                ocr_verified_at = NOW(),
-                text_sha256 = EXCLUDED.text_sha256,
-                updated_at = NOW()
-            "#,
+        let current_revision = sqlx::query_scalar::<_, Uuid>(
+            "SELECT revision FROM knowledge_ocr_texts WHERE asset_id = $1 FOR UPDATE",
         )
         .bind(asset_id)
-        .bind(raw_text)
-        .bind(clean_text)
-        .bind(provider)
-        .bind(verified_by)
-        .bind(text_sha256)
-        .execute(&mut *tx)
+        .fetch_optional(&mut *tx)
         .await?;
+        let next_revision = Uuid::new_v4();
+
+        match current_revision {
+            Some(current_revision) if expected_revision == Some(current_revision) => {
+                let updated = sqlx::query(
+                    r#"
+                    UPDATE knowledge_ocr_texts
+                    SET raw_text = $2, clean_text = $3, ocr_provider = $4,
+                        ocr_verified_by = $5, ocr_verified_at = NOW(), text_sha256 = $6,
+                        revision = $7, updated_at = NOW()
+                    WHERE asset_id = $1 AND revision = $8
+                    "#,
+                )
+                .bind(asset_id)
+                .bind(raw_text)
+                .bind(clean_text)
+                .bind(provider)
+                .bind(verified_by)
+                .bind(text_sha256)
+                .bind(next_revision)
+                .bind(current_revision)
+                .execute(&mut *tx)
+                .await?
+                .rows_affected();
+                if updated != 1 {
+                    return Err(RepositoryError::Validation(
+                        "Verified OCR changed while it was being reviewed; refresh and try again"
+                            .into(),
+                    ));
+                }
+            }
+            Some(_) => {
+                return Err(RepositoryError::Validation(
+                    "Verified OCR changed while it was being reviewed; refresh and try again"
+                        .into(),
+                ));
+            }
+            None if expected_revision.is_some() => {
+                return Err(RepositoryError::Validation(
+                    "Verified OCR is no longer available; refresh and try again".into(),
+                ));
+            }
+            None => {
+                let inserted = sqlx::query(
+                    r#"
+                    INSERT INTO knowledge_ocr_texts (
+                        asset_id, raw_text, clean_text, ocr_provider, ocr_verified_by,
+                        ocr_verified_at, text_sha256, revision
+                    ) VALUES ($1, $2, $3, $4, $5, NOW(), $6, $7)
+                    ON CONFLICT (asset_id) DO NOTHING
+                    "#,
+                )
+                .bind(asset_id)
+                .bind(raw_text)
+                .bind(clean_text)
+                .bind(provider)
+                .bind(verified_by)
+                .bind(text_sha256)
+                .bind(next_revision)
+                .execute(&mut *tx)
+                .await?
+                .rows_affected();
+                if inserted != 1 {
+                    return Err(RepositoryError::Validation(
+                        "Verified OCR changed while it was being reviewed; refresh and try again"
+                            .into(),
+                    ));
+                }
+            }
+        }
 
         let updated = sqlx::query(
             "UPDATE knowledge_assets SET status = 'ocr_ready', reviewed_by = $2, failure_reason = NULL WHERE id = $1 AND status IN ('submitted', 'ocr_pending', 'ocr_ready', 'failed')",
@@ -440,6 +505,7 @@ impl KnowledgeAssetRepository {
             serde_json::json!({
                 "ocr_provider": provider,
                 "text_sha256": text_sha256,
+                "ocr_revision": next_revision,
                 "previous_status": current_status.as_str(),
                 "status": "ocr_ready"
             }),
@@ -447,6 +513,46 @@ impl KnowledgeAssetRepository {
         .await?;
         tx.commit().await?;
         Ok(())
+    }
+
+    pub async fn get_verified_ocr(
+        &self,
+        asset_id: Uuid,
+    ) -> RepositoryResult<Option<VerifiedOcrText>> {
+        let row = sqlx::query(
+            r#"
+            SELECT kot.asset_id, kot.raw_text, kot.ocr_provider, kot.ocr_verified_at,
+                   kot.ocr_verified_by, kot.revision, kot.text_sha256,
+                   source.sha256 AS source_sha256
+            FROM knowledge_ocr_texts kot
+            JOIN knowledge_assets asset ON asset.id = kot.asset_id
+            LEFT JOIN LATERAL (
+                SELECT sha256
+                FROM knowledge_source_files
+                WHERE asset_id = asset.id
+                ORDER BY created_at DESC
+                LIMIT 1
+            ) source ON TRUE
+            WHERE kot.asset_id = $1
+            "#,
+        )
+        .bind(asset_id)
+        .fetch_optional(&*self.base.pool())
+        .await?;
+
+        row.map(|row| {
+            Ok(VerifiedOcrText {
+                asset_id: row.try_get("asset_id")?,
+                raw_text: row.try_get("raw_text")?,
+                ocr_provider: row.try_get("ocr_provider")?,
+                verified_at: row.try_get("ocr_verified_at")?,
+                verified_by: row.try_get("ocr_verified_by")?,
+                revision: row.try_get("revision")?,
+                text_sha256: row.try_get("text_sha256")?,
+                source_sha256: row.try_get("source_sha256")?,
+            })
+        })
+        .transpose()
     }
 
     pub async fn get_for_embedding(&self, asset_id: Uuid) -> RepositoryResult<AssetForEmbedding> {

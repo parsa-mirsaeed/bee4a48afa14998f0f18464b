@@ -241,3 +241,23 @@ test('platform admin sees the governed published asset inventory @final @workflo
 
   await expect(page.getByText('E2E Published Asset', { exact: true })).toBeVisible();
 });
+
+test('platform admin updates verified OCR in an accessible prefilled dialog @final @workflows', async ({ page }) => {
+  await signInEnglish(page, 'e2e-admin@example.test');
+
+  const card = page
+    .getByText('E2E Verified OCR Asset', { exact: true })
+    .locator('xpath=ancestor::article[1]');
+  const trigger = card.getByRole('button', { name: 'Update verified OCR', exact: true });
+  await trigger.click();
+
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toHaveAccessibleName(/update verified ocr.*e2e verified ocr asset/i);
+  await expect(dialog.getByLabel('Verified source text')).toHaveValue('E2E preverified OCR text');
+  await expect(dialog).toBeFocused();
+
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+});

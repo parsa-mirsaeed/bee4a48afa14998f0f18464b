@@ -158,9 +158,17 @@ async fn verified_ocr_cannot_revive_terminal_assets() {
                         "manual",
                         actor_id,
                         &verified_hash,
+                        None,
                     )
                     .await
                     .expect("submitted asset accepts verified OCR");
+                let existing_revision: Uuid = sqlx::query_scalar(
+                    "SELECT revision FROM knowledge_ocr_texts WHERE asset_id = $1",
+                )
+                .bind(ocr_ready_asset)
+                .fetch_one(&*repository.pool())
+                .await
+                .expect("read the current OCR revision");
                 repository
                     .attach_verified_ocr(
                         ocr_ready_asset,
@@ -169,6 +177,7 @@ async fn verified_ocr_cannot_revive_terminal_assets() {
                         "manual",
                         actor_id,
                         &verified_hash,
+                        Some(existing_revision),
                     )
                     .await
                     .expect("OCR-ready asset accepts a governed correction");
@@ -180,6 +189,7 @@ async fn verified_ocr_cannot_revive_terminal_assets() {
                         "manual",
                         actor_id,
                         &verified_hash,
+                        None,
                     )
                     .await
                     .expect("failed asset accepts a governed OCR recovery");
@@ -207,6 +217,7 @@ async fn verified_ocr_cannot_revive_terminal_assets() {
                             "manual",
                             actor_id,
                             &rejected_hash,
+                            None,
                         )
                         .await
                 },
@@ -216,6 +227,30 @@ async fn verified_ocr_cannot_revive_terminal_assets() {
             .expect("finish terminal lifecycle transaction");
         assert!(matches!(outcome, Err(RepositoryError::Validation(_))));
     }
+
+    let transaction = AuthorizedTx::begin(&pool, actor.clone())
+        .await
+        .expect("begin stale OCR revision transaction");
+    let outcome = transaction
+        .scope(
+            async {
+                KnowledgeAssetRepository::new(())
+                    .attach_verified_ocr(
+                        ocr_ready_asset,
+                        "stale text",
+                        "stale text",
+                        "manual",
+                        actor_id,
+                        &rejected_hash,
+                        Some(Uuid::new_v4()),
+                    )
+                    .await
+            },
+            |result| result.is_ok(),
+        )
+        .await
+        .expect("finish stale OCR revision transaction");
+    assert!(matches!(outcome, Err(RepositoryError::Validation(_))));
 
     let transaction = AuthorizedTx::begin(&pool, actor)
         .await

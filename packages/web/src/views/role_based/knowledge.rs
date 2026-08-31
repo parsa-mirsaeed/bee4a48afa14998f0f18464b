@@ -251,6 +251,7 @@ fn PlatformKnowledgeAssetsSection() -> Element {
             asset_id,
             raw_text: ocr_text(),
             ocr_provider: provider(),
+            expected_revision: None,
         };
         spawn(async move {
             match attach_admin_ocr_text(request).await {
