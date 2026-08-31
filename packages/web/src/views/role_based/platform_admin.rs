@@ -127,51 +127,14 @@ fn PlatformKnowledgeReviewSection() -> Element {
                             }
                         }
                     }
-                    {
-                        let confirmation = archive_confirmation();
-                        let archive_target = confirmation.clone().unwrap_or_default();
-                        let (asset_id, title, status) = archive_target;
-                        ConfirmDialog {
-                            open: confirmation.is_some(),
-                            title: format!("Archive \"{title}\"?"),
-                            description: if status == "published" {
-                                format!("This withdraws \"{title}\" from teacher retrieval and cancels active ingestion work.")
-                            } else {
-                                format!("This archives \"{title}\" and cancels active ingestion work. Archived assets are terminal.")
-                            },
-                            confirm_label: "Archive asset".to_string(),
-                            cancel_label: "Cancel".to_string(),
-                            pending: Some(busy()),
-                            destructive: Some(true),
-                            on_cancel: move |_| archive_confirmation.set(None),
-                            on_confirm: move |_| {
-                                let archived_asset_id = asset_id.clone();
-                                if archived_asset_id.is_empty() {
-                                    return;
-                                }
-                                busy.set(true);
-                                notice.set(Some("Archiving asset…".to_string()));
-                                spawn(async move {
-                                    match archive_admin_knowledge_asset(archived_asset_id.clone()).await {
-                                        Ok(_) => {
-                                            archive_confirmation.set(None);
-                                            if selected_ocr_asset()
-                                                .as_ref()
-                                                .is_some_and(|(selected_id, _)| selected_id == &archived_asset_id)
-                                            {
-                                                selected_ocr_asset.set(None);
-                                                ocr_text.set(String::new());
-                                            }
-                                            notice.set(Some("Asset archived and withdrawn from governed retrieval.".to_string()));
-                                            assets.restart();
-                                        }
-                                        Err(_) => notice.set(Some("Archive failed. The asset state is unchanged; refresh and try again.".to_string())),
-                                    }
-                                    busy.set(false);
-                                });
-                            },
-                        }
-                    }
+                    {render_archive_confirmation(
+                        archive_confirmation,
+                        busy,
+                        notice,
+                        assets,
+                        selected_ocr_asset,
+                        ocr_text,
+                    )}
                     if let Some((_, title)) = selected_ocr_asset() {
                         form { class: "et-ui-card space-y-4 p-6", onsubmit: submit_ocr,
                             div {
@@ -221,6 +184,61 @@ fn PlatformKnowledgeReviewSection() -> Element {
                     }
                 }
             }
+        }
+    }
+}
+
+fn render_archive_confirmation(
+    mut archive_confirmation: Signal<Option<(String, String, String)>>,
+    mut busy: Signal<bool>,
+    mut notice: Signal<Option<String>>,
+    mut assets: Resource<Result<Vec<AdminKnowledgeReviewAssetDto>, dioxus::prelude::ServerFnError>>,
+    mut selected_ocr_asset: Signal<Option<(String, String)>>,
+    mut ocr_text: Signal<String>,
+) -> Element {
+    let confirmation = archive_confirmation();
+    let (asset_id, title, status) = confirmation.clone().unwrap_or_default();
+
+    rsx! {
+        ConfirmDialog {
+            open: confirmation.is_some(),
+            title: format!("Archive \"{title}\"?"),
+            description: if status == "published" {
+                format!("This withdraws \"{title}\" from teacher retrieval and cancels active ingestion work.")
+            } else {
+                format!("This archives \"{title}\" and cancels active ingestion work. Archived assets are terminal.")
+            },
+            confirm_label: "Archive asset".to_string(),
+            cancel_label: "Cancel".to_string(),
+            pending: Some(busy()),
+            destructive: Some(true),
+            on_cancel: move |_| archive_confirmation.set(None),
+            on_confirm: move |_| {
+                let archived_asset_id = asset_id.clone();
+                if archived_asset_id.is_empty() {
+                    return;
+                }
+                busy.set(true);
+                notice.set(Some("Archiving asset…".to_string()));
+                spawn(async move {
+                    match archive_admin_knowledge_asset(archived_asset_id.clone()).await {
+                        Ok(_) => {
+                            archive_confirmation.set(None);
+                            if selected_ocr_asset()
+                                .as_ref()
+                                .is_some_and(|(selected_id, _)| selected_id == &archived_asset_id)
+                            {
+                                selected_ocr_asset.set(None);
+                                ocr_text.set(String::new());
+                            }
+                            notice.set(Some("Asset archived and withdrawn from governed retrieval.".to_string()));
+                            assets.restart();
+                        }
+                        Err(_) => notice.set(Some("Archive failed. The asset state is unchanged; refresh and try again.".to_string())),
+                    }
+                    busy.set(false);
+                });
+            },
         }
     }
 }
