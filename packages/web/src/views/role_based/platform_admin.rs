@@ -1,4 +1,5 @@
 use crate::application::AuthHooks;
+use crate::ui::ConfirmDialog;
 use crate::views::role_based::components::{DashboardSection, ResponsiveDashboardLayout};
 use api::server_functions::admin_knowledge_review_functions::{
     list_admin_knowledge_assets_for_review, AdminKnowledgeReviewAssetDto,
@@ -34,7 +35,9 @@ pub fn PlatformAdminDashboard(section: String) -> Element {
 #[component]
 fn PlatformKnowledgeReviewSection() -> Element {
     let mut selected_ocr_asset = use_signal(|| None::<(String, String)>);
-    let mut archive_confirmation = use_signal(|| None::<String>);
+    // Transient confirmation is separate from an asset's persisted lifecycle.
+    // Keeping the target context here avoids a cross-card state illusion.
+    let mut archive_confirmation = use_signal(|| None::<(String, String, String)>);
     let mut ocr_text = use_signal(String::new);
     let mut provider = use_signal(|| "manual-verified".to_string());
     let mut busy = use_signal(|| false);
@@ -124,6 +127,45 @@ fn PlatformKnowledgeReviewSection() -> Element {
                             }
                         }
                     }
+                    if let Some((asset_id, title, status)) = archive_confirmation() {
+                        ConfirmDialog {
+                            open: true,
+                            title: format!("Archive \"{title}\"?"),
+                            description: if status == "published" {
+                                format!("This withdraws \"{title}\" from teacher retrieval and cancels active ingestion work.")
+                            } else {
+                                format!("This archives \"{title}\" and cancels active ingestion work. Archived assets are terminal.")
+                            },
+                            confirm_label: "Archive asset".to_string(),
+                            cancel_label: "Cancel".to_string(),
+                            pending: Some(busy()),
+                            destructive: Some(true),
+                            on_cancel: move |_| archive_confirmation.set(None),
+                            on_confirm: move |_| {
+                                let archived_asset_id = asset_id.clone();
+                                busy.set(true);
+                                notice.set(Some("Archiving asset…".to_string()));
+                                spawn(async move {
+                                    match archive_admin_knowledge_asset(archived_asset_id.clone()).await {
+                                        Ok(_) => {
+                                            archive_confirmation.set(None);
+                                            if selected_ocr_asset()
+                                                .as_ref()
+                                                .is_some_and(|(selected_id, _)| selected_id == &archived_asset_id)
+                                            {
+                                                selected_ocr_asset.set(None);
+                                                ocr_text.set(String::new());
+                                            }
+                                            notice.set(Some("Asset archived and withdrawn from governed retrieval.".to_string()));
+                                            assets.restart();
+                                        }
+                                        Err(_) => notice.set(Some("Archive failed. The asset state is unchanged; refresh and try again.".to_string())),
+                                    }
+                                    busy.set(false);
+                                });
+                            },
+                        }
+                    }
                     if let Some((_, title)) = selected_ocr_asset() {
                         form { class: "et-ui-card space-y-4 p-6", onsubmit: submit_ocr,
                             div {
@@ -184,7 +226,7 @@ fn render_review_card(
     mut assets: Resource<Result<Vec<AdminKnowledgeReviewAssetDto>, dioxus::prelude::ServerFnError>>,
     mut selected_ocr_asset: Signal<Option<(String, String)>>,
     mut ocr_text: Signal<String>,
-    mut archive_confirmation: Signal<Option<String>>,
+    mut archive_confirmation: Signal<Option<(String, String, String)>>,
 ) -> Element {
     let asset = &item.asset;
     let asset_id = asset.id.clone();
@@ -194,7 +236,6 @@ fn render_review_card(
     let can_embed = status == "ocr_ready" || (status == "failed" && item.has_verified_ocr);
     let can_publish = status == "embedded";
     let can_archive = status != "archived";
-    let archive_pending = archive_confirmation().as_deref() == Some(asset.id.as_str());
     let (stage_title, next_step) = lifecycle_guidance(status, item.has_verified_ocr);
     let source_href = format!("/api/admin/knowledge-assets/source?asset_id={}", asset.id);
     let source_description = source_description(item);
@@ -301,50 +342,16 @@ fn render_review_card(
                         }
                     }
                 }
-                if can_archive && !archive_pending {
+                if can_archive {
                     {
                         let archive_id = asset.id.clone();
+                        let archive_title = title.clone();
                         rsx! {
                             button {
                                 class: "rounded-lg border border-red-300 px-3 py-2 text-sm font-medium text-red-700 disabled:opacity-50 dark:text-red-300",
                                 disabled: busy(),
-                                onclick: move |_| archive_confirmation.set(Some(archive_id.clone())),
+                                onclick: move |_| archive_confirmation.set(Some((archive_id.clone(), archive_title.clone(), status.to_string()))),
                                 if status == "published" { "Withdraw / archive" } else { "Archive" }
-                            }
-                        }
-                    }
-                }
-                if can_archive && archive_pending {
-                    button {
-                        class: "rounded-lg border border-gray-300 px-3 py-2 text-sm disabled:opacity-50 dark:border-gray-700",
-                        disabled: busy(),
-                        onclick: move |_| archive_confirmation.set(None),
-                        "Cancel archive"
-                    }
-                    {
-                        let confirm_id = asset.id.clone();
-                        rsx! {
-                            button {
-                                class: "rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50",
-                                disabled: busy(),
-                                onclick: move |_| {
-                                    let asset_id = confirm_id.clone();
-                                    busy.set(true);
-                                    notice.set(None);
-                                    spawn(async move {
-                                        match archive_admin_knowledge_asset(asset_id).await {
-                                            Ok(_) => {
-                                                archive_confirmation.set(None);
-                                                selected_ocr_asset.set(None);
-                                                notice.set(Some("Asset archived and withdrawn from governed retrieval.".to_string()));
-                                                assets.restart();
-                                            }
-                                            Err(_) => notice.set(Some("Archive failed. Refresh the asset state and try again.".to_string())),
-                                        }
-                                        busy.set(false);
-                                    });
-                                },
-                                "Confirm archive"
                             }
                         }
                     }
