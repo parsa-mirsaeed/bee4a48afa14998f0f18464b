@@ -1,8 +1,7 @@
 use crate::components::skeleton::SkeletonCard;
 use crate::i18n::use_locale;
 use crate::views::role_based::components::DashboardSection;
-use crate::views::role_based::shared::common::GradeToken;
-use crate::views::role_based::shared::common::Modal;
+use crate::views::role_based::shared::common::{format_grade_date, GradeToken, Modal};
 use api::server_functions::dashboard_functions::{
     get_class_grades_for_student, get_student_classes_view, StudentClassView,
 };
@@ -94,7 +93,9 @@ fn ClassGradesModal(class: StudentClassView, on_close: EventHandler) -> Element 
                                     div {
                                         h4 { class: "font-semibold text-gray-900 dark:text-white", "{grade.assignment_title}" }
                                         if let Some(graded_at) = grade.graded_at.as_ref() {
-                                            p { class: "text-sm text-gray-500 dark:text-gray-400", "{format_grade_date(graded_at, locale.current())}" }
+                                            if let Some(grade_date) = format_grade_date(graded_at, locale.current()) {
+                                                p { class: "text-sm text-gray-500 dark:text-gray-400", "{grade_date}" }
+                                            }
                                         }
                                     }
                                     div { class: "text-right",
@@ -109,13 +110,4 @@ fn ClassGradesModal(class: StudentClassView, on_close: EventHandler) -> Element 
             }
         }
     }
-}
-
-fn format_grade_date(value: &str, locale: crate::i18n::Locale) -> String {
-    chrono::DateTime::parse_from_rfc3339(value)
-        .map(|date| match locale {
-            crate::i18n::Locale::Fa => date.format("%Y/%m/%d").to_string(),
-            crate::i18n::Locale::En => date.format("%b %-d, %Y").to_string(),
-        })
-        .unwrap_or_default()
 }

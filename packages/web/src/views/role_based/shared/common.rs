@@ -1,4 +1,4 @@
-use crate::i18n::use_locale;
+use crate::i18n::{use_locale, Locale};
 use crate::ui::{
     Button as UiButton, ButtonSize as UiButtonSize, ButtonVariant as UiButtonVariant,
     Card as UiCard, DataState, DataStateKind, Dialog, FeedbackTone, InlineAlert, Progress,
@@ -10,6 +10,17 @@ use dioxus::prelude::*;
 #[component]
 pub fn GradeToken(value: String, class: Option<String>) -> Element {
     rsx! { bdi { dir: "ltr", class: format!("block {}", class.unwrap_or_default()), "{value}" } }
+}
+
+/// Format an API transport timestamp only where it is presented to the user.
+/// Persian deliberately uses numeric product chrome rather than English month names.
+pub fn format_grade_date(value: &str, locale: Locale) -> Option<String> {
+    chrono::DateTime::parse_from_rfc3339(value)
+        .ok()
+        .map(|date| match locale {
+            Locale::Fa => date.format("%Y/%m/%d").to_string(),
+            Locale::En => date.format("%b %-d, %Y").to_string(),
+        })
 }
 
 /// Compatibility loading indicator backed by the canonical progress primitive.
