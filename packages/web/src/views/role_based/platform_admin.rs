@@ -203,7 +203,10 @@ fn open_ocr_editor(
             })),
             Err(_) => selected_ocr_asset.set(Some(OcrEditorState {
                 loading: false,
-                error: Some("The current verified OCR could not be loaded. Refresh and try again.".to_string()),
+                error: Some(
+                    "The current verified OCR could not be loaded. Refresh and try again."
+                        .to_string(),
+                ),
                 ..current
             })),
         }

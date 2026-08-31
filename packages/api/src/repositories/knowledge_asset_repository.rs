@@ -515,7 +515,10 @@ impl KnowledgeAssetRepository {
         Ok(())
     }
 
-    pub async fn get_verified_ocr(&self, asset_id: Uuid) -> RepositoryResult<Option<VerifiedOcrText>> {
+    pub async fn get_verified_ocr(
+        &self,
+        asset_id: Uuid,
+    ) -> RepositoryResult<Option<VerifiedOcrText>> {
         let row = sqlx::query(
             r#"
             SELECT kot.asset_id, kot.raw_text, kot.ocr_provider, kot.ocr_verified_at,
