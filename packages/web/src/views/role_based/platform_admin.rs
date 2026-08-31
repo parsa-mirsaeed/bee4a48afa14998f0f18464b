@@ -244,7 +244,7 @@ fn OcrEditorDialog(
     mut assets: Resource<Result<Vec<AdminKnowledgeReviewAssetDto>, dioxus::prelude::ServerFnError>>,
 ) -> Element {
     let editor = selected_ocr_asset();
-    let open = editor.is_some();
+    let open = editor.is_some() && !discard_ocr_confirmation();
     let editor = editor.unwrap_or_else(|| OcrEditorState::loading(String::new(), String::new()));
     let is_update = editor.revision.is_some();
     let title = if is_update {
@@ -252,10 +252,12 @@ fn OcrEditorDialog(
     } else {
         format!("Attach verified OCR — {}", editor.title)
     };
+    let reload_asset_id = editor.asset_id.clone();
+    let reload_title = editor.title.clone();
     let editor_for_submit = editor.clone();
     let submit = move |event: FormEvent| {
         event.prevent_default();
-        if busy() || editor_for_submit.loading || editor_for_submit.error.is_some() {
+        if busy() || editor_for_submit.loading {
             return;
         }
         if ocr_text().trim().is_empty() || provider().trim().is_empty() {
@@ -303,9 +305,10 @@ fn OcrEditorDialog(
                 p { class: "text-sm text-gray-500", "Confirm the text against the private source PDF before saving. Saving verified OCR does not publish the asset." }
                 if editor.loading {
                     p { class: "rounded-lg bg-blue-50 px-3 py-2 text-sm text-blue-800", role: "status", "Loading the current verified OCR…" }
-                } else if let Some(error) = editor.error.as_ref() {
-                    p { class: "rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800", role: "alert", "{error}" }
                 } else {
+                    if let Some(error) = editor.error.as_ref() {
+                    p { class: "rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800", role: "alert", "{error}" }
+                    }
                     if let Some(revision) = editor.revision.as_ref() {
                         div { class: "rounded-lg bg-gray-50 p-3 text-xs text-gray-600 dark:bg-gray-900/40 dark:text-gray-300",
                             p { "Current verified revision: {revision}" }
@@ -347,6 +350,21 @@ fn OcrEditorDialog(
                         }
                     }
                     div { class: "flex flex-wrap gap-2",
+                        if editor.error.is_some() {
+                            button {
+                                class: "rounded-lg border border-gray-300 px-4 py-2 disabled:opacity-50 dark:border-gray-700",
+                                r#type: "button",
+                                disabled: busy(),
+                                onclick: move |_| open_ocr_editor(
+                                    reload_asset_id.clone(),
+                                    reload_title.clone(),
+                                    selected_ocr_asset,
+                                    ocr_text,
+                                    provider,
+                                ),
+                                "Reload current OCR and replace draft"
+                            }
+                        }
                         button {
                             class: "rounded-lg border border-gray-300 px-4 py-2 disabled:opacity-50 dark:border-gray-700",
                             r#type: "button",
