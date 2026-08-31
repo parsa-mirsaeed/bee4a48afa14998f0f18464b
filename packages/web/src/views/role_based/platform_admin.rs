@@ -1,8 +1,8 @@
 use crate::application::AuthHooks;
-use crate::ui::ConfirmDialog;
+use crate::ui::{ConfirmDialog, Dialog};
 use crate::views::role_based::components::{DashboardSection, ResponsiveDashboardLayout};
 use api::server_functions::admin_knowledge_review_functions::{
-    list_admin_knowledge_assets_for_review, AdminKnowledgeReviewAssetDto,
+    get_admin_verified_ocr, list_admin_knowledge_assets_for_review, AdminKnowledgeReviewAssetDto,
 };
 use api::server_functions::knowledge_audit_functions::list_admin_knowledge_audit;
 use api::server_functions::knowledge_functions::{
@@ -10,6 +10,43 @@ use api::server_functions::knowledge_functions::{
     publish_admin_knowledge_asset, AttachOcrTextRequest,
 };
 use dioxus::prelude::*;
+
+#[derive(Clone)]
+struct OcrEditorState {
+    asset_id: String,
+    title: String,
+    revision: Option<String>,
+    original_text: String,
+    original_provider: String,
+    verified_at: Option<String>,
+    verified_by: Option<String>,
+    text_sha256: Option<String>,
+    source_sha256: Option<String>,
+    loading: bool,
+    error: Option<String>,
+}
+
+impl OcrEditorState {
+    fn loading(asset_id: String, title: String) -> Self {
+        Self {
+            asset_id,
+            title,
+            revision: None,
+            original_text: String::new(),
+            original_provider: String::new(),
+            verified_at: None,
+            verified_by: None,
+            text_sha256: None,
+            source_sha256: None,
+            loading: true,
+            error: None,
+        }
+    }
+
+    fn is_dirty(&self, text: &str, provider: &str) -> bool {
+        self.original_text != text || self.original_provider != provider
+    }
+}
 
 #[component]
 pub fn PlatformAdminDashboard(section: String) -> Element {
@@ -34,7 +71,10 @@ pub fn PlatformAdminDashboard(section: String) -> Element {
 
 #[component]
 fn PlatformKnowledgeReviewSection() -> Element {
-    let mut selected_ocr_asset = use_signal(|| None::<(String, String)>);
+    let mut selected_ocr_asset = use_signal(|| None::<OcrEditorState>);
+    let mut pending_ocr_asset = use_signal(|| None::<(String, String)>);
+    let mut pending_archive = use_signal(|| None::<(String, String, String)>);
+    let mut discard_ocr_confirmation = use_signal(|| false);
     // Transient confirmation is separate from an asset's persisted lifecycle.
     // Keeping the target context here avoids a cross-card state illusion.
     let mut archive_confirmation = use_signal(|| None::<(String, String, String)>);
@@ -44,50 +84,6 @@ fn PlatformKnowledgeReviewSection() -> Element {
     let mut notice = use_signal(|| None::<String>);
     let mut assets =
         use_resource(move || async move { list_admin_knowledge_assets_for_review().await });
-
-    let submit_ocr = move |event: FormEvent| {
-        event.prevent_default();
-        if busy() {
-            return;
-        }
-        let Some((asset_id, _)) = selected_ocr_asset() else {
-            notice.set(Some(
-                "Select an asset before attaching verified OCR text.".to_string(),
-            ));
-            return;
-        };
-        if ocr_text().trim().is_empty() || provider().trim().is_empty() {
-            notice.set(Some(
-                "Verified OCR text and the verification process are required.".to_string(),
-            ));
-            return;
-        }
-
-        busy.set(true);
-        notice.set(None);
-        let request = AttachOcrTextRequest {
-            asset_id,
-            raw_text: ocr_text(),
-            ocr_provider: provider().trim().to_string(),
-        };
-        spawn(async move {
-            match attach_admin_ocr_text(request).await {
-                Ok(_) => {
-                    selected_ocr_asset.set(None);
-                    ocr_text.set(String::new());
-                    notice.set(Some(
-                        "Verified OCR saved. The asset is ready for embedding.".to_string(),
-                    ));
-                    assets.restart();
-                }
-                Err(_) => notice.set(Some(
-                    "OCR verification could not be saved. Refresh the asset state and try again."
-                        .to_string(),
-                )),
-            }
-            busy.set(false);
-        });
-    };
 
     rsx! {
         DashboardSection {
@@ -121,7 +117,11 @@ fn PlatformKnowledgeReviewSection() -> Element {
                                         assets,
                                         selected_ocr_asset,
                                         ocr_text,
+                                        provider,
                                         archive_confirmation,
+                                        pending_ocr_asset,
+                                        pending_archive,
+                                        discard_ocr_confirmation,
                                     )}
                                 }
                             }
@@ -135,55 +135,287 @@ fn PlatformKnowledgeReviewSection() -> Element {
                         selected_ocr_asset,
                         ocr_text,
                     )}
-                    if let Some((_, title)) = selected_ocr_asset() {
-                        form { class: "et-ui-card space-y-4 p-6", onsubmit: submit_ocr,
-                            div {
-                                h3 { class: "font-semibold text-gray-900 dark:text-white", "Verify OCR for {title}" }
-                                p { class: "mt-1 text-sm text-gray-500", "Confirm the text against the private source PDF before saving. Saving verified OCR does not publish the asset." }
+                    OcrEditorDialog {
+                        selected_ocr_asset,
+                        pending_ocr_asset,
+                        discard_ocr_confirmation,
+                        ocr_text,
+                        provider,
+                        busy,
+                        notice,
+                        assets,
+                    }
+                    DiscardOcrDialog {
+                        selected_ocr_asset,
+                        pending_ocr_asset,
+                        pending_archive,
+                        discard_ocr_confirmation,
+                        ocr_text,
+                        provider,
+                        archive_confirmation,
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn open_ocr_editor(
+    asset_id: String,
+    title: String,
+    mut selected_ocr_asset: Signal<Option<OcrEditorState>>,
+    mut ocr_text: Signal<String>,
+    mut provider: Signal<String>,
+) {
+    selected_ocr_asset.set(Some(OcrEditorState::loading(asset_id.clone(), title)));
+    ocr_text.set(String::new());
+    provider.set("manual-verified".to_string());
+    spawn(async move {
+        let loaded = get_admin_verified_ocr(asset_id.clone()).await;
+        let Some(current) = selected_ocr_asset() else {
+            return;
+        };
+        if current.asset_id != asset_id {
+            return;
+        }
+        match loaded {
+            Ok(Some(ocr)) => {
+                ocr_text.set(ocr.raw_text.clone());
+                provider.set(ocr.ocr_provider.clone());
+                selected_ocr_asset.set(Some(OcrEditorState {
+                    asset_id,
+                    title: current.title,
+                    revision: Some(ocr.revision),
+                    original_text: ocr.raw_text,
+                    original_provider: ocr.ocr_provider,
+                    verified_at: Some(ocr.verified_at),
+                    verified_by: Some(ocr.verified_by),
+                    text_sha256: ocr.text_sha256,
+                    source_sha256: ocr.source_sha256,
+                    loading: false,
+                    error: None,
+                }));
+            }
+            Ok(None) => selected_ocr_asset.set(Some(OcrEditorState {
+                original_provider: "manual-verified".to_string(),
+                loading: false,
+                ..current
+            })),
+            Err(_) => selected_ocr_asset.set(Some(OcrEditorState {
+                loading: false,
+                error: Some("The current verified OCR could not be loaded. Refresh and try again.".to_string()),
+                ..current
+            })),
+        }
+    });
+}
+
+fn request_close_ocr_editor(
+    mut selected_ocr_asset: Signal<Option<OcrEditorState>>,
+    mut pending_ocr_asset: Signal<Option<(String, String)>>,
+    mut discard_ocr_confirmation: Signal<bool>,
+    mut ocr_text: Signal<String>,
+    provider: Signal<String>,
+) {
+    if selected_ocr_asset()
+        .as_ref()
+        .is_some_and(|editor| editor.is_dirty(&ocr_text(), &provider()))
+    {
+        pending_ocr_asset.set(None);
+        discard_ocr_confirmation.set(true);
+    } else {
+        selected_ocr_asset.set(None);
+        ocr_text.set(String::new());
+    }
+}
+
+#[component]
+fn OcrEditorDialog(
+    mut selected_ocr_asset: Signal<Option<OcrEditorState>>,
+    mut pending_ocr_asset: Signal<Option<(String, String)>>,
+    mut discard_ocr_confirmation: Signal<bool>,
+    mut ocr_text: Signal<String>,
+    mut provider: Signal<String>,
+    mut busy: Signal<bool>,
+    mut notice: Signal<Option<String>>,
+    mut assets: Resource<Result<Vec<AdminKnowledgeReviewAssetDto>, dioxus::prelude::ServerFnError>>,
+) -> Element {
+    let editor = selected_ocr_asset();
+    let open = editor.is_some();
+    let editor = editor.unwrap_or_else(|| OcrEditorState::loading(String::new(), String::new()));
+    let is_update = editor.revision.is_some();
+    let title = if is_update {
+        format!("Update verified OCR — {}", editor.title)
+    } else {
+        format!("Attach verified OCR — {}", editor.title)
+    };
+    let editor_for_submit = editor.clone();
+    let submit = move |event: FormEvent| {
+        event.prevent_default();
+        if busy() || editor_for_submit.loading || editor_for_submit.error.is_some() {
+            return;
+        }
+        if ocr_text().trim().is_empty() || provider().trim().is_empty() {
+            return;
+        }
+        busy.set(true);
+        let request = AttachOcrTextRequest {
+            asset_id: editor_for_submit.asset_id.clone(),
+            raw_text: ocr_text(),
+            ocr_provider: provider().trim().to_string(),
+            expected_revision: editor_for_submit.revision.clone(),
+        };
+        let editor_after_failure = editor_for_submit.clone();
+        spawn(async move {
+            match attach_admin_ocr_text(request).await {
+                Ok(_) => {
+                    selected_ocr_asset.set(None);
+                    ocr_text.set(String::new());
+                    notice.set(Some("Verified OCR saved. The asset is ready for embedding.".to_string()));
+                    assets.restart();
+                }
+                Err(_) => selected_ocr_asset.set(Some(OcrEditorState {
+                    error: Some("OCR verification could not be saved because the record changed or is no longer eligible. Refresh and review it again.".to_string()),
+                    ..editor_after_failure
+                })),
+            }
+            busy.set(false);
+        });
+    };
+
+    rsx! {
+        Dialog {
+            open,
+            title,
+            busy: Some(busy()),
+            close_label: Some("Close OCR editor".to_string()),
+            on_close: move |_| request_close_ocr_editor(
+                selected_ocr_asset,
+                pending_ocr_asset,
+                discard_ocr_confirmation,
+                ocr_text,
+                provider,
+            ),
+            form { class: "space-y-4", onsubmit: submit,
+                p { class: "text-sm text-gray-500", "Confirm the text against the private source PDF before saving. Saving verified OCR does not publish the asset." }
+                if editor.loading {
+                    p { class: "rounded-lg bg-blue-50 px-3 py-2 text-sm text-blue-800", role: "status", "Loading the current verified OCR…" }
+                } else if let Some(error) = editor.error.as_ref() {
+                    p { class: "rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800", role: "alert", "{error}" }
+                } else {
+                    if let Some(revision) = editor.revision.as_ref() {
+                        div { class: "rounded-lg bg-gray-50 p-3 text-xs text-gray-600 dark:bg-gray-900/40 dark:text-gray-300",
+                            p { "Current verified revision: {revision}" }
+                            if let Some(verified_at) = editor.verified_at.as_ref() {
+                                p { "Verified at: {verified_at}" }
                             }
-                            div {
-                                label { class: "mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300", "OCR provider / verification process" }
-                                input {
-                                    class: "w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-white",
-                                    r#type: "text",
-                                    value: "{provider}",
-                                    oninput: move |event| provider.set(event.value()),
-                                    disabled: busy(),
-                                }
+                            if let Some(verified_by) = editor.verified_by.as_ref() {
+                                p { "Verified by: {verified_by}" }
                             }
-                            div {
-                                label { class: "mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300", "Verified source text" }
-                                textarea {
-                                    class: "w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-white",
-                                    rows: "12",
-                                    value: "{ocr_text}",
-                                    oninput: move |event| ocr_text.set(event.value()),
-                                    placeholder: "Paste text that has been checked against the source PDF...",
-                                    disabled: busy(),
-                                }
+                            if let Some(source_sha256) = editor.source_sha256.as_ref() {
+                                p { "Source hash: {source_sha256}" }
                             }
-                            div { class: "flex flex-wrap gap-2",
-                                button {
-                                    class: "rounded-lg border border-gray-300 px-4 py-2 disabled:opacity-50 dark:border-gray-700",
-                                    r#type: "button",
-                                    disabled: busy(),
-                                    onclick: move |_| {
-                                        selected_ocr_asset.set(None);
-                                        ocr_text.set(String::new());
-                                    },
-                                    "Cancel"
-                                }
-                                button {
-                                    class: "rounded-lg bg-primary px-4 py-2 font-medium text-white disabled:opacity-50",
-                                    r#type: "submit",
-                                    disabled: busy(),
-                                    if busy() { "Saving..." } else { "Save verified OCR" }
-                                }
+                            if let Some(text_sha256) = editor.text_sha256.as_ref() {
+                                p { "Text hash: {text_sha256}" }
                             }
+                        }
+                    }
+                    div {
+                        label { r#for: "ocr-provider", class: "mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300", "OCR provider / verification process" }
+                        input {
+                            id: "ocr-provider",
+                            class: "w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-white",
+                            r#type: "text",
+                            value: "{provider}",
+                            oninput: move |event| provider.set(event.value()),
+                            disabled: busy(),
+                        }
+                    }
+                    div {
+                        label { r#for: "verified-ocr-text", class: "mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300", "Verified source text" }
+                        textarea {
+                            id: "verified-ocr-text",
+                            class: "w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-white",
+                            rows: "12",
+                            value: "{ocr_text}",
+                            oninput: move |event| ocr_text.set(event.value()),
+                            placeholder: "Paste text that has been checked against the source PDF...",
+                            disabled: busy(),
+                        }
+                    }
+                    div { class: "flex flex-wrap gap-2",
+                        button {
+                            class: "rounded-lg border border-gray-300 px-4 py-2 disabled:opacity-50 dark:border-gray-700",
+                            r#type: "button",
+                            disabled: busy(),
+                            onclick: move |_| request_close_ocr_editor(
+                                selected_ocr_asset,
+                                pending_ocr_asset,
+                                discard_ocr_confirmation,
+                                ocr_text,
+                                provider,
+                            ),
+                            "Cancel"
+                        }
+                        button {
+                            class: "rounded-lg bg-primary px-4 py-2 font-medium text-white disabled:opacity-50",
+                            r#type: "submit",
+                            disabled: busy(),
+                            if busy() { "Saving..." } else if is_update { "Save verified OCR changes" } else { "Save verified OCR" }
                         }
                     }
                 }
             }
+        }
+    }
+}
+
+#[component]
+fn DiscardOcrDialog(
+    mut selected_ocr_asset: Signal<Option<OcrEditorState>>,
+    mut pending_ocr_asset: Signal<Option<(String, String)>>,
+    mut pending_archive: Signal<Option<(String, String, String)>>,
+    mut discard_ocr_confirmation: Signal<bool>,
+    mut ocr_text: Signal<String>,
+    mut provider: Signal<String>,
+    mut archive_confirmation: Signal<Option<(String, String, String)>>,
+) -> Element {
+    let open = discard_ocr_confirmation();
+    let pending = pending_ocr_asset();
+    let title = if let Some((_, next_title)) = pending.as_ref() {
+        format!("Discard OCR changes and open \"{next_title}\"?")
+    } else {
+        "Discard unsaved OCR changes?".to_string()
+    };
+    rsx! {
+        ConfirmDialog {
+            open,
+            title,
+            description: "Your unsaved OCR text or verification method will be lost.".to_string(),
+            confirm_label: "Discard changes".to_string(),
+            cancel_label: "Keep editing".to_string(),
+            pending: Some(false),
+            destructive: Some(true),
+            on_cancel: move |_| {
+                pending_ocr_asset.set(None);
+                pending_archive.set(None);
+                discard_ocr_confirmation.set(false);
+            },
+            on_confirm: move |_| {
+                let next = pending_ocr_asset();
+                let archive = pending_archive();
+                selected_ocr_asset.set(None);
+                ocr_text.set(String::new());
+                provider.set("manual-verified".to_string());
+                pending_ocr_asset.set(None);
+                pending_archive.set(None);
+                discard_ocr_confirmation.set(false);
+                if let Some(archive) = archive {
+                    archive_confirmation.set(Some(archive));
+                } else if let Some((asset_id, title)) = next {
+                    open_ocr_editor(asset_id, title, selected_ocr_asset, ocr_text, provider);
+                }
+            },
         }
     }
 }
@@ -193,7 +425,7 @@ fn render_archive_confirmation(
     mut busy: Signal<bool>,
     mut notice: Signal<Option<String>>,
     mut assets: Resource<Result<Vec<AdminKnowledgeReviewAssetDto>, dioxus::prelude::ServerFnError>>,
-    mut selected_ocr_asset: Signal<Option<(String, String)>>,
+    mut selected_ocr_asset: Signal<Option<OcrEditorState>>,
     mut ocr_text: Signal<String>,
 ) -> Element {
     let confirmation = archive_confirmation();
@@ -224,9 +456,9 @@ fn render_archive_confirmation(
                     match archive_admin_knowledge_asset(archived_asset_id.clone()).await {
                         Ok(_) => {
                             archive_confirmation.set(None);
-                            if selected_ocr_asset()
-                                .as_ref()
-                                .is_some_and(|(selected_id, _)| selected_id == &archived_asset_id)
+                                            if selected_ocr_asset()
+                                                .as_ref()
+                                                .is_some_and(|selected| selected.asset_id == archived_asset_id)
                             {
                                 selected_ocr_asset.set(None);
                                 ocr_text.set(String::new());
@@ -248,9 +480,13 @@ fn render_review_card(
     mut busy: Signal<bool>,
     mut notice: Signal<Option<String>>,
     mut assets: Resource<Result<Vec<AdminKnowledgeReviewAssetDto>, dioxus::prelude::ServerFnError>>,
-    mut selected_ocr_asset: Signal<Option<(String, String)>>,
+    mut selected_ocr_asset: Signal<Option<OcrEditorState>>,
     mut ocr_text: Signal<String>,
+    provider: Signal<String>,
     mut archive_confirmation: Signal<Option<(String, String, String)>>,
+    mut pending_ocr_asset: Signal<Option<(String, String)>>,
+    mut pending_archive: Signal<Option<(String, String, String)>>,
+    mut discard_ocr_confirmation: Signal<bool>,
 ) -> Element {
     let asset = &item.asset;
     let asset_id = asset.id.clone();
@@ -308,8 +544,20 @@ fn render_review_card(
                         class: "rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium disabled:opacity-50 dark:border-gray-700",
                         disabled: busy(),
                         onclick: move |_| {
-                            ocr_text.set(String::new());
-                            selected_ocr_asset.set(Some((asset_id.clone(), ocr_title.clone())));
+                            if selected_ocr_asset().as_ref().is_some_and(|editor| {
+                                editor.is_dirty(&ocr_text(), &provider())
+                            }) {
+                                pending_ocr_asset.set(Some((asset_id.clone(), ocr_title.clone())));
+                                discard_ocr_confirmation.set(true);
+                            } else {
+                                open_ocr_editor(
+                                    asset_id.clone(),
+                                    ocr_title.clone(),
+                                    selected_ocr_asset,
+                                    ocr_text,
+                                    provider,
+                                );
+                            }
                         },
                         if item.has_verified_ocr { "Update verified OCR" } else { "Attach verified OCR" }
                     }
@@ -376,7 +624,26 @@ fn render_review_card(
                             button {
                                 class: "rounded-lg border border-red-300 px-3 py-2 text-sm font-medium text-red-700 disabled:opacity-50 dark:text-red-300",
                                 disabled: busy(),
-                                onclick: move |_| archive_confirmation.set(Some((archive_id.clone(), archive_title.clone(), archive_status.clone()))),
+                                onclick: move |_| {
+                                    if selected_ocr_asset().as_ref().is_some_and(|editor| {
+                                        editor.asset_id == archive_id
+                                            && editor.is_dirty(&ocr_text(), &provider())
+                                    }) {
+                                        pending_ocr_asset.set(None);
+                                        pending_archive.set(Some((
+                                            archive_id.clone(),
+                                            archive_title.clone(),
+                                            archive_status.clone(),
+                                        )));
+                                        discard_ocr_confirmation.set(true);
+                                    } else {
+                                        archive_confirmation.set(Some((
+                                            archive_id.clone(),
+                                            archive_title.clone(),
+                                            archive_status.clone(),
+                                        )));
+                                    }
+                                },
                                 if status == "published" { "Withdraw / archive" } else { "Archive" }
                             }
                         }

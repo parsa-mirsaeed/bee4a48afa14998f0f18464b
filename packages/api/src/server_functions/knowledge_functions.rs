@@ -93,6 +93,8 @@ pub struct AttachOcrTextRequest {
     pub asset_id: String,
     pub raw_text: String,
     pub ocr_provider: String,
+    #[serde(default)]
+    pub expected_revision: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -281,6 +283,12 @@ pub async fn attach_admin_ocr_text(request: AttachOcrTextRequest) -> Result<bool
         }
         let actor = authorize(&["PlatformAdmin"]).await?;
         let asset_id = parse_asset_id(&request.asset_id)?;
+        let expected_revision = request
+            .expected_revision
+            .as_deref()
+            .map(Uuid::parse_str)
+            .transpose()
+            .map_err(|_| ServerFnError::new("Invalid OCR revision"))?;
         KnowledgeAssetService::new(actor.pool)
             .await
             .map_err(|error| ServerFnError::new(error.to_string()))?
@@ -289,6 +297,7 @@ pub async fn attach_admin_ocr_text(request: AttachOcrTextRequest) -> Result<bool
                 &request.raw_text,
                 &request.ocr_provider,
                 actor.user_id,
+                expected_revision,
             )
             .await
             .map_err(|error| ServerFnError::new(error.to_string()))?;

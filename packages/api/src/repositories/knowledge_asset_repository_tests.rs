@@ -158,9 +158,17 @@ async fn verified_ocr_cannot_revive_terminal_assets() {
                         "manual",
                         actor_id,
                         &verified_hash,
+                        None,
                     )
                     .await
                     .expect("submitted asset accepts verified OCR");
+                let existing_revision: Uuid = sqlx::query_scalar(
+                    "SELECT revision FROM knowledge_ocr_texts WHERE asset_id = $1",
+                )
+                .bind(ocr_ready_asset)
+                .fetch_one(&*repository.pool())
+                .await
+                .expect("read the current OCR revision");
                 repository
                     .attach_verified_ocr(
                         ocr_ready_asset,
@@ -169,9 +177,22 @@ async fn verified_ocr_cannot_revive_terminal_assets() {
                         "manual",
                         actor_id,
                         &verified_hash,
+                        Some(existing_revision),
                     )
                     .await
                     .expect("OCR-ready asset accepts a governed correction");
+                let stale_update = repository
+                    .attach_verified_ocr(
+                        ocr_ready_asset,
+                        "stale text",
+                        "stale text",
+                        "manual",
+                        actor_id,
+                        &rejected_hash,
+                        Some(existing_revision),
+                    )
+                    .await;
+                assert!(matches!(stale_update, Err(RepositoryError::Validation(_))));
                 repository
                     .attach_verified_ocr(
                         failed_asset,
@@ -180,6 +201,7 @@ async fn verified_ocr_cannot_revive_terminal_assets() {
                         "manual",
                         actor_id,
                         &verified_hash,
+                        None,
                     )
                     .await
                     .expect("failed asset accepts a governed OCR recovery");
@@ -207,6 +229,7 @@ async fn verified_ocr_cannot_revive_terminal_assets() {
                             "manual",
                             actor_id,
                             &rejected_hash,
+                            None,
                         )
                         .await
                 },

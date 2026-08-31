@@ -82,7 +82,12 @@ ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO knowledge_assets (id, school_id, title, status, created_by, published_at) VALUES
   ('f3000000-0000-0000-0000-0000000000a1', 'a0000000-0000-0000-0000-0000000000a1', 'E2E Published Asset', 'published', 'b0000000-0000-0000-0000-0000000000a1', NOW()),
+  ('f3000000-0000-0000-0000-0000000000a2', 'a0000000-0000-0000-0000-0000000000a1', 'E2E Verified OCR Asset', 'ocr_ready', 'b0000000-0000-0000-0000-0000000000a1', NULL),
   ('f3000000-0000-0000-0000-0000000000b1', 'a0000000-0000-0000-0000-0000000000b1', 'E2E School B Asset', 'published', 'b0000000-0000-0000-0000-0000000000b1', NOW())
 ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO knowledge_ocr_texts (asset_id, raw_text, clean_text, ocr_provider, ocr_verified_by, text_sha256) VALUES
+  ('f3000000-0000-0000-0000-0000000000a2', 'E2E preverified OCR text', 'E2E preverified OCR text', 'e2e-manual-review', 'b0000000-0000-0000-0000-0000000000a0', repeat('a', 64))
+ON CONFLICT (asset_id) DO NOTHING;
 
 COMMIT;

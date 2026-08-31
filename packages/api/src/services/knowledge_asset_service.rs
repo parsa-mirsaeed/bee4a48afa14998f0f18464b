@@ -63,6 +63,7 @@ impl KnowledgeAssetService {
         raw_text: &str,
         provider: &str,
         verified_by: Uuid,
+        expected_revision: Option<Uuid>,
     ) -> Result<(), KnowledgeAssetError> {
         let clean_text = normalize_persian_text(raw_text);
         if clean_text.is_empty() {
@@ -77,6 +78,7 @@ impl KnowledgeAssetService {
                 provider,
                 verified_by,
                 &text_sha256,
+                expected_revision,
             )
             .await?;
         Ok(())

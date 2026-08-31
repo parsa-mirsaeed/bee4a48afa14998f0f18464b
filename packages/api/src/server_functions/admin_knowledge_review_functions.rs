@@ -22,6 +22,18 @@ pub struct AdminKnowledgeReviewAssetDto {
     pub has_verified_ocr: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AdminVerifiedOcrDto {
+    pub asset_id: String,
+    pub raw_text: String,
+    pub ocr_provider: String,
+    pub verified_at: String,
+    pub verified_by: String,
+    pub revision: String,
+    pub text_sha256: Option<String>,
+    pub source_sha256: Option<String>,
+}
+
 #[cfg(feature = "server")]
 #[derive(Debug)]
 struct SourceReviewMetadata {
@@ -148,6 +160,46 @@ pub async fn list_admin_knowledge_assets_for_review(
     }
     #[cfg(not(feature = "server"))]
     Ok(Vec::new())
+}
+
+#[server(endpoint = "admin/knowledge-assets/verified-ocr")]
+pub async fn get_admin_verified_ocr(
+    asset_id: String,
+) -> Result<Option<AdminVerifiedOcrDto>, ServerFnError> {
+    #[cfg(feature = "server")]
+    {
+        let (user, pool) =
+            crate::server_functions::rls_helpers::extract_user_with_full_rls().await?;
+        if user.role != "PlatformAdmin" {
+            return Err(ServerFnError::new("Forbidden: insufficient role"));
+        }
+        let asset_id = Uuid::parse_str(&asset_id)
+            .map_err(|_| ServerFnError::new("Invalid knowledge asset"))?;
+        KnowledgeAssetRepository::new(pool)
+            .get_verified_ocr(asset_id)
+            .await
+            .map(|ocr| {
+                ocr.map(|ocr| AdminVerifiedOcrDto {
+                    asset_id: ocr.asset_id.to_string(),
+                    raw_text: ocr.raw_text,
+                    ocr_provider: ocr.ocr_provider,
+                    verified_at: ocr.verified_at.to_rfc3339(),
+                    verified_by: ocr.verified_by.to_string(),
+                    revision: ocr.revision.to_string(),
+                    text_sha256: ocr.text_sha256,
+                    source_sha256: ocr.source_sha256,
+                })
+            })
+            .map_err(|error| {
+                tracing::error!(%error, %asset_id, "platform OCR record read failed");
+                ServerFnError::new("Unable to load verified OCR")
+            })
+    }
+    #[cfg(not(feature = "server"))]
+    {
+        let _ = asset_id;
+        Ok(None)
+    }
 }
 
 #[cfg(test)]
