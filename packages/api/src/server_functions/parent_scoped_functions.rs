@@ -135,8 +135,7 @@ pub async fn get_child_grades_for_parent_scoped(
                 })?;
                 let graded_at = row
                     .try_get::<Option<chrono::DateTime<chrono::Utc>>, _>("graded_at")?
-                    .map(|value| value.format("%b %d").to_string())
-                    .unwrap_or_default();
+                    .map(|value| value.to_rfc3339());
                 Ok(ChildGradeInfo {
                     assignment_title: row.try_get("title")?,
                     class_name: row.try_get("class_name")?,
