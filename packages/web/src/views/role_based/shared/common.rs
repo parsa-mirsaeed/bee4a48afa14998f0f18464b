@@ -23,6 +23,31 @@ pub fn format_grade_date(value: &str, locale: Locale) -> Option<String> {
         })
 }
 
+#[cfg(test)]
+mod grade_date_tests {
+    use super::format_grade_date;
+    use crate::i18n::Locale;
+
+    #[test]
+    fn formats_grade_dates_at_the_presentation_boundary() {
+        let timestamp = "2026-08-30T18:50:34+00:00";
+
+        assert_eq!(
+            format_grade_date(timestamp, Locale::En).as_deref(),
+            Some("Aug 30, 2026")
+        );
+        assert_eq!(
+            format_grade_date(timestamp, Locale::Fa).as_deref(),
+            Some("2026/08/30")
+        );
+    }
+
+    #[test]
+    fn does_not_present_an_invalid_grade_timestamp() {
+        assert_eq!(format_grade_date("not-a-timestamp", Locale::En), None);
+    }
+}
+
 /// Compatibility loading indicator backed by the canonical progress primitive.
 #[component]
 pub fn LoadingSpinner() -> Element {
