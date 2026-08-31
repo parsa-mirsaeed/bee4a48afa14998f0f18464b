@@ -132,9 +132,9 @@ test('teacher sees the persisted published assignment and governed knowledge ass
 });
 
 
-for (const [locale, materialsLabel, emptyResources] of [
-  ['en', 'Materials', 'No Materials Yet'],
-  ['fa', 'منابع', 'منبعی وجود ندارد'],
+for (const [locale, emptyResources] of [
+  ['en', 'No Materials Yet'],
+  ['fa', 'منبعی وجود ندارد'],
 ] as const) {
   test(`teacher class resources omit internal migration copy in ${locale} @smoke @final @teacher @i18n`, async ({ page }) => {
     await page.addInitScript((selectedLocale) => localStorage.setItem('edutalent_locale', selectedLocale), locale);
@@ -144,7 +144,7 @@ for (const [locale, materialsLabel, emptyResources] of [
     const classCard = page.getByText('E2E Class A1', { exact: true })
       .locator('xpath=ancestor::div[contains(@class, "et-ui-card")][1]');
     await expect(classCard).toBeVisible();
-    await classCard.getByRole('button', { name: materialsLabel, exact: true }).click();
+    await classCard.locator('xpath=.//button[.//span[normalize-space()="folder"]]').click();
 
     const dialog = page.getByRole('dialog');
     await expect(dialog).toContainText(emptyResources);
