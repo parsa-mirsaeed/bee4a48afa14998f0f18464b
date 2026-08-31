@@ -190,6 +190,20 @@ fn create_en_translations() -> HashMap<&'static str, &'static str> {
     m.insert("materials.or_upload_file", "Or Upload File");
     m.insert("materials.click_to_upload", "Click to select a file");
     m.insert("materials.upload_hint", "PDF, TXT, MD, HTML supported");
+
+    // ==================== TEACHER KNOWLEDGE ASSETS ====================
+    m.insert("teacher.knowledge_assets.title", "Knowledge assets");
+    m.insert("teacher.knowledge_assets.description", "Choose approved school sources to use across your classes.");
+    m.insert("teacher.knowledge_assets.loading", "Loading knowledge assets...");
+    m.insert("teacher.knowledge_assets.load_error", "Knowledge assets could not be loaded. Please try again.");
+    m.insert("teacher.knowledge_assets.empty", "No knowledge assets are available for your school.");
+    m.insert("teacher.knowledge_assets.school_approved", "Approved school source");
+    m.insert("teacher.knowledge_assets.enabled", "Enabled");
+    m.insert("teacher.knowledge_assets.available", "Available");
+    m.insert("teacher.knowledge_assets.disabled", "Disabled");
+    m.insert("teacher.knowledge_assets.enable_action", "Enable for use");
+    m.insert("teacher.knowledge_assets.disable_action", "Disable for use");
+    m.insert("teacher.knowledge_assets.update_error", "This knowledge asset could not be updated. Please try again.");
     
     // ==================== PARENT DASHBOARD ====================
     m.insert("parent.dashboard.sections.overview", "Family Overview");
@@ -1260,6 +1274,20 @@ fn create_fa_translations() -> HashMap<&'static str, &'static str> {
     m.insert("materials.or_upload_file", "یا آپلود فایل");
     m.insert("materials.click_to_upload", "برای انتخاب فایل کلیک کنید");
     m.insert("materials.upload_hint", "پشتیبانی از PDF، TXT، MD، HTML");
+
+    // ==================== منابع دانشی معلم ====================
+    m.insert("teacher.knowledge_assets.title", "منابع دانشی");
+    m.insert("teacher.knowledge_assets.description", "منابع تأییدشده مدرسه را برای استفاده در کلاس‌های خود انتخاب کنید.");
+    m.insert("teacher.knowledge_assets.loading", "در حال بارگذاری منابع دانشی...");
+    m.insert("teacher.knowledge_assets.load_error", "بارگذاری منابع دانشی ممکن نیست. دوباره تلاش کنید.");
+    m.insert("teacher.knowledge_assets.empty", "هیچ منبع دانشی برای مدرسه شما در دسترس نیست.");
+    m.insert("teacher.knowledge_assets.school_approved", "منبع تأییدشده مدرسه");
+    m.insert("teacher.knowledge_assets.enabled", "فعال");
+    m.insert("teacher.knowledge_assets.available", "در دسترس");
+    m.insert("teacher.knowledge_assets.disabled", "غیرفعال");
+    m.insert("teacher.knowledge_assets.enable_action", "فعال‌سازی برای استفاده");
+    m.insert("teacher.knowledge_assets.disable_action", "غیرفعال‌سازی برای استفاده");
+    m.insert("teacher.knowledge_assets.update_error", "به‌روزرسانی این منبع دانشی ممکن نیست. دوباره تلاش کنید.");
     
     // ==================== PARENT DASHBOARD ====================
     m.insert("parent.dashboard.sections.overview", "نمای کلی خانواده");
