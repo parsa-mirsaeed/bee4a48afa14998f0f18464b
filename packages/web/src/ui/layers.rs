@@ -121,7 +121,21 @@ pub fn Dialog(
     let dialog_id = use_signal(|| layer_id("dialog")).read().clone();
     let dialog_focus_root = dialog_id.clone();
     let return_focus_id = use_signal(|| None::<String>);
+    // A caller can close a dialog after an asynchronous success, rather than
+    // through one of this component's close controls. Keep the return target
+    // in the dialog itself so that path restores keyboard focus too.
+    let mut was_open = use_signal(|| false);
     let close_label = close_label.unwrap_or_else(|| "Close".to_string());
+
+    use_effect(move || {
+        let previously_open = was_open();
+        if previously_open && !open {
+            restore_active_element(return_focus_id);
+        }
+        if previously_open != open {
+            was_open.set(open);
+        }
+    });
 
     rsx! {
         if open {

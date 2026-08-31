@@ -127,9 +127,12 @@ fn PlatformKnowledgeReviewSection() -> Element {
                             }
                         }
                     }
-                    if let Some((asset_id, title, status)) = archive_confirmation() {
+                    {
+                        let confirmation = archive_confirmation();
+                        let archive_target = confirmation.clone().unwrap_or_default();
+                        let (asset_id, title, status) = archive_target;
                         ConfirmDialog {
-                            open: true,
+                            open: confirmation.is_some(),
                             title: format!("Archive \"{title}\"?"),
                             description: if status == "published" {
                                 format!("This withdraws \"{title}\" from teacher retrieval and cancels active ingestion work.")
@@ -143,6 +146,9 @@ fn PlatformKnowledgeReviewSection() -> Element {
                             on_cancel: move |_| archive_confirmation.set(None),
                             on_confirm: move |_| {
                                 let archived_asset_id = asset_id.clone();
+                                if archived_asset_id.is_empty() {
+                                    return;
+                                }
                                 busy.set(true);
                                 notice.set(Some("Archiving asset…".to_string()));
                                 spawn(async move {
