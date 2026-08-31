@@ -90,6 +90,25 @@ pub async fn submit_student_assignment(
             .await
             .map_err(map_database_error)?;
 
+        // Lock the authoritative custom-assignment row before editing a
+        // submission. This makes the graded state terminal for students even
+        // when a stale browser page still offers an edit action.
+        let assignment_state = sqlx::query(
+            "SELECT graded_at FROM custom_assignments WHERE id = $1 AND student_id = $2 FOR UPDATE",
+        )
+        .bind(custom_assignment_id)
+        .bind(student_id)
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(map_database_error)?
+        .ok_or_else(|| ServerFnError::new("Assignment not found"))?;
+        let graded_at: Option<chrono::DateTime<chrono::Utc>> = assignment_state.get("graded_at");
+        if graded_at.is_some() {
+            return Err(ServerFnError::new(
+                "This assignment has already been graded",
+            ));
+        }
+
         let existing_submission = sqlx::query(
             "SELECT id FROM submissions WHERE custom_assignment_id = $1 AND student_id = $2",
         )
@@ -281,5 +300,15 @@ mod grade_scale_tests {
     fn grade_display_preserves_the_declared_scale() {
         assert_eq!(format_grade_points(18.0, 20), "18/20");
         assert_eq!(format_grade_points(90.0, 100), "90/100");
+    }
+
+    #[test]
+    fn graded_assignments_are_locked_before_student_submission_mutation() {
+        let source = include_str!("submission_functions.rs");
+        let submit = &source[..source
+            .find("pub async fn get_submission_for_assignment")
+            .expect("submission reader follows writer")];
+        assert!(submit.contains("FOR UPDATE"));
+        assert!(submit.contains("This assignment has already been graded"));
     }
 }

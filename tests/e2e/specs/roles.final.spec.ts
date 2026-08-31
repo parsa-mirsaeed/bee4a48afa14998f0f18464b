@@ -163,7 +163,7 @@ test('student submission is graded by the authorized teacher and appears in pers
   await expect(workEditor).toBeVisible();
   await workEditor.fill(submittedWork);
   await page.getByRole('dialog').getByRole('button', { name: 'Submit work', exact: true }).click();
-  await expect(assignmentCard).toContainText('submitted');
+  await expect(assignmentCard).toContainText('Submitted');
   await endSessionForRoleSwitch(page);
 
   // The School A teacher sees that submission, records a grade, and persists feedback.

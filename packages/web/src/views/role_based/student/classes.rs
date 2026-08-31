@@ -5,7 +5,7 @@ use crate::views::role_based::shared::common::Modal;
 use api::server_functions::dashboard_functions::{
     get_class_assignments_for_student, get_class_grades_for_student,
     get_class_materials_for_student, get_student_classes_view, ClassAssignmentInfo, ClassGradeInfo,
-    ClassMaterialInfo, StudentClassView,
+    ClassMaterialInfo, StudentAssignmentPresentationState, StudentClassView,
 };
 use dioxus::prelude::*;
 
@@ -257,12 +257,13 @@ fn ClassTasksModal(class: StudentClassView, on_close: EventHandler) -> Element {
                                         div {
                                             class: "flex gap-2",
                                             span {
-                                                class: match task.status.as_str() {
-                                                    "graded" => "px-2 py-1 text-xs font-semibold rounded bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
-                                                    "submitted" => "px-2 py-1 text-xs font-semibold rounded bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
-                                                    _ => "px-2 py-1 text-xs font-semibold rounded bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400",
+                                                class: match task.presentation_state {
+                                                    StudentAssignmentPresentationState::Graded => "px-2 py-1 text-xs font-semibold rounded bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
+                                                    StudentAssignmentPresentationState::Submitted => "px-2 py-1 text-xs font-semibold rounded bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
+                                                    StudentAssignmentPresentationState::Overdue => "px-2 py-1 text-xs font-semibold rounded bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+                                                    StudentAssignmentPresentationState::Pending => "px-2 py-1 text-xs font-semibold rounded bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400",
                                                 },
-                                                "{task.status}"
+                                                "{task.presentation_state.display_name()}"
                                             }
                                             if let Some(grade) = &task.grade {
                                                 span {

@@ -112,9 +112,62 @@ pub struct StudentAssignmentInfo {
     pub title: String,
     pub class_name: String,
     pub due_date: String,
-    pub status: String, // "pending", "submitted", "graded", "overdue"
+    pub presentation_state: StudentAssignmentPresentationState,
     pub grade: Option<String>,
     pub points: Option<String>,
+}
+
+/// The canonical student-facing assignment state.
+///
+/// This deliberately does not expose `custom_assignments.status`: persistence
+/// values such as Assigned and InProgress are implementation state, while the
+/// student needs one consistent answer about what they can do next.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum StudentAssignmentPresentationState {
+    Pending,
+    Overdue,
+    Submitted,
+    Graded,
+}
+
+impl StudentAssignmentPresentationState {
+    pub const fn display_name(self) -> &'static str {
+        match self {
+            Self::Pending => "Pending",
+            Self::Overdue => "Overdue",
+            Self::Submitted => "Submitted",
+            Self::Graded => "Graded",
+        }
+    }
+
+    /// Submissions remain allowed after the due date under the current server
+    /// policy, so overdue work is explicitly presented as a late submission.
+    pub const fn action_label(self) -> &'static str {
+        match self {
+            Self::Pending => "Start assignment",
+            Self::Overdue => "Submit late",
+            Self::Submitted => "View submission",
+            Self::Graded => "View feedback",
+        }
+    }
+}
+
+fn student_assignment_presentation_state(
+    grade_value: Option<f64>,
+    submitted_at: Option<chrono::DateTime<chrono::Utc>>,
+    due_at: chrono::DateTime<chrono::Utc>,
+    now: chrono::DateTime<chrono::Utc>,
+) -> StudentAssignmentPresentationState {
+    if grade_value.is_some() {
+        StudentAssignmentPresentationState::Graded
+    } else if submitted_at.is_some() {
+        StudentAssignmentPresentationState::Submitted
+    } else if due_at < now {
+        StudentAssignmentPresentationState::Overdue
+    } else {
+        StudentAssignmentPresentationState::Pending
+    }
 }
 
 /// Teacher dashboard statistics
@@ -468,8 +521,10 @@ pub async fn get_student_assignments() -> Result<Vec<StudentAssignmentInfo>, Ser
             .list_for_student(actor, 100, 0)
             .await
             .map_err(map_assignment_dashboard_error)?;
-        assignments.sort_by(|left, right| right.due_at.cmp(&left.due_at));
-        assignments.truncate(10);
+        // Student-facing queues present the nearest due work first. The
+        // overview then selects only Pending entries, so Submitted and Graded
+        // records can never occupy the truthful "Upcoming" queue.
+        assignments.sort_by(|left, right| left.due_at.cmp(&right.due_at));
 
         if assignments.is_empty() {
             return Ok(Vec::new());
@@ -535,6 +590,7 @@ pub async fn get_student_assignments() -> Result<Vec<StudentAssignmentInfo>, Ser
             );
         }
 
+        let now = chrono::Utc::now();
         assignments
             .into_iter()
             .map(|assignment| {
@@ -547,22 +603,19 @@ pub async fn get_student_assignments() -> Result<Vec<StudentAssignmentInfo>, Ser
                         );
                         ServerFnError::new("Unable to load assignments")
                     })?;
-                let status = if grade_value.is_some() {
-                    "graded".to_string()
-                } else if assignment.submitted_at.is_some() {
-                    "submitted".to_string()
-                } else if assignment.due_at < chrono::Utc::now() {
-                    "overdue".to_string()
-                } else {
-                    "pending".to_string()
-                };
+                let presentation_state = student_assignment_presentation_state(
+                    grade_value,
+                    assignment.submitted_at,
+                    assignment.due_at,
+                    now,
+                );
 
                 Ok(StudentAssignmentInfo {
                     id: assignment_id.to_string(),
                     title: assignment.assignment_title,
                     class_name,
                     due_date: assignment.due_at.format("%b %d, %Y").to_string(),
-                    status,
+                    presentation_state,
                     grade: grade_value
                         .map(|grade| grade_to_letter_with_scale(grade, grade_scale.unwrap_or(100))),
                     points: grade_value
@@ -1321,7 +1374,7 @@ pub struct ClassAssignmentInfo {
     pub id: String,
     pub title: String,
     pub due_date: String,
-    pub status: String,
+    pub presentation_state: StudentAssignmentPresentationState,
     pub grade: Option<String>,
 }
 
@@ -1393,17 +1446,41 @@ pub async fn get_class_assignments_for_student(
                 ca.id,
                 a.title,
                 ca.due_at,
-                ca.status::text as "status!",
+                ca.submitted_at,
                 CAST(s.grade AS DOUBLE PRECISION) as grade,
                 COALESCE(s.grade_scale, 100::SMALLINT) as "grade_scale!"
             FROM custom_assignments ca
             JOIN assignments a ON ca.assignment_id = a.id
-            LEFT JOIN submissions s ON s.custom_assignment_id = ca.id AND s.student_id = ca.student_id
-            WHERE ca.student_id = $1 AND a.class_section_id = $2
-            ORDER BY ca.due_at DESC
+            LEFT JOIN LATERAL (
+                SELECT
+                    CAST(submission.grade AS DOUBLE PRECISION) AS grade,
+                    COALESCE(submission.grade_scale, 100::SMALLINT) AS grade_scale
+                FROM submissions submission
+                WHERE submission.custom_assignment_id = ca.id
+                  AND submission.student_id = ca.student_id
+                ORDER BY submission.submitted_at DESC
+                LIMIT 1
+            ) s ON TRUE
+            JOIN students student ON student.id = ca.student_id
+            JOIN users student_user ON student_user.id = student.user_id
+            JOIN roles student_role ON student_role.id = student_user.role_id
+            JOIN class_sections cs ON cs.id = a.class_section_id
+            JOIN enrollments enrollment
+              ON enrollment.student_id = student.id
+             AND enrollment.class_section_id = a.class_section_id
+            WHERE ca.student_id = $1
+              AND a.class_section_id = $2
+              AND student.user_id = $3
+              AND student_user.is_active = TRUE
+              AND student_role.name::text = 'Student'
+              AND student.school_id = student_user.school_id
+              AND cs.school_id = student_user.school_id
+              AND a.status = 'Published'::assignment_status
+            ORDER BY ca.due_at ASC
             "#,
             student_id,
-            class_uuid
+            class_uuid,
+            user_id,
         )
         .fetch_all(&**pool)
         .await
@@ -1412,7 +1489,6 @@ pub async fn get_class_assignments_for_student(
         let assignments = rows
             .into_iter()
             .map(|row| {
-                let status = row.status.to_lowercase();
                 let grade = row
                     .grade
                     .map(|value| format_grade_points(value, row.grade_scale));
@@ -1421,7 +1497,12 @@ pub async fn get_class_assignments_for_student(
                     id: row.id.to_string(),
                     title: row.title,
                     due_date: row.due_at.format("%b %d, %Y").to_string(),
-                    status,
+                    presentation_state: student_assignment_presentation_state(
+                        row.grade,
+                        row.submitted_at,
+                        row.due_at,
+                        chrono::Utc::now(),
+                    ),
                     grade,
                 }
             })
@@ -2936,6 +3017,52 @@ mod teacher_assignment_presentation_tests {
                 now,
             ),
             Some(TeacherAssignmentProgressState::Complete)
+        );
+    }
+}
+
+#[cfg(test)]
+mod student_assignment_presentation_tests {
+    use super::*;
+    use chrono::{Duration, Utc};
+
+    #[test]
+    fn persisted_submission_facts_map_to_one_student_presentation_state() {
+        let now = Utc::now();
+
+        assert_eq!(
+            student_assignment_presentation_state(None, None, now + Duration::days(1), now),
+            StudentAssignmentPresentationState::Pending
+        );
+        assert_eq!(
+            student_assignment_presentation_state(None, None, now - Duration::days(1), now),
+            StudentAssignmentPresentationState::Overdue
+        );
+        assert_eq!(
+            student_assignment_presentation_state(
+                None,
+                Some(now - Duration::hours(1)),
+                now - Duration::days(1),
+                now,
+            ),
+            StudentAssignmentPresentationState::Submitted
+        );
+        assert_eq!(
+            student_assignment_presentation_state(
+                Some(18.0),
+                Some(now - Duration::hours(1)),
+                now - Duration::days(1),
+                now,
+            ),
+            StudentAssignmentPresentationState::Graded
+        );
+    }
+
+    #[test]
+    fn overdue_state_has_an_explicit_late_submission_action() {
+        assert_eq!(
+            StudentAssignmentPresentationState::Overdue.action_label(),
+            "Submit late"
         );
     }
 }
