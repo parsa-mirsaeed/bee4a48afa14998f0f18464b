@@ -298,7 +298,9 @@ pub fn assignment_status_label(value: &str, locale: Locale) -> String {
         "complete" | "completed" => "assignment.status.complete",
         _ => return value.to_string(),
     };
-    supplemental_translation(key, locale).unwrap_or(value).to_string()
+    supplemental_translation(key, locale)
+        .unwrap_or(value)
+        .to_string()
 }
 
 /// Product role labels are locale-aware presentation, never domain display text.
