@@ -38,6 +38,7 @@ pub fn AssignmentsList() -> Element {
     let mut filter = use_signal(|| "all".to_string());
     let mut notice = use_signal(|| None::<(bool, String)>);
     let mut resource = use_resource(move || async move { get_teacher_assignments().await });
+    let locale = use_locale();
 
     let confirm_delete = move |assignment_id: String| {
         spawn(async move {
