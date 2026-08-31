@@ -52,7 +52,11 @@
 }
 
 .et-dashboard-shell {
-  min-height: 100dvh;
+  /* The authenticated dashboard owns the viewport. Long role pages scroll in
+   * .et-dashboard-content, never by growing this flex row into document flow. */
+  block-size: 100vh;
+  block-size: 100dvh;
+  min-block-size: 0;
   background: var(--et-bg);
   color: var(--et-text);
   display: flex;
@@ -60,17 +64,20 @@
 }
 
 .et-dashboard-main {
-  min-width: 0;
-  min-height: 100dvh;
+  min-inline-size: 0;
+  min-block-size: 0;
+  block-size: 100%;
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
 }
 
 .et-dashboard-content {
-  min-height: 0;
+  min-block-size: 0;
   flex: 1 1 auto;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   scroll-padding-top: 84px;
 }
 
@@ -81,11 +88,11 @@
 }
 
 .et-sidebar {
-  width: 252px;
+  inline-size: 252px;
   flex: 0 0 252px;
-  height: 100dvh;
-  position: sticky;
-  top: 0;
+  min-block-size: 0;
+  block-size: 100%;
+  position: relative;
   display: flex;
   flex-direction: column;
   background: var(--et-surface);
