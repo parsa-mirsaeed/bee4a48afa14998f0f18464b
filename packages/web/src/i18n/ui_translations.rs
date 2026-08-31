@@ -160,6 +160,50 @@ pub(crate) fn supplemental_translation(key: &'static str, locale: Locale) -> Opt
         (Locale::Fa, "submissions.validation_range") => Some("لطفاً یک نمره عددی معتبر وارد کنید"),
         (Locale::Fa, "submissions.grade_range_label") => Some("نمره (۰-۲۰)"),
         (Locale::Fa, "submissions.grade_label") => Some("نمره"),
+
+        (Locale::En, "teacher.knowledge_assets.title") => Some("Knowledge assets"),
+        (Locale::Fa, "teacher.knowledge_assets.title") => Some("منابع دانشی"),
+        (Locale::En, "teacher.knowledge_assets.description") => {
+            Some("Choose approved school sources to use across your classes.")
+        }
+        (Locale::Fa, "teacher.knowledge_assets.description") => {
+            Some("منابع تأییدشده مدرسه را برای استفاده در کلاس‌های خود انتخاب کنید.")
+        }
+        (Locale::En, "teacher.knowledge_assets.loading") => Some("Loading knowledge assets..."),
+        (Locale::Fa, "teacher.knowledge_assets.loading") => Some("در حال بارگذاری منابع دانشی..."),
+        (Locale::En, "teacher.knowledge_assets.load_error") => {
+            Some("Knowledge assets could not be loaded. Please try again.")
+        }
+        (Locale::Fa, "teacher.knowledge_assets.load_error") => {
+            Some("بارگذاری منابع دانشی ممکن نیست. دوباره تلاش کنید.")
+        }
+        (Locale::En, "teacher.knowledge_assets.empty") => {
+            Some("No knowledge assets are available for your school.")
+        }
+        (Locale::Fa, "teacher.knowledge_assets.empty") => {
+            Some("هیچ منبع دانشی برای مدرسه شما در دسترس نیست.")
+        }
+        (Locale::En, "teacher.knowledge_assets.school_approved") => Some("Approved school source"),
+        (Locale::Fa, "teacher.knowledge_assets.school_approved") => Some("منبع تأییدشده مدرسه"),
+        (Locale::En, "teacher.knowledge_assets.enabled") => Some("Enabled"),
+        (Locale::Fa, "teacher.knowledge_assets.enabled") => Some("فعال"),
+        (Locale::En, "teacher.knowledge_assets.available") => Some("Available"),
+        (Locale::Fa, "teacher.knowledge_assets.available") => Some("در دسترس"),
+        (Locale::En, "teacher.knowledge_assets.disabled") => Some("Disabled"),
+        (Locale::Fa, "teacher.knowledge_assets.disabled") => Some("غیرفعال"),
+        (Locale::En, "teacher.knowledge_assets.enable_action") => Some("Enable for generation"),
+        (Locale::Fa, "teacher.knowledge_assets.enable_action") => Some("فعال‌سازی برای تولید"),
+        (Locale::En, "teacher.knowledge_assets.disable_action") => Some("Disable for generation"),
+        (Locale::Fa, "teacher.knowledge_assets.disable_action") => {
+            Some("غیرفعال‌سازی برای تولید")
+        }
+        (Locale::En, "teacher.knowledge_assets.update_error") => {
+            Some("Update failed. Please try again.")
+        }
+        (Locale::Fa, "teacher.knowledge_assets.update_error") => {
+            Some("به‌روزرسانی ناموفق بود. دوباره تلاش کنید.")
+        }
+
         _ => None,
     }
 }
@@ -216,6 +260,18 @@ mod tests {
             "auth.service_unavailable",
             "auth.recovery_unavailable_title",
             "auth.recovery_unavailable_description",
+            "teacher.knowledge_assets.title",
+            "teacher.knowledge_assets.description",
+            "teacher.knowledge_assets.loading",
+            "teacher.knowledge_assets.load_error",
+            "teacher.knowledge_assets.empty",
+            "teacher.knowledge_assets.school_approved",
+            "teacher.knowledge_assets.enabled",
+            "teacher.knowledge_assets.available",
+            "teacher.knowledge_assets.disabled",
+            "teacher.knowledge_assets.enable_action",
+            "teacher.knowledge_assets.disable_action",
+            "teacher.knowledge_assets.update_error",
         ] {
             assert!(
                 supplemental_translation(key, Locale::En).is_some(),

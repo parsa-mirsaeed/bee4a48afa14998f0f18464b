@@ -447,18 +447,8 @@ fn ClassMaterialsModal(class: TeacherClassView, on_close: EventHandler) -> Eleme
                 div {
                     class: "space-y-4",
 
-          div {
-              class: "rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800 dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-200",
-              div { class: "flex items-start gap-3",
-                  span { class: "material-icons-outlined", "verified" }
-                  div {
-                      p { class: "font-semibold", "Governed knowledge assets" }
-                      p { class: "mt-1", "Teacher file uploads are retired. School managers submit source documents, platform administrators verify and publish them, and teachers enable approved assets from the Knowledge Assets section." }
-                  }
-              }
-          }
-
-          // Materials list
+                    // Class materials are intentionally distinct from the separate
+                    // school-wide Knowledge Assets destination.
                     div {
                         class: "max-h-80 overflow-y-auto space-y-3",
 

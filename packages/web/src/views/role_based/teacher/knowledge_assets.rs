@@ -1,3 +1,4 @@
+use crate::i18n::use_locale;
 use crate::views::role_based::components::DashboardSection;
 use api::server_functions::knowledge_functions::{
     list_teacher_available_knowledge_assets, ToggleKnowledgeAssetRequest,
@@ -7,6 +8,7 @@ use dioxus::prelude::*;
 
 #[component]
 pub fn TeacherKnowledgeAssetsScoped() -> Element {
+    let locale = use_locale();
     let mut notice = use_signal(|| None::<String>);
     let mut assets = use_resource(move || async move {
         list_teacher_available_knowledge_assets("global".to_string(), String::new()).await
@@ -14,18 +16,18 @@ pub fn TeacherKnowledgeAssetsScoped() -> Element {
 
     rsx! {
         DashboardSection {
-            title: "Published knowledge assets".to_string(),
-            description: Some("Explicitly enable only the school-approved sources you want available to generation workflows.".to_string()),
+            title: locale.t("teacher.knowledge_assets.title"),
+            description: Some(locale.t("teacher.knowledge_assets.description")),
             children: rsx! {
                 div { class: "space-y-4",
                     if let Some(message) = notice() {
                         p { class: "rounded-lg bg-blue-50 dark:bg-blue-900/20 px-4 py-3 text-sm text-blue-800 dark:text-blue-200", "{message}" }
                     }
                     match &*assets.read() {
-                        None => rsx! { p { class: "text-gray-500", "Loading published assets..." } },
-                        Some(Err(error)) => rsx! { p { class: "text-red-600", "Unable to load assets: {error}" } },
+                        None => rsx! { p { class: "text-gray-500", {locale.t("teacher.knowledge_assets.loading")} } },
+                        Some(Err(_)) => rsx! { p { class: "text-red-600", {locale.t("teacher.knowledge_assets.load_error")} } },
                         Some(Ok(items)) if items.is_empty() => rsx! {
-                            div { class: "et-ui-card p-8 text-center text-gray-500", "No published assets are available for your school." }
+                            div { class: "et-ui-card p-8 text-center text-gray-500", {locale.t("teacher.knowledge_assets.empty")} }
                         },
                         Some(Ok(items)) => rsx! {
                             div { class: "grid grid-cols-1 lg:grid-cols-2 gap-4",
@@ -39,11 +41,11 @@ pub fn TeacherKnowledgeAssetsScoped() -> Element {
                                                 div { class: "flex items-start justify-between gap-3",
                                                     div {
                                                         h3 { class: "font-semibold text-gray-900 dark:text-white", "{item.asset.title}" }
-                                                        p { class: "text-sm text-gray-500 dark:text-gray-400", "{item.asset.status}" }
+                                                        p { class: "text-sm text-gray-500 dark:text-gray-400", {locale.t("teacher.knowledge_assets.school_approved")} }
                                                     }
                                                     span {
                                                         class: "rounded-full border px-2 py-1 text-xs text-gray-600 dark:text-gray-300",
-                                                        if item.enabled { "Enabled" } else { "Available" }
+                                                        if item.enabled { {locale.t("teacher.knowledge_assets.enabled")} } else { {locale.t("teacher.knowledge_assets.available")} }
                                                     }
                                                 }
                                                 if let Some(description) = item.asset.description.as_ref() {
@@ -68,20 +70,27 @@ pub fn TeacherKnowledgeAssetsScoped() -> Element {
                                                             match toggle_teacher_knowledge_asset_scoped(request).await {
                                                                 Ok(true) => {
                                                                     notice.set(Some(format!(
-                                                                        "{} ‘{}’ for governed generation.",
-                                                                        if next_enabled { "Enabled" } else { "Disabled" },
+                                                                        "{}: {}",
+                                                                        if next_enabled {
+                                                                            locale.t("teacher.knowledge_assets.enabled")
+                                                                        } else {
+                                                                            locale.t("teacher.knowledge_assets.disabled")
+                                                                        },
                                                                         title
                                                                     )));
                                                                     assets.restart();
                                                                 }
-                                                                Ok(false) => notice.set(Some(
-                                                                    "Update failed: knowledge asset is unavailable or not authorized.".to_string(),
+                                                                Ok(false) | Err(_) => notice.set(Some(
+                                                                    locale.t("teacher.knowledge_assets.update_error"),
                                                                 )),
-                                                                Err(error) => notice.set(Some(format!("Update failed: {error}"))),
                                                             }
                                                         });
                                                     },
-                                                    if item.enabled { "Enabled for generation" } else { "Enable for generation" }
+                                                    if item.enabled {
+                                                        {locale.t("teacher.knowledge_assets.disable_action")}
+                                                    } else {
+                                                        {locale.t("teacher.knowledge_assets.enable_action")}
+                                                    }
                                                 }
                                             }
                                         }
