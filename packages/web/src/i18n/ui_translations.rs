@@ -191,17 +191,17 @@ pub(crate) fn supplemental_translation(key: &'static str, locale: Locale) -> Opt
         (Locale::Fa, "teacher.knowledge_assets.available") => Some("در دسترس"),
         (Locale::En, "teacher.knowledge_assets.disabled") => Some("Disabled"),
         (Locale::Fa, "teacher.knowledge_assets.disabled") => Some("غیرفعال"),
-        (Locale::En, "teacher.knowledge_assets.enable_action") => Some("Enable for use"),
-        (Locale::Fa, "teacher.knowledge_assets.enable_action") => Some("فعال‌سازی برای استفاده"),
-        (Locale::En, "teacher.knowledge_assets.disable_action") => Some("Disable for use"),
+        (Locale::En, "teacher.knowledge_assets.enable_action") => Some("Enable for generation"),
+        (Locale::Fa, "teacher.knowledge_assets.enable_action") => Some("فعال‌سازی برای تولید"),
+        (Locale::En, "teacher.knowledge_assets.disable_action") => Some("Disable for generation"),
         (Locale::Fa, "teacher.knowledge_assets.disable_action") => {
-            Some("غیرفعال‌سازی برای استفاده")
+            Some("غیرفعال‌سازی برای تولید")
         }
         (Locale::En, "teacher.knowledge_assets.update_error") => {
-            Some("This knowledge asset could not be updated. Please try again.")
+            Some("Update failed. Please try again.")
         }
         (Locale::Fa, "teacher.knowledge_assets.update_error") => {
-            Some("به‌روزرسانی این منبع دانشی ممکن نیست. دوباره تلاش کنید.")
+            Some("به‌روزرسانی ناموفق بود. دوباره تلاش کنید.")
         }
 
         _ => None,
