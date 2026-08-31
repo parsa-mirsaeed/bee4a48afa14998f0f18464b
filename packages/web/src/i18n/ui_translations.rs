@@ -1,4 +1,5 @@
 use super::Locale;
+use crate::domain::SystemRole;
 
 /// Small, explicit UI translation table for copy introduced after the original
 /// monolithic translation map. Keeping these keys here prevents the UI from
@@ -27,6 +28,17 @@ pub(crate) fn supplemental_translation(key: &'static str, locale: Locale) -> Opt
         (Locale::Fa, "navigation.primary") => Some("ناوبری اصلی"),
         (Locale::En, "navigation.redirecting_dashboard") => Some("Opening your dashboard."),
         (Locale::Fa, "navigation.redirecting_dashboard") => Some("در حال باز کردن داشبورد شما."),
+
+        (Locale::En, "roles.teacher") => Some("Teacher"),
+        (Locale::Fa, "roles.teacher") => Some("معلم"),
+        (Locale::En, "roles.student") => Some("Student"),
+        (Locale::Fa, "roles.student") => Some("دانش‌آموز"),
+        (Locale::En, "roles.parent") => Some("Parent"),
+        (Locale::Fa, "roles.parent") => Some("والد"),
+        (Locale::En, "roles.school_manager") => Some("School Manager"),
+        (Locale::Fa, "roles.school_manager") => Some("مدیر مدرسه"),
+        (Locale::En, "roles.platform_administrator") => Some("Platform Administrator"),
+        (Locale::Fa, "roles.platform_administrator") => Some("مدیر سامانه"),
 
         (Locale::En, "nav.knowledge_assets") => Some("Knowledge assets"),
         (Locale::Fa, "nav.knowledge_assets") => Some("منابع دانشی"),
@@ -161,6 +173,43 @@ pub(crate) fn supplemental_translation(key: &'static str, locale: Locale) -> Opt
         (Locale::Fa, "submissions.grade_range_label") => Some("نمره (۰-۲۰)"),
         (Locale::Fa, "submissions.grade_label") => Some("نمره"),
 
+        (Locale::En, "teachers.students.description") => Some("View student progress and contact details."),
+        (Locale::Fa, "teachers.students.description") => Some("پیشرفت و اطلاعات تماس دانش‌آموزان را مشاهده کنید."),
+        (Locale::En, "teachers.students.search_placeholder") => Some("Search students"),
+        (Locale::Fa, "teachers.students.search_placeholder") => Some("جستجوی دانش‌آموزان"),
+        (Locale::En, "teachers.students.load_error") => Some("Students could not be loaded. Please try again."),
+        (Locale::Fa, "teachers.students.load_error") => Some("بارگذاری دانش‌آموزان ممکن نیست. دوباره تلاش کنید."),
+        (Locale::En, "teachers.students.no_students_found") => Some("No students found"),
+        (Locale::Fa, "teachers.students.no_students_found") => Some("دانش‌آموزی پیدا نشد"),
+        (Locale::En, "teachers.students.no_students_desc") => Some("Students will appear here when they are enrolled in your classes."),
+        (Locale::Fa, "teachers.students.no_students_desc") => Some("وقتی دانش‌آموزان در کلاس‌های شما ثبت‌نام شوند، اینجا نمایش داده می‌شوند."),
+        (Locale::En, "teachers.students.submitted_label") => Some("submitted"),
+        (Locale::Fa, "teachers.students.submitted_label") => Some("ارسال‌شده"),
+        (Locale::En, "teachers.students.profile_btn") => Some("View profile"),
+        (Locale::Fa, "teachers.students.profile_btn") => Some("مشاهده نمایه"),
+        (Locale::En, "teachers.students.grades_btn") => Some("View grades"),
+        (Locale::Fa, "teachers.students.grades_btn") => Some("مشاهده نمره‌ها"),
+        (Locale::En, "teachers.students.profile_title_suffix") => Some("'s profile"),
+        (Locale::Fa, "teachers.students.profile_title_suffix") => Some(" — نمایه"),
+        (Locale::En, "teachers.students.grades_title_suffix") => Some("'s grades"),
+        (Locale::Fa, "teachers.students.grades_title_suffix") => Some(" — نمره‌ها"),
+        (Locale::En, "teachers.students.average_label") => Some("Average"),
+        (Locale::Fa, "teachers.students.average_label") => Some("میانگین"),
+        (Locale::En, "teachers.students.submitted_stat") => Some("Submitted"),
+        (Locale::Fa, "teachers.students.submitted_stat") => Some("ارسال‌شده"),
+        (Locale::En, "teachers.students.classes_stat") => Some("Classes"),
+        (Locale::Fa, "teachers.students.classes_stat") => Some("کلاس‌ها"),
+        (Locale::En, "teachers.students.enrolled_classes") => Some("Enrolled classes"),
+        (Locale::Fa, "teachers.students.enrolled_classes") => Some("کلاس‌های ثبت‌نام‌شده"),
+        (Locale::En, "teachers.students.average_grade") => Some("Average grade"),
+        (Locale::Fa, "teachers.students.average_grade") => Some("میانگین نمره"),
+        (Locale::En, "teachers.students.loading_grades") => Some("Loading grades…"),
+        (Locale::Fa, "teachers.students.loading_grades") => Some("در حال بارگذاری نمره‌ها…"),
+        (Locale::En, "teachers.students.grades_failed") => Some("Grades could not be loaded. Please try again."),
+        (Locale::Fa, "teachers.students.grades_failed") => Some("بارگذاری نمره‌ها ممکن نیست. دوباره تلاش کنید."),
+        (Locale::En, "teachers.students.no_grades") => Some("No grades are available yet."),
+        (Locale::Fa, "teachers.students.no_grades") => Some("هنوز نمره‌ای در دسترس نیست."),
+
         (Locale::En, "teacher.knowledge_assets.title") => Some("Knowledge assets"),
         (Locale::Fa, "teacher.knowledge_assets.title") => Some("منابع دانشی"),
         (Locale::En, "teacher.knowledge_assets.description") => {
@@ -208,6 +257,19 @@ pub(crate) fn supplemental_translation(key: &'static str, locale: Locale) -> Opt
     }
 }
 
+
+/// Product role labels are locale-aware presentation, never domain display text.
+pub fn role_label(role: SystemRole, locale: Locale) -> &'static str {
+    let key = match role {
+        SystemRole::Teacher => "roles.teacher",
+        SystemRole::Student => "roles.student",
+        SystemRole::Parent => "roles.parent",
+        SystemRole::SchoolManager => "roles.school_manager",
+        SystemRole::PlatformAdmin => "roles.platform_administrator",
+    };
+    supplemental_translation(key, locale).unwrap_or(role.display_name())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -224,6 +286,29 @@ mod tests {
             "navigation.open",
             "navigation.primary",
             "navigation.redirecting_dashboard",
+            "roles.teacher",
+            "roles.student",
+            "roles.parent",
+            "roles.school_manager",
+            "roles.platform_administrator",
+            "teachers.students.description",
+            "teachers.students.search_placeholder",
+            "teachers.students.load_error",
+            "teachers.students.no_students_found",
+            "teachers.students.no_students_desc",
+            "teachers.students.submitted_label",
+            "teachers.students.profile_btn",
+            "teachers.students.grades_btn",
+            "teachers.students.profile_title_suffix",
+            "teachers.students.grades_title_suffix",
+            "teachers.students.average_label",
+            "teachers.students.submitted_stat",
+            "teachers.students.classes_stat",
+            "teachers.students.enrolled_classes",
+            "teachers.students.average_grade",
+            "teachers.students.loading_grades",
+            "teachers.students.grades_failed",
+            "teachers.students.no_grades",
             "nav.knowledge_assets",
             "nav.knowledge_audit",
             "nav.knowledge_submissions",
@@ -282,6 +367,16 @@ mod tests {
                 "missing Farsi {key}"
             );
         }
+    }
+
+    #[test]
+    fn roles_are_presented_in_the_active_locale() {
+        assert_eq!(role_label(SystemRole::Teacher, Locale::En), "Teacher");
+        assert_eq!(role_label(SystemRole::Teacher, Locale::Fa), "معلم");
+        assert_eq!(
+            role_label(SystemRole::PlatformAdmin, Locale::Fa),
+            "مدیر سامانه"
+        );
     }
 
     #[test]

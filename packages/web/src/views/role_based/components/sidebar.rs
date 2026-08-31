@@ -1,6 +1,6 @@
 use crate::application::routing_service::{NavigationItem, RoutingService};
 use crate::domain::User;
-use crate::i18n::{use_locale, LanguageSwitcher, Locale};
+use crate::i18n::{role_label, use_locale, LanguageSwitcher, Locale};
 use crate::ui::{NavItem, SidebarNav};
 use dioxus::prelude::*;
 
@@ -106,7 +106,7 @@ pub fn Sidebar(
                     div { class: "et-avatar", "{user.initials()}" }
                     div { class: "et-user-copy",
                         p { class: "et-user-name", "{user.display_name()}" }
-                        p { class: "et-user-role", "{user.role.display_name()}" }
+                        p { class: "et-user-role", "{role_label(user.role, locale.current())}" }
                     }
                 }
 
