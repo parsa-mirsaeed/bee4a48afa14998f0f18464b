@@ -1,10 +1,52 @@
-use crate::i18n::use_locale;
+use crate::i18n::{use_locale, Locale};
 use crate::ui::{
     Button as UiButton, ButtonSize as UiButtonSize, ButtonVariant as UiButtonVariant,
     Card as UiCard, DataState, DataStateKind, Dialog, FeedbackTone, InlineAlert, Progress,
     StatusBadge,
 };
 use dioxus::prelude::*;
+
+/// Keep academic grade tokens in their semantic LTR order inside RTL UI.
+#[component]
+pub fn GradeToken(value: String, class: Option<String>) -> Element {
+    rsx! { bdi { dir: "ltr", class: format!("block {}", class.unwrap_or_default()), "{value}" } }
+}
+
+/// Format an API transport timestamp only where it is presented to the user.
+/// Persian deliberately uses numeric product chrome rather than English month names.
+pub fn format_grade_date(value: &str, locale: Locale) -> Option<String> {
+    chrono::DateTime::parse_from_rfc3339(value)
+        .ok()
+        .map(|date| match locale {
+            Locale::Fa => date.format("%Y/%m/%d").to_string(),
+            Locale::En => date.format("%b %-d, %Y").to_string(),
+        })
+}
+
+#[cfg(test)]
+mod grade_date_tests {
+    use super::format_grade_date;
+    use crate::i18n::Locale;
+
+    #[test]
+    fn formats_grade_dates_at_the_presentation_boundary() {
+        let timestamp = "2026-08-30T18:50:34+00:00";
+
+        assert_eq!(
+            format_grade_date(timestamp, Locale::En).as_deref(),
+            Some("Aug 30, 2026")
+        );
+        assert_eq!(
+            format_grade_date(timestamp, Locale::Fa).as_deref(),
+            Some("2026/08/30")
+        );
+    }
+
+    #[test]
+    fn does_not_present_an_invalid_grade_timestamp() {
+        assert_eq!(format_grade_date("not-a-timestamp", Locale::En), None);
+    }
+}
 
 /// Compatibility loading indicator backed by the canonical progress primitive.
 #[component]

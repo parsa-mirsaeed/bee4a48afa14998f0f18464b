@@ -1195,7 +1195,8 @@ pub struct StudentGradeDetail {
     pub class_name: String,
     pub grade: String,
     pub points: String,
-    pub graded_at: String,
+    /// Optional transport timestamp; it is formatted at the presentation boundary.
+    pub graded_at: Option<String>,
 }
 
 /// Get all students for teacher (across all their classes)
@@ -1352,10 +1353,7 @@ pub async fn get_student_grades_for_teacher(
                     class_name: row.class_name,
                     grade: letter,
                     points: format_grade_points(grade_f64, grade_scale),
-                    graded_at: row
-                        .graded_at
-                        .map(|d| d.format("%b %d").to_string())
-                        .unwrap_or_default(),
+                    graded_at: row.graded_at.map(|value| value.to_rfc3339()),
                 }
             })
             .collect();
@@ -1399,7 +1397,9 @@ pub struct ClassGradeInfo {
     pub assignment_title: String,
     pub grade: String,
     pub points: String,
-    pub graded_at: String,
+    /// Optional transport timestamp. Formatting belongs to the locale-aware
+    /// presentation boundary; absent metadata must remain absent.
+    pub graded_at: Option<String>,
 }
 
 /// Student info for class detail view
@@ -1571,10 +1571,7 @@ pub async fn get_class_grades_for_student(
                     assignment_title: row.title,
                     grade: letter,
                     points: format_grade_points(row.grade, row.grade_scale),
-                    graded_at: row
-                        .graded_at
-                        .map(|d| d.format("%b %d").to_string())
-                        .unwrap_or_default(),
+                    graded_at: row.graded_at.map(|value| value.to_rfc3339()),
                 }
             })
             .collect();
@@ -1789,7 +1786,8 @@ pub struct ChildGradeInfo {
     pub class_name: String,
     pub grade: String,
     pub points: String,
-    pub graded_at: String,
+    /// Optional transport timestamp; it is formatted at the presentation boundary.
+    pub graded_at: Option<String>,
 }
 
 /// Child assignment info for parent view  
@@ -1892,10 +1890,7 @@ pub async fn get_child_grades_for_parent(
                     class_name: row.class_name,
                     grade: letter,
                     points: format_grade_points(grade_f64, grade_scale),
-                    graded_at: row
-                        .graded_at
-                        .map(|d| d.format("%b %d").to_string())
-                        .unwrap_or_default(),
+                    graded_at: row.graded_at.map(|value| value.to_rfc3339()),
                 }
             })
             .collect();

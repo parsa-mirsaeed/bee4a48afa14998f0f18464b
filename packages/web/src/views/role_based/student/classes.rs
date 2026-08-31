@@ -1,7 +1,7 @@
 use crate::components::skeleton::SkeletonCard;
 use crate::i18n::use_locale;
 use crate::views::role_based::components::DashboardSection;
-use crate::views::role_based::shared::common::Modal;
+use crate::views::role_based::shared::common::{format_grade_date, GradeToken, Modal};
 use api::server_functions::dashboard_functions::{
     get_class_assignments_for_student, get_class_grades_for_student,
     get_class_materials_for_student, get_student_classes_view, ClassAssignmentInfo, ClassGradeInfo,
@@ -332,12 +332,16 @@ fn ClassGradesModal(class: StudentClassView, on_close: EventHandler) -> Element 
                                     class: "p-4 border border-gray-200 dark:border-gray-700 rounded-lg flex justify-between items-center",
                                     div {
                                         h4 { class: "font-semibold text-gray-900 dark:text-white", "{grade.assignment_title}" }
-                                        p { class: "text-sm text-gray-500 dark:text-gray-400", {format!("{}{}", locale.t("grades.graded_prefix"), grade.graded_at)} }
+                                        if let Some(graded_at) = grade.graded_at.as_ref() {
+                                            if let Some(grade_date) = format_grade_date(graded_at, locale.current()) {
+                                                p { class: "text-sm text-gray-500 dark:text-gray-400", "{grade_date}" }
+                                            }
+                                        }
                                     }
                                     div {
                                         class: "text-right",
-                                        p { class: "text-xl font-bold text-primary", "{grade.grade}" }
-                                        p { class: "text-sm text-gray-500", "{grade.points}" }
+                                        GradeToken { value: grade.grade.clone(), class: Some("text-xl font-bold text-primary".to_string()) }
+                                        GradeToken { value: grade.points.clone(), class: Some("text-sm text-gray-500".to_string()) }
                                     }
                                 }
                             }
