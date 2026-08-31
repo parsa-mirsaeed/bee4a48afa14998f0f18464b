@@ -136,7 +136,7 @@ for (const [locale, materialsLabel, emptyResources] of [
   ['en', 'Materials', 'No Materials Yet'],
   ['fa', 'منابع', 'منبعی وجود ندارد'],
 ] as const) {
-  test(`teacher class resources omit internal migration copy in ${locale} @final @teacher @i18n`, async ({ page }) => {
+  test(`teacher class resources omit internal migration copy in ${locale} @smoke @final @teacher @i18n`, async ({ page }) => {
     await page.addInitScript((selectedLocale) => localStorage.setItem('edutalent_locale', selectedLocale), locale);
     await signIn(page, 'e2e-teacher-a@example.test');
     await page.goto('/dashboard/classes');
