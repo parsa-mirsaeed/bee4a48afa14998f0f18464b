@@ -2,6 +2,7 @@ use crate::components::skeleton::SkeletonCard;
 use crate::i18n::use_locale;
 use crate::views::role_based::components::DashboardSection;
 use crate::views::role_based::shared::common::Modal;
+use crate::views::role_based::shared::common::GradeToken;
 use api::server_functions::dashboard_functions::{
     get_class_grades_for_student, get_student_classes_view, StudentClassView,
 };
@@ -29,9 +30,7 @@ pub fn StudentGrades() -> Element {
         div { class: "space-y-6",
             div { class: "et-ui-card p-5 border-l-4 border-blue-500",
                 h3 { class: "font-semibold text-gray-900 dark:text-white", "Recorded grades" }
-                p { class: "mt-1 text-sm text-gray-500 dark:text-gray-400",
-                    "Only persisted assignment grades are shown. Aggregate GPA, credits, attendance, and trend analytics are omitted until their source domains are defined."
-                }
+                p { class: "mt-1 text-sm text-gray-500 dark:text-gray-400", "Grades recorded by your teachers appear here." }
             }
             match &*classes.read() {
                 None => rsx! { div { class: "grid grid-cols-1 md:grid-cols-2 gap-4", SkeletonCard {} SkeletonCard {} } },
@@ -94,20 +93,13 @@ fn ClassGradesModal(class: StudentClassView, on_close: EventHandler) -> Element 
                                 div { class: "p-4 border border-gray-200 dark:border-gray-700 rounded-lg flex justify-between gap-4",
                                     div {
                                         h4 { class: "font-semibold text-gray-900 dark:text-white", "{grade.assignment_title}" }
-                                        p {
-                                            class: "text-sm text-gray-500 dark:text-gray-400",
-                                            bdi { dir: "ltr", "{grade.graded_at}" }
+                                        if let Some(graded_at) = grade.graded_at.as_ref() {
+                                            p { class: "text-sm text-gray-500 dark:text-gray-400", "{format_grade_date(graded_at, locale.current())}" }
                                         }
                                     }
                                     div { class: "text-right",
-                                        p {
-                                            class: "font-bold text-primary",
-                                            bdi { dir: "ltr", "{grade.grade}" }
-                                        }
-                                        p {
-                                            class: "text-xs text-gray-500",
-                                            bdi { dir: "ltr", "{grade.points}" }
-                                        }
+                                        GradeToken { value: grade.grade.clone(), class: Some("font-bold text-primary".to_string()) }
+                                        GradeToken { value: grade.points.clone(), class: Some("text-xs text-gray-500".to_string()) }
                                     }
                                 }
                             }
@@ -117,4 +109,13 @@ fn ClassGradesModal(class: StudentClassView, on_close: EventHandler) -> Element 
             }
         }
     }
+}
+
+fn format_grade_date(value: &str, locale: crate::i18n::Locale) -> String {
+    chrono::DateTime::parse_from_rfc3339(value)
+        .map(|date| match locale {
+            crate::i18n::Locale::Fa => date.format("%Y/%m/%d").to_string(),
+            crate::i18n::Locale::En => date.format("%b %-d, %Y").to_string(),
+        })
+        .unwrap_or_default()
 }

@@ -6,6 +6,12 @@ use crate::ui::{
 };
 use dioxus::prelude::*;
 
+/// Keep academic grade tokens in their semantic LTR order inside RTL UI.
+#[component]
+pub fn GradeToken(value: String, class: Option<String>) -> Element {
+    rsx! { bdi { dir: "ltr", class: class.unwrap_or_default(), "{value}" } }
+}
+
 /// Compatibility loading indicator backed by the canonical progress primitive.
 #[component]
 pub fn LoadingSpinner() -> Element {
