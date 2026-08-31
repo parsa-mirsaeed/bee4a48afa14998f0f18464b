@@ -114,6 +114,47 @@ test('desktop section navigation survives back and refresh with one active desti
   await attachViewportEvidence(page, testInfo, 'pr2-desktop-ltr');
 });
 
+async function assertViewportOwnedDashboardScroll(page: Page): Promise<void> {
+  const content = page.locator('.et-dashboard-content');
+  const sidebar = page.locator('.et-sidebar');
+
+  await page.evaluate(() => {
+    const filler = document.createElement('div');
+    filler.setAttribute('data-testid', 'dashboard-scroll-regression-content');
+    filler.style.blockSize = '2200px';
+    document.querySelector('.et-dashboard-content-inner')?.append(filler);
+  });
+
+  await content.evaluate((element) => element.scrollTo({ top: element.scrollHeight }));
+  await expect.poll(() => content.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+
+  const viewport = page.viewportSize();
+  const box = await sidebar.boundingBox();
+  expect(box, 'desktop sidebar is rendered').not.toBeNull();
+  expect(box!.y).toBe(0);
+  expect(box!.height).toBeCloseTo(viewport!.height, 0);
+  await expect(sidebar.locator('.et-sidebar-footer')).toBeVisible();
+}
+
+test('desktop shell keeps sidebar viewport-height while long content scrolls @smoke @pr32', async ({ page }, testInfo) => {
+  await useEnglish(page);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await signIn(page, 'e2e-manager-a@example.test');
+
+  await assertViewportOwnedDashboardScroll(page);
+  await attachViewportEvidence(page, testInfo, 'pr32-desktop-ltr');
+});
+
+test('RTL desktop shell keeps sidebar viewport-height while long content scrolls @smoke @pr32 @rtl', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await signIn(page, 'e2e-teacher-a@example.test');
+  await expect.poll(() => page.evaluate(() => document.documentElement.dir)).toBe('rtl');
+
+  await assertViewportOwnedDashboardScroll(page);
+  await attachViewportEvidence(page, testInfo, 'pr32-desktop-rtl');
+});
+
 test('mobile drawer keeps navigation parity and keyboard focus lifecycle @smoke @pr2 @accessibility', async ({ page }, testInfo) => {
   await useEnglish(page);
   await page.setViewportSize({ width: 390, height: 844 });
