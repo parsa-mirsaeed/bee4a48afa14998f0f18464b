@@ -75,10 +75,10 @@ pub fn StudentsList() -> Element {
                         }
                     }
                 },
-                Some(Err(e)) => rsx! {
+                Some(Err(_)) => rsx! {
                     div {
                         class: "et-ui-card p-12 text-center",
-                        p { class: "text-red-500", "{locale.t(\"students.failed_load\")}: {e}" }
+                        p { class: "text-red-500", "{locale.t(\"teachers.students.load_error\")}" }
                     }
                 },
                 Some(Ok(students)) if students.is_empty() => rsx! {
@@ -348,8 +348,8 @@ fn StudentGradesModal(student: TeacherStudentInfo, on_close: EventHandler) -> El
                         None => rsx! {
                             div { class: "text-center py-8 text-gray-500", "{locale.t(\"teachers.students.loading_grades\")}" }
                         },
-                        Some(Err(e)) => rsx! {
-                            div { class: "text-center py-8 text-red-500", "{locale.t(\"teachers.students.grades_failed\")}{e}" }
+                        Some(Err(_)) => rsx! {
+                            div { class: "text-center py-8 text-red-500", "{locale.t(\"teachers.students.grades_failed\")}" }
                         },
                         Some(Ok(grades)) if grades.is_empty() => rsx! {
                             div { class: "text-center py-8 text-gray-500", "{locale.t(\"teachers.students.no_grades\")}" }

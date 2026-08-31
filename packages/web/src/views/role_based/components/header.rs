@@ -1,5 +1,5 @@
 use crate::domain::User;
-use crate::i18n::use_locale;
+use crate::i18n::{role_label, use_locale};
 use crate::ui::{
     Button, ButtonSize, ButtonVariant, DataState, DataStateKind, FeedbackTone, IconButton,
     InlineAlert, Popover,
@@ -24,7 +24,7 @@ pub fn Header(user: User, page_title: String, on_open_navigation: EventHandler) 
 
                 div { class: "et-page-heading-wrap",
                     h1 { class: "et-topbar-title", "{page_title}" }
-                    p { class: "et-topbar-role", "{user.role.display_name()}" }
+                    p { class: "et-topbar-role", "{role_label(user.role, locale.current())}" }
                 }
             }
 
