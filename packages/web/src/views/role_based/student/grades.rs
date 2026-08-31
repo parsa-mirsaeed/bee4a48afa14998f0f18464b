@@ -1,8 +1,8 @@
 use crate::components::skeleton::SkeletonCard;
 use crate::i18n::use_locale;
 use crate::views::role_based::components::DashboardSection;
-use crate::views::role_based::shared::common::Modal;
 use crate::views::role_based::shared::common::GradeToken;
+use crate::views::role_based::shared::common::Modal;
 use api::server_functions::dashboard_functions::{
     get_class_grades_for_student, get_student_classes_view, StudentClassView,
 };
