@@ -231,6 +231,8 @@ fn render_review_card(
     let asset = &item.asset;
     let asset_id = asset.id.clone();
     let title = asset.title.clone();
+    let ocr_title = title.clone();
+    let archive_status = asset.status.clone();
     let status = asset.status.as_str();
     let can_edit_ocr = matches!(status, "submitted" | "ocr_pending" | "ocr_ready" | "failed");
     let can_embed = status == "ocr_ready" || (status == "failed" && item.has_verified_ocr);
@@ -283,7 +285,7 @@ fn render_review_card(
                         disabled: busy(),
                         onclick: move |_| {
                             ocr_text.set(String::new());
-                            selected_ocr_asset.set(Some((asset_id.clone(), title.clone())));
+                            selected_ocr_asset.set(Some((asset_id.clone(), ocr_title.clone())));
                         },
                         if item.has_verified_ocr { "Update verified OCR" } else { "Attach verified OCR" }
                     }
@@ -350,7 +352,7 @@ fn render_review_card(
                             button {
                                 class: "rounded-lg border border-red-300 px-3 py-2 text-sm font-medium text-red-700 disabled:opacity-50 dark:text-red-300",
                                 disabled: busy(),
-                                onclick: move |_| archive_confirmation.set(Some((archive_id.clone(), archive_title.clone(), status.to_string()))),
+                                onclick: move |_| archive_confirmation.set(Some((archive_id.clone(), archive_title.clone(), archive_status.clone()))),
                                 if status == "published" { "Withdraw / archive" } else { "Archive" }
                             }
                         }
