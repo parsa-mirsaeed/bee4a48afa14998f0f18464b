@@ -24,10 +24,10 @@ pub fn TeacherKnowledgeAssetsScoped() -> Element {
                         p { class: "rounded-lg bg-blue-50 dark:bg-blue-900/20 px-4 py-3 text-sm text-blue-800 dark:text-blue-200", "{message}" }
                     }
                     match &*assets.read() {
-                        None => rsx! { p { class: "text-gray-500", "{locale.t("teacher.knowledge_assets.loading")}" } },
-                        Some(Err(_)) => rsx! { p { class: "text-red-600", "{locale.t("teacher.knowledge_assets.load_error")}" } },
+                        None => rsx! { p { class: "text-gray-500", {locale.t("teacher.knowledge_assets.loading")} } },
+                        Some(Err(_)) => rsx! { p { class: "text-red-600", {locale.t("teacher.knowledge_assets.load_error")} } },
                         Some(Ok(items)) if items.is_empty() => rsx! {
-                            div { class: "et-ui-card p-8 text-center text-gray-500", "{locale.t("teacher.knowledge_assets.empty")}" }
+                            div { class: "et-ui-card p-8 text-center text-gray-500", {locale.t("teacher.knowledge_assets.empty")} }
                         },
                         Some(Ok(items)) => rsx! {
                             div { class: "grid grid-cols-1 lg:grid-cols-2 gap-4",
@@ -41,11 +41,11 @@ pub fn TeacherKnowledgeAssetsScoped() -> Element {
                                                 div { class: "flex items-start justify-between gap-3",
                                                     div {
                                                         h3 { class: "font-semibold text-gray-900 dark:text-white", "{item.asset.title}" }
-                                                        p { class: "text-sm text-gray-500 dark:text-gray-400", "{locale.t("teacher.knowledge_assets.school_approved")}" }
+                                                        p { class: "text-sm text-gray-500 dark:text-gray-400", {locale.t("teacher.knowledge_assets.school_approved")} }
                                                     }
                                                     span {
                                                         class: "rounded-full border px-2 py-1 text-xs text-gray-600 dark:text-gray-300",
-                                                        if item.enabled { "{locale.t("teacher.knowledge_assets.enabled")}" } else { "{locale.t("teacher.knowledge_assets.available")}" }
+                                                        if item.enabled { {locale.t("teacher.knowledge_assets.enabled")} } else { {locale.t("teacher.knowledge_assets.available")} }
                                                     }
                                                 }
                                                 if let Some(description) = item.asset.description.as_ref() {
@@ -87,9 +87,9 @@ pub fn TeacherKnowledgeAssetsScoped() -> Element {
                                                         });
                                                     },
                                                     if item.enabled {
-                                                        "{locale.t("teacher.knowledge_assets.disable_action")}"
+                                                        {locale.t("teacher.knowledge_assets.disable_action")}
                                                     } else {
-                                                        "{locale.t("teacher.knowledge_assets.enable_action")}"
+                                                        {locale.t("teacher.knowledge_assets.enable_action")}
                                                     }
                                                 }
                                             }
