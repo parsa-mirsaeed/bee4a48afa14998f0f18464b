@@ -283,3 +283,17 @@ test('platform admin updates verified OCR in an accessible prefilled dialog @fin
   await expect(dialog).toHaveCount(0);
   await expect(trigger).toBeFocused();
 });
+
+
+test('teacher assignment status chrome is localized in English and Persian @smoke @final @teacher @i18n', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('edutalent_locale', 'en'));
+  await signIn(page, 'e2e-teacher-a@example.test');
+  await page.goto('/dashboard/assignments');
+  await expect(page.getByText('Published', { exact: false })).toBeVisible();
+
+  await endSessionForRoleSwitch(page);
+  await page.addInitScript(() => localStorage.setItem('edutalent_locale', 'fa'));
+  await signIn(page, 'e2e-teacher-a@example.test');
+  await page.goto('/dashboard/assignments');
+  await expect(page.getByText('منتشرشده', { exact: false })).toBeVisible();
+});
