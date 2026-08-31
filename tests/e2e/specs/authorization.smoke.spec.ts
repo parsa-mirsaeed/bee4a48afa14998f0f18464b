@@ -179,7 +179,9 @@ test('teacher cannot mutate a School B knowledge asset by tampering its object I
     await route.fulfill({ response });
   });
 
-  await page.getByRole('button', { name: /enable for generation/i }).click();
+  await page.getByRole('button', { name: /enable for generation|فعال‌سازی برای تولید/i }).click();
   await expect.poll(() => tamperObserved).toBeTruthy();
-  await expect(page.locator('body')).toContainText(/update failed|forbidden|not found|unauthorized/i);
+  await expect(page.locator('body')).toContainText(
+    /update failed|forbidden|not found|unauthorized|ناموفق|دسترسی/i,
+  );
 });
