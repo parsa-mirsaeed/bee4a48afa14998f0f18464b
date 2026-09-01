@@ -8,11 +8,11 @@ use axum::{
         header::{CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_TYPE},
         HeaderValue, StatusCode,
     },
-    response::{Json, Response},
+    response::{Html, Response},
     Extension,
 };
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::json;
 use sha2::{Digest, Sha256};
 use sqlx::Row;
 use std::{sync::Arc, time::Duration};
@@ -22,7 +22,7 @@ use uuid::Uuid;
 const KNOWLEDGE_SOURCE_BUCKET: &str = "edutalent-knowledge-sources";
 const MAX_KNOWLEDGE_PDF_BYTES: usize = 20 * 1024 * 1024;
 
-type SourceRejection = (StatusCode, Json<Value>);
+type SourceRejection = (StatusCode, Html<String>);
 
 #[derive(Debug, Deserialize)]
 pub struct KnowledgeSourceQuery {
@@ -48,6 +48,7 @@ pub async fn knowledge_source_handler(
         r#"
         SELECT
             ka.school_id,
+            source.id AS source_file_id,
             source.original_file_url,
             source.original_filename,
             source.mime_type,
@@ -55,10 +56,11 @@ pub async fn knowledge_source_handler(
             source.sha256
         FROM knowledge_assets ka
         JOIN LATERAL (
-            SELECT original_file_url, original_filename, mime_type, file_size_bytes, sha256
+            SELECT id, original_file_url, original_filename, mime_type,
+                   file_size_bytes, sha256
             FROM knowledge_source_files
             WHERE asset_id = ka.id
-            ORDER BY created_at ASC
+            ORDER BY created_at DESC, id DESC
             LIMIT 1
         ) source ON TRUE
         WHERE ka.id = $1
@@ -77,6 +79,9 @@ pub async fn knowledge_source_handler(
     .ok_or_else(|| reject(StatusCode::NOT_FOUND, "Source document is unavailable"))?;
 
     let school_id: Uuid = row.try_get("school_id").map_err(internal_source_error)?;
+    let source_file_id: Uuid = row
+        .try_get("source_file_id")
+        .map_err(internal_source_error)?;
     let original_file_url: Option<String> = row
         .try_get("original_file_url")
         .map_err(internal_source_error)?;
@@ -106,6 +111,16 @@ pub async fn knowledge_source_handler(
             "Source document failed integrity checks",
         ));
     }
+    let expected_sha256 = stored_sha256
+        .as_deref()
+        .filter(|value| value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        .ok_or_else(|| {
+            error!(%asset_id, %source_file_id, "knowledge source is missing governed hash metadata");
+            reject(
+                StatusCode::BAD_GATEWAY,
+                "Source document failed integrity checks",
+            )
+        })?;
 
     let url = format!(
         "{}/storage/v1/object/{KNOWLEDGE_SOURCE_BUCKET}/{object_key}",
@@ -182,15 +197,13 @@ pub async fn knowledge_source_handler(
             ));
         }
     }
-    if let Some(expected_sha256) = stored_sha256.as_deref() {
-        let actual_sha256 = sha256_hex(&bytes);
-        if !actual_sha256.eq_ignore_ascii_case(expected_sha256) {
-            error!(%asset_id, "knowledge source hash no longer matches stored metadata");
-            return Err(reject(
-                StatusCode::BAD_GATEWAY,
-                "Source document failed integrity checks",
-            ));
-        }
+    let actual_sha256 = sha256_hex(&bytes);
+    if !actual_sha256.eq_ignore_ascii_case(expected_sha256) {
+        error!(%asset_id, %source_file_id, "knowledge source hash no longer matches stored metadata");
+        return Err(reject(
+            StatusCode::BAD_GATEWAY,
+            "Source document failed integrity checks",
+        ));
     }
 
     sqlx::query(
@@ -203,7 +216,12 @@ pub async fn knowledge_source_handler(
     .bind(actor_id)
     .bind(asset_id)
     .bind(school_id)
-    .bind(json!({ "delivery": "inline_pdf", "byte_count": bytes.len() }))
+    .bind(json!({
+        "delivery": "inline_pdf",
+        "byte_count": bytes.len(),
+        "source_file_id": source_file_id,
+        "source_sha256": actual_sha256,
+    }))
     .execute(&*pool)
     .await
     .map_err(|error| {
@@ -267,7 +285,24 @@ fn internal_source_error(error: sqlx::Error) -> SourceRejection {
 }
 
 fn reject(status: StatusCode, message: &'static str) -> SourceRejection {
-    (status, Json(json!({ "error": message })))
+    let body = format!(
+        r#"<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>EduTalent source review</title>
+<style>
+body{{font-family:system-ui,sans-serif;margin:0;background:#f8fafc;color:#111827}}
+main{{max-width:42rem;margin:10vh auto;padding:2rem}}
+section{{background:white;border:1px solid #e5e7eb;border-radius:1rem;padding:1.5rem;box-shadow:0 8px 24px rgba(15,23,42,.06)}}
+h1{{font-size:1.25rem;margin:0 0 .75rem}}p{{line-height:1.6;margin:.25rem 0}}
+</style>
+</head>
+<body><main><section role="alert"><h1>Source review unavailable</h1><p>{message}</p><p>Return to EduTalent and refresh the asset before trying again.</p></section></main></body>
+</html>"#
+    );
+    (status, Html(body))
 }
 
 #[cfg(test)]
@@ -301,5 +336,14 @@ mod tests {
             sha256_hex(b"abc"),
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
         );
+    }
+
+    #[test]
+    fn source_rejections_render_bounded_product_html() {
+        let (status, Html(body)) = reject(StatusCode::BAD_GATEWAY, "Source document is unavailable");
+        assert_eq!(status, StatusCode::BAD_GATEWAY);
+        assert!(body.contains("EduTalent source review"));
+        assert!(body.contains("Source document is unavailable"));
+        assert!(!body.contains("storage/v1/object"));
     }
 }
