@@ -5,16 +5,13 @@ use crate::i18n::{
 use crate::ui::{DataState, DataStateKind};
 use crate::views::role_based::components::ResponsiveDashboardLayout;
 use api::server_functions::dashboard_functions::{
-    get_teacher_assignments, get_teacher_dashboard_stats,
+    get_teacher_assignments, get_teacher_dashboard_stats, TeacherAssignmentInfo,
 };
 use dioxus::prelude::*;
 
 use super::TeacherKnowledgeAssetsScoped;
 
-fn assignment_presentation_label(
-    assignment: &api::server_functions::dashboard_functions::TeacherAssignmentInfo,
-    locale: Locale,
-) -> String {
+fn assignment_presentation_label(assignment: &TeacherAssignmentInfo, locale: Locale) -> String {
     let lifecycle = localized_status_label(&assignment.lifecycle_status.to_string(), locale);
     match assignment.progress_state {
         Some(progress_state) => format!(
@@ -140,23 +137,42 @@ pub fn TeacherOverviewSection(on_navigate: EventHandler<String>) -> Element {
                     Some(Ok(items)) => rsx! {
                         div { class: "et-panel",
                             for assignment in items.iter().take(5) {
-                                div { key: "{assignment.id}", class: "et-list-row",
-                                    div { class: "et-list-primary",
-                                        h4 { class: "et-list-title", "{assignment.title}" }
-                                        p {
-                                            class: "et-list-meta",
-                                            "{format!(\"{} · {}/{} {}\", assignment.class_name, assignment.submitted_count, assignment.total_count, locale.t(\"teachers.students.submitted_label\"))}"
-                                        }
-                                    }
-                                    div { class: "et-list-aside",
-                                        p { "{assignment_presentation_label(assignment, locale.current())}" }
-                                        p { class: "mt-1", "{format_product_date_text(&assignment.due_date, locale.current())}" }
-                                    }
+                                TeacherAssignmentOverviewRow {
+                                    key: "{assignment.id}",
+                                    assignment: assignment.clone(),
                                 }
                             }
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+#[component]
+fn TeacherAssignmentOverviewRow(assignment: TeacherAssignmentInfo) -> Element {
+    let locale = use_locale();
+    let submitted_label = locale.t("teachers.students.submitted_label");
+    let metadata = format!(
+        "{} · {}/{} {}",
+        assignment.class_name,
+        assignment.submitted_count,
+        assignment.total_count,
+        submitted_label
+    );
+    let status_label = assignment_presentation_label(&assignment, locale.current());
+    let due_date = format_product_date_text(&assignment.due_date, locale.current());
+
+    rsx! {
+        div { class: "et-list-row",
+            div { class: "et-list-primary",
+                h4 { class: "et-list-title", "{assignment.title}" }
+                p { class: "et-list-meta", "{metadata}" }
+            }
+            div { class: "et-list-aside",
+                p { "{status_label}" }
+                p { class: "mt-1", "{due_date}" }
             }
         }
     }
