@@ -1,5 +1,5 @@
 //! Teacher Submissions Management View
-//! 
+//!
 //! This module provides the submissions management UI for teachers,
 //! including listing submissions pending grading and grading interface.
 
@@ -153,12 +153,7 @@ pub fn SubmissionsList() -> Element {
 
 /// Filter tab component
 #[component]
-fn FilterTab(
-    label: String,
-    active: bool,
-    count: Option<i32>,
-    onclick: EventHandler,
-) -> Element {
+fn FilterTab(label: String, active: bool, count: Option<i32>, onclick: EventHandler) -> Element {
     let class = if active {
         "px-3 py-2 md:px-4 md:py-2 bg-primary text-white rounded-lg text-xs md:text-sm font-medium shadow-sm whitespace-nowrap"
     } else {
@@ -313,7 +308,9 @@ fn GradeSubmissionModal(
     let mut grade_value = use_signal(|| {
         if let Some(g) = submission.grade {
             // Backend sends 0-100. Convert to current locale scale.
-            let val = LocalizedGrade::english(g).convert_to(locale.current()).value;
+            let val = LocalizedGrade::english(g)
+                .convert_to(locale.current())
+                .value;
             // Format without symbols for input
             format!("{:.1}", val).trim_end_matches(".0").to_string()
         } else {
@@ -478,8 +475,7 @@ fn GradeSubmissionModal(
                                 "{locale.t(\"submissions.saving_btn\")}"
                             } else {
                                 span { class: "material-icons-outlined text-lg", "check" }
-                                "{locale.t(\"submissions.save_btn\")}"
-                            }
+                                "{locale.t(\"submissions.save_btn\")}" }
                         }
                     }
                 }
