@@ -16,7 +16,7 @@ const KNOWLEDGE_SOURCE_BUCKET: &str = "edutalent-knowledge-sources";
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AdminKnowledgeReviewAssetDto {
     pub asset: KnowledgeAssetDto,
-    /// True when the latest source has complete governed metadata and can be
+    /// True when the canonical source has complete governed metadata and can be
     /// attempted through the protected review endpoint. Storage/object health
     /// is verified only by that endpoint and failures remain bounded product UI.
     pub source_review_available: bool,
@@ -72,16 +72,18 @@ pub async fn list_admin_knowledge_assets_for_review(
         let asset_ids = assets.iter().map(|asset| asset.id).collect::<Vec<_>>();
         let source_rows = sqlx::query(
             r#"
-            SELECT DISTINCT ON (asset_id)
-                asset_id,
-                original_file_url,
-                original_filename,
-                mime_type,
-                file_size_bytes,
-                sha256
-            FROM knowledge_source_files
-            WHERE asset_id = ANY($1)
-            ORDER BY asset_id, created_at DESC, id DESC
+            SELECT
+                asset.id AS asset_id,
+                source.original_file_url,
+                source.original_filename,
+                source.mime_type,
+                source.file_size_bytes,
+                source.sha256
+            FROM knowledge_assets AS asset
+            JOIN knowledge_source_files AS source
+              ON source.id = asset.current_source_file_id
+             AND source.asset_id = asset.id
+            WHERE asset.id = ANY($1)
             "#,
         )
         .bind(&asset_ids)
@@ -93,7 +95,17 @@ pub async fn list_admin_knowledge_assets_for_review(
         })?;
 
         let ocr_rows = sqlx::query_scalar::<_, Uuid>(
-            "SELECT asset_id FROM knowledge_ocr_texts WHERE asset_id = ANY($1)",
+            r#"
+            SELECT ocr.asset_id
+            FROM knowledge_ocr_texts AS ocr
+            JOIN knowledge_assets AS asset ON asset.id = ocr.asset_id
+            JOIN knowledge_source_files AS source
+              ON source.id = asset.current_source_file_id
+             AND source.asset_id = asset.id
+            WHERE ocr.asset_id = ANY($1)
+              AND ocr.source_file_id = source.id
+              AND lower(ocr.source_sha256) = lower(source.sha256)
+            "#,
         )
         .bind(&asset_ids)
         .fetch_all(&*pool)
@@ -187,10 +199,16 @@ pub async fn get_admin_verified_ocr(
             .map_err(|_| ServerFnError::new("Invalid knowledge asset"))?;
         let row = sqlx::query(
             r#"
-            SELECT asset_id, raw_text, ocr_provider, ocr_verified_at,
-                   ocr_verified_by, revision, text_sha256, source_sha256
-            FROM knowledge_ocr_texts
-            WHERE asset_id = $1
+            SELECT ocr.asset_id, ocr.raw_text, ocr.ocr_provider, ocr.ocr_verified_at,
+                   ocr.ocr_verified_by, ocr.revision, ocr.text_sha256, ocr.source_sha256
+            FROM knowledge_ocr_texts AS ocr
+            JOIN knowledge_assets AS asset ON asset.id = ocr.asset_id
+            JOIN knowledge_source_files AS source
+              ON source.id = asset.current_source_file_id
+             AND source.asset_id = asset.id
+            WHERE ocr.asset_id = $1
+              AND ocr.source_file_id = source.id
+              AND lower(ocr.source_sha256) = lower(source.sha256)
             "#,
         )
         .bind(asset_id)
