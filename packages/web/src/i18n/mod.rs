@@ -25,7 +25,9 @@ pub use grading::*;
 pub use locale::*;
 pub use provider::*;
 pub(crate) use teacher_assignments_translations::teacher_assignments_translation;
-pub(crate) use teacher_classes_translations::teacher_classes_translation;
+pub(crate) use teacher_classes_translations::{
+    format_teacher_vectorization_duration, teacher_classes_translation,
+};
 pub(crate) use teacher_dashboard_translations::teacher_dashboard_translation;
 pub use translations::*;
 pub use ui_translations::role_label;

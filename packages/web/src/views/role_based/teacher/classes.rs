@@ -1,7 +1,7 @@
 use crate::components::skeleton::SkeletonCard;
 use crate::i18n::{
-    assignment_status_label, format_product_date_text, format_product_datetime_text, use_locale,
-    Locale,
+    assignment_status_label, format_product_date_text, format_product_datetime_text,
+    format_teacher_vectorization_duration, use_locale, Locale,
 };
 use crate::views::role_based::components::DashboardSection;
 use crate::views::role_based::shared::common::Modal;
@@ -588,38 +588,7 @@ fn localized_digits(value: &str, locale: Locale) -> String {
 }
 
 fn format_vectorization_duration(seconds: i32, locale: Locale) -> String {
-    let translate = |key| match (locale, key) {
-        (Locale::En, "seconds") => "s",
-        (Locale::Fa, "seconds") => "ثانیه",
-        (Locale::En, "minutes") => "m",
-        (Locale::Fa, "minutes") => "دقیقه",
-        (Locale::En, "hours") => "h",
-        (Locale::Fa, "hours") => "ساعت",
-        _ => "",
-    };
-    if seconds < 60 {
-        format!(
-            "{} {}",
-            localized_digits(&seconds.to_string(), locale),
-            translate("seconds")
-        )
-    } else if seconds < 3600 {
-        format!(
-            "{} {} {} {}",
-            localized_digits(&(seconds / 60).to_string(), locale),
-            translate("minutes"),
-            localized_digits(&(seconds % 60).to_string(), locale),
-            translate("seconds")
-        )
-    } else {
-        format!(
-            "{} {} {} {}",
-            localized_digits(&(seconds / 3600).to_string(), locale),
-            translate("hours"),
-            localized_digits(&((seconds % 3600) / 60).to_string(), locale),
-            translate("minutes")
-        )
-    }
+    format_teacher_vectorization_duration(seconds, locale)
 }
 
 /// Vectorization progress bar component for materials
@@ -701,10 +670,8 @@ fn VectorizationProgressBar(
         Some(s) if s.status == "processing" || s.status == "pending" => {
             let progress = s.progress_percent;
             let progress_text = localized_digits(&progress.to_string(), locale.current());
-            let time_remaining = format_vectorization_duration(
-                s.estimated_seconds_remaining,
-                locale.current(),
-            );
+            let time_remaining =
+                format_vectorization_duration(s.estimated_seconds_remaining, locale.current());
             let processing_title = format!(
                 "{}: {}",
                 locale.t("teachers.classes.vectorization.processing_prefix"),
@@ -800,7 +767,9 @@ mod tests {
         let formatted = format_vectorization_duration(125, Locale::Fa);
         assert!(formatted.contains("دقیقه"));
         assert!(formatted.contains("ثانیه"));
-        assert!(!formatted.chars().any(|character| character.is_ascii_digit()));
+        assert!(!formatted
+            .chars()
+            .any(|character| character.is_ascii_digit()));
     }
 
     #[test]
