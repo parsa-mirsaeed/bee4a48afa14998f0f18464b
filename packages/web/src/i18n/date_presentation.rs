@@ -83,7 +83,9 @@ mod tests {
         let formatted = format_product_date(value, Locale::Fa);
         assert_eq!(formatted, "۱۰ سپتامبر ۲۰۲۶");
         assert!(!formatted.contains("Sep"));
-        assert!(!formatted.chars().any(|character| character.is_ascii_digit()));
+        assert!(!formatted
+            .chars()
+            .any(|character| character.is_ascii_digit()));
     }
 
     #[test]
