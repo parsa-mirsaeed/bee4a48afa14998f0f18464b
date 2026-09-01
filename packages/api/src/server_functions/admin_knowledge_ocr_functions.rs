@@ -33,9 +33,13 @@ pub struct SaveAdminVerifiedOcrRequest {
 }
 
 #[cfg(feature = "server")]
-async fn authorize_platform_admin(
-) -> Result<(crate::domain::UserInfo, std::sync::Arc<crate::rls_context::AuthorizedPool>), ServerFnError>
-{
+async fn authorize_platform_admin() -> Result<
+    (
+        crate::domain::UserInfo,
+        std::sync::Arc<crate::rls_context::AuthorizedPool>,
+    ),
+    ServerFnError,
+> {
     let (user, pool) = crate::server_functions::rls_helpers::extract_user_with_full_rls().await?;
     if user.role != "PlatformAdmin" {
         return Err(ServerFnError::new("Forbidden: insufficient role"));
