@@ -575,7 +575,10 @@ fn AssignmentDetail(
     let locale = use_locale();
     let status_label = assignment_status_label(&item.status, locale.current());
     let due_date = format_product_date(item.due_at, locale.current());
-    let status_text = format!("{}: {status_label}", locale.t("teacher.assignments.status_prefix"));
+    let status_text = format!(
+        "{}: {status_label}",
+        locale.t("teacher.assignments.status_prefix")
+    );
     let due_text = format!("{} {due_date}", locale.t("teacher.assignments.due_prefix"));
 
     rsx! {
