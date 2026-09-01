@@ -51,6 +51,8 @@ server|manager/knowledge-storage/readiness|SchoolManagerOnly|SchoolManager|sessi
 server|admin/knowledge-assets|PlatformAdminOnly|PlatformAdmin|platform|knowledge_assets|read|bounded_list|required|knowledge_functions::list_admin_knowledge_assets|-
 server|admin/knowledge-assets/review-list|PlatformAdminOnly|PlatformAdmin|platform|knowledge_assets|read|bounded_list|required|admin_knowledge_review_functions::list_admin_knowledge_assets_for_review|-
 server|admin/knowledge-assets/verified-ocr|PlatformAdminOnly|PlatformAdmin|platform|knowledge_asset|read|standard|required|admin_knowledge_review_functions::get_admin_verified_ocr|-
+server|admin/knowledge-assets/source-revision|PlatformAdminOnly|PlatformAdmin|platform|knowledge_asset_source|read|standard|required|admin_knowledge_ocr_functions::get_admin_knowledge_source_revision|-
+server|admin/knowledge-assets/verified-ocr/source-bound|PlatformAdminOnly|PlatformAdmin|platform|knowledge_asset|write|large_payload|required|admin_knowledge_ocr_functions::save_admin_verified_ocr|-
 server|admin/knowledge-assets/ocr-text|PlatformAdminOnly|PlatformAdmin|platform|knowledge_asset|write|large_payload|required|knowledge_functions::attach_admin_ocr_text|-
 server|admin/knowledge-assets/embed|PlatformAdminOnly|PlatformAdmin|platform|knowledge_asset|write|expensive|required|knowledge_functions::embed_admin_knowledge_asset|-
 server|admin/knowledge-assets/publish|PlatformAdminOnly|PlatformAdmin|platform|knowledge_asset|write|standard|required|knowledge_functions::publish_admin_knowledge_asset|-
