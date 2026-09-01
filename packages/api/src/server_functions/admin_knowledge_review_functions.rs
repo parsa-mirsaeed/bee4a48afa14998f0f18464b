@@ -16,6 +16,9 @@ const KNOWLEDGE_SOURCE_BUCKET: &str = "edutalent-knowledge-sources";
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AdminKnowledgeReviewAssetDto {
     pub asset: KnowledgeAssetDto,
+    /// True when the latest source has complete governed metadata and can be
+    /// attempted through the protected review endpoint. Storage/object health
+    /// is verified only by that endpoint and failures remain bounded product UI.
     pub source_review_available: bool,
     pub original_filename: Option<String>,
     pub file_size_bytes: Option<i64>,
@@ -41,6 +44,7 @@ struct SourceReviewMetadata {
     original_filename: String,
     mime_type: String,
     file_size_bytes: Option<i64>,
+    sha256: Option<String>,
 }
 
 #[server(endpoint = "admin/knowledge-assets/review-list")]
@@ -73,10 +77,11 @@ pub async fn list_admin_knowledge_assets_for_review(
                 original_file_url,
                 original_filename,
                 mime_type,
-                file_size_bytes
+                file_size_bytes,
+                sha256
             FROM knowledge_source_files
             WHERE asset_id = ANY($1)
-            ORDER BY asset_id, created_at ASC
+            ORDER BY asset_id, created_at DESC, id DESC
             "#,
         )
         .bind(&asset_ids)
@@ -124,6 +129,10 @@ pub async fn list_admin_knowledge_assets_for_review(
                         tracing::error!(%error, "platform knowledge source size decode failed");
                         ServerFnError::new("Unable to load governed source metadata")
                     })?,
+                    sha256: row.try_get("sha256").map_err(|error| {
+                        tracing::error!(%error, "platform knowledge source hash decode failed");
+                        ServerFnError::new("Unable to load governed source metadata")
+                    })?,
                 },
             );
         }
@@ -134,6 +143,7 @@ pub async fn list_admin_knowledge_assets_for_review(
                 let source = source_by_asset.remove(&asset.id);
                 let source_review_available = source.as_ref().is_some_and(|source| {
                     source.mime_type == "application/pdf"
+                        && source.sha256.as_deref().is_some_and(is_sha256)
                         && source
                             .original_file_url
                             .as_deref()
@@ -175,31 +185,52 @@ pub async fn get_admin_verified_ocr(
         }
         let asset_id = Uuid::parse_str(&asset_id)
             .map_err(|_| ServerFnError::new("Invalid knowledge asset"))?;
-        KnowledgeAssetRepository::new(pool)
-            .get_verified_ocr(asset_id)
-            .await
-            .map(|ocr| {
-                ocr.map(|ocr| AdminVerifiedOcrDto {
-                    asset_id: ocr.asset_id.to_string(),
-                    raw_text: ocr.raw_text,
-                    ocr_provider: ocr.ocr_provider,
-                    verified_at: ocr.verified_at.to_rfc3339(),
-                    verified_by: ocr.verified_by.to_string(),
-                    revision: ocr.revision.to_string(),
-                    text_sha256: ocr.text_sha256,
-                    source_sha256: ocr.source_sha256,
-                })
+        let row = sqlx::query(
+            r#"
+            SELECT asset_id, raw_text, ocr_provider, ocr_verified_at,
+                   ocr_verified_by, revision, text_sha256, source_sha256
+            FROM knowledge_ocr_texts
+            WHERE asset_id = $1
+            "#,
+        )
+        .bind(asset_id)
+        .fetch_optional(&*pool)
+        .await
+        .map_err(|error| {
+            tracing::error!(%error, %asset_id, "platform OCR record read failed");
+            ServerFnError::new("Unable to load verified OCR")
+        })?;
+
+        row.map(|row| {
+            let verified_at: chrono::DateTime<chrono::Utc> = row.try_get("ocr_verified_at")?;
+            let verified_by: Uuid = row.try_get("ocr_verified_by")?;
+            let revision: Uuid = row.try_get("revision")?;
+            Ok(AdminVerifiedOcrDto {
+                asset_id: row.try_get::<Uuid, _>("asset_id")?.to_string(),
+                raw_text: row.try_get("raw_text")?,
+                ocr_provider: row.try_get("ocr_provider")?,
+                verified_at: verified_at.to_rfc3339(),
+                verified_by: verified_by.to_string(),
+                revision: revision.to_string(),
+                text_sha256: row.try_get("text_sha256")?,
+                source_sha256: row.try_get("source_sha256")?,
             })
-            .map_err(|error| {
-                tracing::error!(%error, %asset_id, "platform OCR record read failed");
-                ServerFnError::new("Unable to load verified OCR")
-            })
+        })
+        .transpose()
+        .map_err(|error: sqlx::Error| {
+            tracing::error!(%error, %asset_id, "platform OCR record decode failed");
+            ServerFnError::new("Unable to load verified OCR")
+        })
     }
     #[cfg(not(feature = "server"))]
     {
         let _ = asset_id;
         Ok(None)
     }
+}
+
+fn is_sha256(value: &str) -> bool {
+    value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 #[cfg(test)]
@@ -209,5 +240,16 @@ mod tests {
     #[test]
     fn private_bucket_name_is_fixed() {
         assert_eq!(KNOWLEDGE_SOURCE_BUCKET, "edutalent-knowledge-sources");
+    }
+
+    #[test]
+    fn review_metadata_requires_a_sha256_digest() {
+        assert!(is_sha256(
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        ));
+        assert!(!is_sha256("missing"));
+        assert!(!is_sha256(
+            "za7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        ));
     }
 }
