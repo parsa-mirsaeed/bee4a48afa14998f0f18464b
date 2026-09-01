@@ -69,6 +69,7 @@ fn only_review_stage_assets_accept_verified_ocr() {
 #[tokio::test]
 async fn verified_ocr_cannot_revive_terminal_assets() {
     use crate::rls_context::{AuthorizedActor, AuthorizedTx};
+    use sha2::{Digest, Sha256};
     use sqlx::postgres::PgPoolOptions;
     use uuid::Uuid;
 
@@ -132,6 +133,67 @@ async fn verified_ocr_cannot_revive_terminal_assets() {
         .await
         .expect("insert knowledge asset");
     }
+
+    // Review-stage fixtures must follow the real governed pipeline: immutable
+    // source revision -> protected byte review -> verified OCR. Do not fabricate
+    // audit evidence or let OCR establish source provenance itself.
+    let mut governed_sources = Vec::new();
+    for asset_id in [submitted_asset, ocr_ready_asset, failed_asset] {
+        let source_id = Uuid::new_v4();
+        let source_bytes = format!("%PDF-lifecycle-fixture-{asset_id}").into_bytes();
+        let source_sha = format!("{:x}", Sha256::digest(&source_bytes));
+        sqlx::query(
+            r#"
+            INSERT INTO knowledge_source_files (
+                id, asset_id, original_file_url, original_filename, mime_type,
+                file_size_bytes, sha256, is_scanned_pdf
+            ) VALUES ($1, $2, $3, 'fixture.pdf', 'application/pdf', $4, $5, FALSE)
+            "#,
+        )
+        .bind(source_id)
+        .bind(asset_id)
+        .bind(format!(
+            "storage://edutalent-knowledge-sources/{school_id}/{source_id}.pdf"
+        ))
+        .bind(i64::try_from(source_bytes.len()).expect("fixture size fits i64"))
+        .bind(&source_sha)
+        .execute(&pool)
+        .await
+        .expect("insert governed source revision");
+        governed_sources.push((asset_id, source_id, source_bytes));
+    }
+
+    let mut review_tx = pool.begin().await.expect("begin source review fixture transaction");
+    sqlx::query("SELECT set_config('app.user_id', $1, true)")
+        .bind(actor_id.to_string())
+        .execute(&mut *review_tx)
+        .await
+        .expect("set review actor context");
+    sqlx::query("SELECT set_config('app.user_role', 'PlatformAdmin', true)")
+        .execute(&mut *review_tx)
+        .await
+        .expect("set review role context");
+    sqlx::query("SELECT set_config('app.school_id', $1, true)")
+        .bind(school_id.to_string())
+        .execute(&mut *review_tx)
+        .await
+        .expect("set review school context");
+    for (asset_id, source_id, source_bytes) in &governed_sources {
+        sqlx::query_scalar::<_, Uuid>(
+            "SELECT record_knowledge_source_review($1, $2, $3)",
+        )
+        .bind(asset_id)
+        .bind(source_id)
+        .bind(source_bytes)
+        .fetch_one(&mut *review_tx)
+        .await
+        .expect("record trusted source review evidence");
+    }
+    review_tx
+        .commit()
+        .await
+        .expect("commit source review fixture transaction");
+
     sqlx::query(
         "INSERT INTO knowledge_ocr_texts (asset_id, raw_text, clean_text, ocr_provider, ocr_verified_by, text_sha256) VALUES ($1, 'old text', 'old text', 'manual', $2, $3)",
     )
