@@ -19,6 +19,10 @@ const STUDENT_SUBMISSION = 'E2E PR1 persisted student submission';
 type CreationRole = 'Student' | 'Teacher' | 'Parent';
 
 async function signIn(page: Page, email: string, password = FIXTURE_PASSWORD): Promise<void> {
+  // This workflow intentionally asserts English product labels. Make the locale
+  // contract explicit now that those labels are correctly localized instead of
+  // relying on the old hardcoded-English implementation.
+  await page.addInitScript(() => localStorage.setItem('edutalent_locale', 'en'));
   await page.goto('/');
   await page.locator('input[type="email"]').fill(email);
   await page.locator('input[type="password"]').fill(password);
