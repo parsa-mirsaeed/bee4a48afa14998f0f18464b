@@ -1,7 +1,8 @@
--- Require an explicit canonical source revision precondition for Platform Admin
--- OCR writes. This closes the stale-editor race where a replacement source could
--- be reviewed in another tab and an older OCR draft could otherwise be rebound
--- to that newly reviewed source by the provenance trigger.
+-- Require an explicit canonical source revision precondition whenever a
+-- Platform Admin OCR write can be ambiguous: every OCR update and every asset
+-- that has more than one immutable source revision. A first OCR insert against
+-- the only source remains race-safe because source replacement serializes on the
+-- asset row and immediately invalidates any OCR bound to the superseded source.
 
 CREATE OR REPLACE FUNCTION public.enforce_reviewed_source_for_verified_ocr()
 RETURNS TRIGGER
@@ -12,6 +13,7 @@ DECLARE
     current_source_sha256 TEXT;
     expected_source_id TEXT;
     expected_source_sha256 TEXT;
+    source_revision_count BIGINT;
 BEGIN
     SELECT asset.current_source_file_id, lower(source.sha256)
     INTO current_source_id, current_source_sha256
@@ -27,10 +29,17 @@ BEGIN
             USING ERRCODE = '23514';
     END IF;
 
+    SELECT COUNT(*)
+    INTO source_revision_count
+    FROM public.knowledge_source_files
+    WHERE asset_id = NEW.asset_id;
+
     -- Application PlatformAdmin writes must prove which source revision the
-    -- editor was opened against. Migrations/bootstrap inserts have no app role
-    -- context and remain able to establish fixtures/history deliberately.
-    IF get_role() = 'PlatformAdmin' THEN
+    -- editor was opened against whenever OCR already exists or the asset has a
+    -- replacement-source history. Bootstrap/migration writes without app role
+    -- context remain deliberate owner operations.
+    IF get_role() = 'PlatformAdmin'
+       AND (TG_OP = 'UPDATE' OR source_revision_count > 1) THEN
         expected_source_id := NULLIF(
             current_setting('app.knowledge_expected_source_file_id', true),
             ''
@@ -81,8 +90,8 @@ BEGIN
     END IF;
 
     -- Caller-provided source columns never establish provenance. They are
-    -- overwritten from the locked canonical source after the explicit request
-    -- precondition and trusted review evidence have both passed.
+    -- overwritten from the locked canonical source after the source precondition
+    -- (when required) and trusted review evidence have both passed.
     NEW.source_file_id := current_source_id;
     NEW.source_sha256 := current_source_sha256;
     RETURN NEW;
@@ -90,4 +99,4 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.enforce_reviewed_source_for_verified_ocr() IS
-    'Binds verified OCR to the canonical reviewed source and requires PlatformAdmin writes to present the exact source revision opened by the editor.';
+    'Binds verified OCR to the canonical reviewed source and requires explicit PlatformAdmin source identity for updates or replacement-source histories.';
