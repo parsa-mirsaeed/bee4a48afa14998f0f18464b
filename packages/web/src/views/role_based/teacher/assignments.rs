@@ -81,7 +81,7 @@ pub fn AssignmentsList() -> Element {
                 button {
                     class: "btn-primary flex min-h-[44px] items-center justify-center gap-2",
                     onclick: move |_| show_create.set(true),
-                    span { class: "material-icons-outlined", "add" }
+                    span { class: "material-icons-outlined", "aria-hidden": "true", "add" }
                     "{locale.t(\"teacher.assignments.create\")}"
                 }
             }
