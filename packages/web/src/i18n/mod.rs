@@ -6,15 +6,17 @@
 //! - Locale-specific grading (20-based for Farsi, 100-based for English)
 //! - Type-safe translation keys
 
+mod assignment_status;
 pub mod grading;
 pub mod locale;
 pub mod provider;
 pub mod translations;
 mod ui_translations;
 
+pub use assignment_status::assignment_status_label;
 pub use grading::*;
 pub use locale::*;
 pub use provider::*;
 pub use translations::*;
 pub(crate) use ui_translations::supplemental_translation;
-pub use ui_translations::{assignment_status_label, role_label};
+pub use ui_translations::role_label;
