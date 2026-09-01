@@ -10,6 +10,7 @@ DECLARE
     missing_policies text[];
     insecure_policy_count integer;
     teacher_policy text;
+    review_insert_policy text;
 BEGIN
     IF NOT EXISTS (
         SELECT 1
@@ -35,7 +36,9 @@ BEGIN
         VALUES
             ('knowledge_assets'),
             ('knowledge_source_files'),
+            ('knowledge_source_reviews'),
             ('knowledge_ocr_texts'),
+            ('knowledge_ocr_revision_provenance'),
             ('knowledge_chunks'),
             ('teacher_asset_selections'),
             ('ingestion_jobs'),
@@ -64,7 +67,11 @@ BEGIN
             ('knowledge_source_files_scoped_select'),
             ('knowledge_source_files_scoped_insert'),
             ('knowledge_source_files_admin_write'),
+            ('knowledge_source_reviews_admin_select'),
+            ('knowledge_source_reviews_definer_insert'),
             ('knowledge_ocr_texts_admin_all'),
+            ('knowledge_ocr_revision_provenance_admin_select'),
+            ('knowledge_ocr_revision_provenance_trigger_insert'),
             ('knowledge_chunks_admin_all'),
             ('teacher_asset_selection_owner'),
             ('ingestion_jobs_admin_all'),
@@ -80,6 +87,67 @@ BEGIN
 
     IF missing_policies IS NOT NULL THEN
         RAISE EXCEPTION 'Missing governed knowledge policies: %', missing_policies;
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_class relation
+        JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
+        WHERE namespace.nspname = 'public'
+          AND relation.relname = 'knowledge_source_reviews'
+          AND relation.relrowsecurity
+          AND relation.relforcerowsecurity
+    ) THEN
+        RAISE EXCEPTION 'Trusted source-review evidence must remain FORCE-RLS protected';
+    END IF;
+
+    SELECT with_check
+    INTO review_insert_policy
+    FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename = 'knowledge_source_reviews'
+      AND policyname = 'knowledge_source_reviews_definer_insert'
+      AND cmd = 'INSERT';
+
+    IF review_insert_policy IS NULL
+       OR lower(review_insert_policy) NOT LIKE '%current_user%'
+       OR lower(review_insert_policy) NOT LIKE '%session_user%'
+       OR lower(review_insert_policy) NOT LIKE '%<>%' THEN
+        RAISE EXCEPTION 'Trusted source-review INSERT policy is not restricted to SECURITY DEFINER execution: %', review_insert_policy;
+    END IF;
+
+    IF EXISTS (
+        SELECT 1
+        FROM pg_policies
+        WHERE schemaname = 'public'
+          AND tablename = 'knowledge_source_reviews'
+          AND cmd IN ('INSERT', 'ALL')
+          AND policyname <> 'knowledge_source_reviews_definer_insert'
+    ) THEN
+        RAISE EXCEPTION 'Trusted source-review evidence has an unexpected direct INSERT/ALL policy';
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_proc procedure
+        JOIN pg_class relation
+          ON relation.oid = 'public.knowledge_source_reviews'::regclass
+        WHERE procedure.oid = 'public.record_knowledge_source_review(uuid,uuid,bytea)'::regprocedure
+          AND procedure.prosecdef
+          AND procedure.proowner = relation.relowner
+    ) THEN
+        RAISE EXCEPTION 'Source-review evidence function must be SECURITY DEFINER and owned by the evidence-table owner';
+    END IF;
+
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.routine_privileges
+        WHERE specific_schema = 'public'
+          AND routine_name = 'record_knowledge_source_review'
+          AND grantee = 'PUBLIC'
+          AND privilege_type = 'EXECUTE'
+    ) THEN
+        RAISE EXCEPTION 'Source-review evidence function remains executable by PUBLIC';
     END IF;
 
     SELECT COUNT(*)

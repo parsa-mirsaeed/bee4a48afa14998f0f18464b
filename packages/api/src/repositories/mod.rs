@@ -11,6 +11,7 @@ pub mod class_section_repository;
 pub mod custom_assignment_repository;
 pub mod enrollment_repository;
 pub mod invite_repository;
+pub mod knowledge_asset_provenance_repository;
 pub mod knowledge_asset_repository;
 #[cfg(test)]
 mod knowledge_asset_repository_tests;

@@ -90,7 +90,7 @@ impl KnowledgeAssetService {
         asset_id: Uuid,
         actor_id: Uuid,
     ) -> Result<usize, KnowledgeAssetError> {
-        let source = self.repository.get_for_embedding(asset_id).await?;
+        let source = self.repository.get_for_embedding_current(asset_id).await?;
         if source.clean_text.trim().is_empty() {
             return Err(KnowledgeAssetError::EmptyText);
         }
