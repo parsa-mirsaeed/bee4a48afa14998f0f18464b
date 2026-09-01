@@ -79,7 +79,7 @@ pub fn TeacherOverviewSection(on_navigate: EventHandler<String>) -> Element {
         div { class: "et-page-stack",
             header { class: "et-overview-intro",
                 h2 { class: "et-overview-title", "{locale.t(\"dashboard.overview\")}" }
-                p { class: "et-overview-copy", "{locale.t(\"teachers.classes.manage_description\")}" }
+                p { class: "et-overview-copy", "{locale.t(\"teacher.dashboard.overview_intro\")}" }
             }
 
             match &*stats.read() {
