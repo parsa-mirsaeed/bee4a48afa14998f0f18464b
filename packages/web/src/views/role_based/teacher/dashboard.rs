@@ -1,29 +1,31 @@
 use crate::application::AuthHooks;
-use crate::i18n::{use_locale, Locale};
+use crate::i18n::{
+    assignment_status_label as localized_status_label, format_product_date_text, use_locale, Locale,
+};
 use crate::ui::{DataState, DataStateKind};
 use crate::views::role_based::components::ResponsiveDashboardLayout;
 use api::server_functions::dashboard_functions::{
-    get_teacher_assignments, get_teacher_dashboard_stats,
+    get_teacher_assignments, get_teacher_dashboard_stats, TeacherAssignmentInfo,
 };
 use dioxus::prelude::*;
 
 use super::TeacherKnowledgeAssetsScoped;
 
-fn assignment_status_label(
-    assignment: &api::server_functions::dashboard_functions::TeacherAssignmentInfo,
-) -> String {
+fn assignment_presentation_label(assignment: &TeacherAssignmentInfo, locale: Locale) -> String {
+    let lifecycle = localized_status_label(&assignment.lifecycle_status.to_string(), locale);
     match assignment.progress_state {
         Some(progress_state) => format!(
             "{} · {}",
-            assignment.lifecycle_status,
-            progress_state.display_name()
+            lifecycle,
+            localized_status_label(progress_state.display_name(), locale)
         ),
-        None => assignment.lifecycle_status.to_string(),
+        None => lifecycle,
     }
 }
 
 #[component]
 pub fn TeacherDashboard(section: String) -> Element {
+    let locale = use_locale();
     let current_user = AuthHooks::use_current_user().ok().flatten();
     let nav = use_navigator();
 
@@ -60,8 +62,8 @@ pub fn TeacherDashboard(section: String) -> Element {
         rsx! {
             DataState {
                 kind: DataStateKind::Loading,
-                title: "Loading".to_string(),
-                description: "Checking your session and teacher workspace.".to_string(),
+                title: locale.t("common.loading"),
+                description: locale.t("session.checking"),
             }
         }
     }
@@ -72,53 +74,17 @@ pub fn TeacherOverviewSection(on_navigate: EventHandler<String>) -> Element {
     let locale = use_locale();
     let stats = use_resource(move || async move { get_teacher_dashboard_stats().await });
     let assignments = use_resource(move || async move { get_teacher_assignments().await });
-    let is_fa = locale.current() == Locale::Fa;
-    let intro = if is_fa {
-        "ابتدا موارد نیازمند توجه را ببینید و سپس مستقیماً به تکلیف‌ها، ارزیابی، کلاس‌ها یا منابع دانشی بروید."
-    } else {
-        "See what needs attention, then move directly into assignments, grading, classes, or governed knowledge."
-    };
-    let primary_actions = if is_fa {
-        "اقدام‌های اصلی"
-    } else {
-        "Primary actions"
-    };
-    let grading_description = if is_fa {
-        "کارهای ارسال‌شده را بررسی و بازخورد را ثبت کنید."
-    } else {
-        "Review submitted work and record feedback."
-    };
-    let assignments_description = if is_fa {
-        "تکلیف‌های کلاس را ایجاد و مدیریت کنید."
-    } else {
-        "Create and manage class assignments."
-    };
-    let knowledge_title = if is_fa {
-        "منابع دانشی"
-    } else {
-        "Knowledge assets"
-    };
-    let knowledge_description = if is_fa {
-        "منابع تأییدشده را برای تولید کنترل‌شده انتخاب کنید."
-    } else {
-        "Choose approved sources for governed generation."
-    };
-    let view_all = if is_fa {
-        "مشاهده همه"
-    } else {
-        "View all"
-    };
 
     rsx! {
         div { class: "et-page-stack",
             header { class: "et-overview-intro",
                 h2 { class: "et-overview-title", "{locale.t(\"dashboard.overview\")}" }
-                p { class: "et-overview-copy", "{intro}" }
+                p { class: "et-overview-copy", "{locale.t(\"teacher.dashboard.overview_intro\")}" }
             }
 
             match &*stats.read() {
-                None => rsx! { div { class: "et-state-panel", "Loading summary…" } },
-                Some(Err(_)) => rsx! { div { class: "et-state-panel et-state-panel--error", "Unable to load teacher summary." } },
+                None => rsx! { div { class: "et-state-panel", "{locale.t(\"common.loading\")}" } },
+                Some(Err(_)) => rsx! { div { class: "et-state-panel et-state-panel--error", "{locale.t(\"errors.generic_description\")}" } },
                 Some(Ok(value)) => rsx! {
                     div { class: "et-stat-grid",
                         TeacherStateBlock { label: locale.t("dashboard.pending_grading"), value: value.pending_grading.to_string() }
@@ -130,25 +96,25 @@ pub fn TeacherOverviewSection(on_navigate: EventHandler<String>) -> Element {
 
             section { class: "et-section",
                 div { class: "et-section-heading",
-                    h3 { class: "et-section-title", "{primary_actions}" }
+                    h3 { class: "et-section-title", "{locale.t(\"dashboard.quick_actions\")}" }
                 }
                 div { class: "grid grid-cols-1 md:grid-cols-3 gap-4",
                     TeacherAction {
                         icon: "grading".to_string(),
                         title: locale.t("nav.grading"),
-                        description: grading_description.to_string(),
+                        description: locale.t("teachers.quick_actions.grade_submissions_desc"),
                         on_click: move |_| on_navigate.call("submissions".to_string()),
                     }
                     TeacherAction {
                         icon: "assignment".to_string(),
                         title: locale.t("assignments.title"),
-                        description: assignments_description.to_string(),
+                        description: locale.t("teachers.quick_actions.create_assignment_desc"),
                         on_click: move |_| on_navigate.call("assignments".to_string()),
                     }
                     TeacherAction {
                         icon: "library_books".to_string(),
-                        title: knowledge_title.to_string(),
-                        description: knowledge_description.to_string(),
+                        title: locale.t("teacher.knowledge_assets.title"),
+                        description: locale.t("teacher.knowledge_assets.description"),
                         on_click: move |_| on_navigate.call("knowledge-assets".to_string()),
                     }
                 }
@@ -161,30 +127,49 @@ pub fn TeacherOverviewSection(on_navigate: EventHandler<String>) -> Element {
                         class: "et-inline-action",
                         r#type: "button",
                         onclick: move |_| on_navigate.call("assignments".to_string()),
-                        "{view_all}"
+                        "{locale.t(\"common.view_all\")}"
                     }
                 }
                 match &*assignments.read() {
-                    None => rsx! { div { class: "et-state-panel", "Loading assignments…" } },
-                    Some(Err(_)) => rsx! { div { class: "et-state-panel et-state-panel--error", "Unable to load assignments." } },
+                    None => rsx! { div { class: "et-state-panel", "{locale.t(\"common.loading\")}" } },
+                    Some(Err(_)) => rsx! { div { class: "et-state-panel et-state-panel--error", "{locale.t(\"errors.generic_description\")}" } },
                     Some(Ok(items)) if items.is_empty() => rsx! { div { class: "et-state-panel", "{locale.t(\"teachers.dashboard.no_assignments_created\")}" } },
                     Some(Ok(items)) => rsx! {
                         div { class: "et-panel",
                             for assignment in items.iter().take(5) {
-                                div { key: "{assignment.id}", class: "et-list-row",
-                                    div { class: "et-list-primary",
-                                        h4 { class: "et-list-title", "{assignment.title}" }
-                                        p { class: "et-list-meta", "{assignment.class_name} · {assignment.submitted_count}/{assignment.total_count} submitted" }
-                                    }
-                                    div { class: "et-list-aside",
-                                        p { "{assignment_status_label(assignment)}" }
-                                        p { class: "mt-1", "{assignment.due_date}" }
-                                    }
+                                TeacherAssignmentOverviewRow {
+                                    key: "{assignment.id}",
+                                    assignment: assignment.clone(),
                                 }
                             }
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+#[component]
+fn TeacherAssignmentOverviewRow(assignment: TeacherAssignmentInfo) -> Element {
+    let locale = use_locale();
+    let submitted_label = locale.t("teachers.students.submitted_label");
+    let metadata = format!(
+        "{} · {}/{} {}",
+        assignment.class_name, assignment.submitted_count, assignment.total_count, submitted_label
+    );
+    let status_label = assignment_presentation_label(&assignment, locale.current());
+    let due_date = format_product_date_text(&assignment.due_date, locale.current());
+
+    rsx! {
+        div { class: "et-list-row",
+            div { class: "et-list-primary",
+                h4 { class: "et-list-title", "{assignment.title}" }
+                p { class: "et-list-meta", "{metadata}" }
+            }
+            div { class: "et-list-aside",
+                p { "{status_label}" }
+                p { class: "mt-1", "{due_date}" }
             }
         }
     }

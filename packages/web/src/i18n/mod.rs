@@ -7,16 +7,20 @@
 //! - Type-safe translation keys
 
 mod assignment_status;
+mod date_presentation;
 pub mod grading;
 pub mod locale;
 pub mod provider;
+mod teacher_dashboard_translations;
 pub mod translations;
 mod ui_translations;
 
 pub use assignment_status::assignment_status_label;
+pub use date_presentation::{format_product_date, format_product_date_text};
 pub use grading::*;
 pub use locale::*;
 pub use provider::*;
+pub(crate) use teacher_dashboard_translations::teacher_dashboard_translation;
 pub use translations::*;
 pub use ui_translations::role_label;
 pub(crate) use ui_translations::supplemental_translation;
