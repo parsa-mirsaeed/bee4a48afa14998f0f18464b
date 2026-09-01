@@ -227,14 +227,20 @@ mod tests {
         for key in DEDICATED_KEYS {
             for locale in [Locale::En, Locale::Fa] {
                 let translated = teacher_assignments_translation(key, locale);
-                assert!(translated.is_some(), "missing {locale:?} translation for {key}");
+                assert!(
+                    translated.is_some(),
+                    "missing {locale:?} translation for {key}"
+                );
                 assert_ne!(translated, Some(*key), "raw key fallback for {key}");
             }
         }
         for key in EXISTING_KEYS {
             for locale in [Locale::En, Locale::Fa] {
                 let translated = supplemental_translation(key, locale);
-                assert!(translated.is_some(), "missing {locale:?} translation for {key}");
+                assert!(
+                    translated.is_some(),
+                    "missing {locale:?} translation for {key}"
+                );
                 assert_ne!(translated, Some(*key), "raw key fallback for {key}");
             }
         }
@@ -242,16 +248,12 @@ mod tests {
 
     #[test]
     fn no_student_publish_guidance_remains_actionable_in_both_locales() {
-        let english = teacher_assignments_translation(
-            "teacher.assignments.no_eligible_students",
-            Locale::En,
-        )
-        .unwrap();
-        let persian = teacher_assignments_translation(
-            "teacher.assignments.no_eligible_students",
-            Locale::Fa,
-        )
-        .unwrap();
+        let english =
+            teacher_assignments_translation("teacher.assignments.no_eligible_students", Locale::En)
+                .unwrap();
+        let persian =
+            teacher_assignments_translation("teacher.assignments.no_eligible_students", Locale::Fa)
+                .unwrap();
         assert!(english.contains("School Manager"));
         assert!(english.contains("active enrolled students"));
         assert!(persian.contains("مدیر مدرسه"));
