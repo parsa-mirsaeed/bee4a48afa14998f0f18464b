@@ -7,6 +7,7 @@
 //! - Type-safe translation keys
 
 mod assignment_status;
+mod date_presentation;
 pub mod grading;
 pub mod locale;
 pub mod provider;
@@ -14,6 +15,7 @@ pub mod translations;
 mod ui_translations;
 
 pub use assignment_status::assignment_status_label;
+pub use date_presentation::format_product_date;
 pub use grading::*;
 pub use locale::*;
 pub use provider::*;
