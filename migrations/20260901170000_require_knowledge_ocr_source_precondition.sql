@@ -54,7 +54,7 @@ BEGIN
            OR expected_source_id <> current_source_id::text
            OR expected_source_sha256 <> current_source_sha256 THEN
             RAISE EXCEPTION 'Verified OCR source revision is missing or stale; refresh and review the current source'
-                USING ERRCODE = '40001';
+                USING ERRCODE = '23514';
         END IF;
     END IF;
 
