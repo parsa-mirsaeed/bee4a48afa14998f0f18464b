@@ -163,7 +163,10 @@ async fn verified_ocr_cannot_revive_terminal_assets() {
         governed_sources.push((asset_id, source_id, source_bytes));
     }
 
-    let mut review_tx = pool.begin().await.expect("begin source review fixture transaction");
+    let mut review_tx = pool
+        .begin()
+        .await
+        .expect("begin source review fixture transaction");
     sqlx::query("SELECT set_config('app.user_id', $1, true)")
         .bind(actor_id.to_string())
         .execute(&mut *review_tx)
@@ -179,15 +182,13 @@ async fn verified_ocr_cannot_revive_terminal_assets() {
         .await
         .expect("set review school context");
     for (asset_id, source_id, source_bytes) in &governed_sources {
-        sqlx::query_scalar::<_, Uuid>(
-            "SELECT record_knowledge_source_review($1, $2, $3)",
-        )
-        .bind(asset_id)
-        .bind(source_id)
-        .bind(source_bytes)
-        .fetch_one(&mut *review_tx)
-        .await
-        .expect("record trusted source review evidence");
+        sqlx::query_scalar::<_, Uuid>("SELECT record_knowledge_source_review($1, $2, $3)")
+            .bind(asset_id)
+            .bind(source_id)
+            .bind(source_bytes)
+            .fetch_one(&mut *review_tx)
+            .await
+            .expect("record trusted source review evidence");
     }
     review_tx
         .commit()
