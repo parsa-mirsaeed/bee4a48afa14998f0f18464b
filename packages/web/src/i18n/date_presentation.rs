@@ -1,5 +1,5 @@
 use super::Locale;
-use chrono::{DateTime, Datelike, NaiveDate, Utc};
+use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, Timelike, Utc};
 
 /// Format a persisted UTC instant as product date chrome.
 ///
@@ -23,6 +23,53 @@ pub fn format_product_date_text(value: &str, locale: Locale) -> String {
         return format_date_parts(parsed.year(), parsed.month(), parsed.day(), locale);
     }
     value.to_string()
+}
+
+/// Format date-time text from a legacy API boundary as product chrome.
+///
+/// Teacher submission rows currently receive `%Y-%m-%d %H:%M` strings. Keep
+/// that protocol detail out of the UI while also accepting RFC 3339 so the
+/// server can move to a structured timestamp without another presentation
+/// rewrite.
+pub fn format_product_datetime_text(value: &str, locale: Locale) -> String {
+    if let Ok(parsed) = DateTime::parse_from_rfc3339(value) {
+        let parsed = parsed.with_timezone(&Utc);
+        return format_datetime_parts(
+            parsed.year(),
+            parsed.month(),
+            parsed.day(),
+            parsed.hour(),
+            parsed.minute(),
+            locale,
+        );
+    }
+    if let Ok(parsed) = NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M") {
+        return format_datetime_parts(
+            parsed.year(),
+            parsed.month(),
+            parsed.day(),
+            parsed.hour(),
+            parsed.minute(),
+            locale,
+        );
+    }
+    value.to_string()
+}
+
+fn format_datetime_parts(
+    year: i32,
+    month: u32,
+    day: u32,
+    hour: u32,
+    minute: u32,
+    locale: Locale,
+) -> String {
+    let date = format_date_parts(year, month, day, locale);
+    let time = format!("{hour:02}:{minute:02}");
+    match locale {
+        Locale::En => format!("{date} · {time}"),
+        Locale::Fa => format!("{date} · {}", to_persian_digits(&time)),
+    }
 }
 
 fn format_date_parts(year: i32, month: u32, day: u32, locale: Locale) -> String {
@@ -105,6 +152,26 @@ mod tests {
         assert_eq!(
             format_product_date_text("2026-09-10T13:45:00Z", Locale::Fa),
             "۱۰ سپتامبر ۲۰۲۶"
+        );
+    }
+
+    #[test]
+    fn legacy_submission_datetime_is_localized_without_protocol_chrome() {
+        assert_eq!(
+            format_product_datetime_text("2026-09-10 13:45", Locale::En),
+            "Sep 10, 2026 · 13:45"
+        );
+        assert_eq!(
+            format_product_datetime_text("2026-09-10 13:45", Locale::Fa),
+            "۱۰ سپتامبر ۲۰۲۶ · ۱۳:۴۵"
+        );
+    }
+
+    #[test]
+    fn rfc3339_submission_datetime_is_ready_for_structured_api_migration() {
+        assert_eq!(
+            format_product_datetime_text("2026-09-10T13:45:00Z", Locale::Fa),
+            "۱۰ سپتامبر ۲۰۲۶ · ۱۳:۴۵"
         );
     }
 }
