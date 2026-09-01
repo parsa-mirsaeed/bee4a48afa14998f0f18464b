@@ -482,12 +482,9 @@ mod tests {
     use crate::services::llm_service::{
         BaseAssignment, ExternalLlmClient, LlmConfig, PerformanceMetrics, StudentContext,
     };
-    use std::ffi::OsString;
     use std::io::{Read, Write};
     use std::net::TcpListener;
     use std::thread;
-
-    static MOCK_GATEWAY_ENV_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
     #[derive(Clone, Copy)]
     enum MockGatewayFault {
@@ -543,40 +540,31 @@ mod tests {
         format!("http://{address}")
     }
 
-    fn restore_env(name: &str, previous: Option<OsString>) {
-        match previous {
-            Some(value) => std::env::set_var(name, value),
-            None => std::env::remove_var(name),
-        }
-    }
-
     fn client_through_local_mock_proxy(
         proxy_origin: &str,
         request_timeout: Duration,
     ) -> ExternalLlmClient {
-        let names = ["HTTP_PROXY", "http_proxy", "NO_PROXY", "no_proxy"];
-        let previous = names.map(|name| std::env::var_os(name));
-        std::env::set_var("HTTP_PROXY", proxy_origin);
-        std::env::set_var("http_proxy", proxy_origin);
-        std::env::set_var("NO_PROXY", "");
-        std::env::set_var("no_proxy", "");
+        let client = reqwest::Client::builder()
+            .timeout(request_timeout)
+            .no_proxy()
+            .proxy(reqwest::Proxy::all(proxy_origin).expect("valid local mock proxy"))
+            .build()
+            .expect("build fixed-origin LLM client through local mock proxy");
 
-        let client = ExternalLlmClient::with_config(LlmConfig {
-            api_key: "abcdefghijklmnopqrstuvwxyz123456".to_string(),
-            base_url: "http://ai-gateway:8090".to_string(),
-            model: "deepseek-chat".to_string(),
-            max_tokens: 1_024,
-            temperature: 0.2,
-            request_timeout,
-            default_school_id: None,
-            max_prompt_chars: 20_000,
-        })
-        .expect("construct fixed-origin LLM client through local mock proxy");
-
-        for (name, value) in names.into_iter().zip(previous) {
-            restore_env(name, value);
-        }
-        client
+        ExternalLlmClient::with_config_and_client(
+            LlmConfig {
+                api_key: "abcdefghijklmnopqrstuvwxyz123456".to_string(),
+                base_url: "http://ai-gateway:8090".to_string(),
+                model: "deepseek-chat".to_string(),
+                max_tokens: 1_024,
+                temperature: 0.2,
+                request_timeout,
+                default_school_id: None,
+                max_prompt_chars: 20_000,
+            },
+            client,
+        )
+        .expect("construct fixed-origin LLM client through injected local mock proxy")
     }
 
     fn base_assignment() -> BaseAssignment {
@@ -653,8 +641,6 @@ mod tests {
 
     #[tokio::test]
     async fn local_mock_gateway_faults_drive_worker_retry_policy() {
-        let _env_guard = MOCK_GATEWAY_ENV_LOCK.lock().await;
-
         let timeout =
             mock_gateway_error(MockGatewayFault::Timeout, Duration::from_millis(40)).await;
         assert!(matches!(timeout, LlmError::RequestFailed(_)));
@@ -702,6 +688,19 @@ mod tests {
                 kind: PersonalizationFailureKind::GatewayUnavailable,
                 retry_after_seconds: 10,
             }
+        );
+    }
+
+    #[test]
+    fn mock_gateway_client_does_not_mutate_proxy_environment() {
+        let names = ["HTTP_PROXY", "http_proxy", "NO_PROXY", "no_proxy"];
+        let before = names.map(std::env::var_os);
+        let proxy_origin = spawn_mock_gateway(MockGatewayFault::Outage);
+        let _client = client_through_local_mock_proxy(&proxy_origin, Duration::from_secs(1));
+        let after = names.map(std::env::var_os);
+        assert_eq!(
+            before, after,
+            "test client must not modify process proxy environment"
         );
     }
 
