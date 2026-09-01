@@ -86,6 +86,49 @@ INSERT INTO knowledge_assets (id, school_id, title, status, created_by, publishe
   ('f3000000-0000-0000-0000-0000000000b1', 'a0000000-0000-0000-0000-0000000000b1', 'E2E School B Asset', 'published', 'b0000000-0000-0000-0000-0000000000b1', NOW())
 ON CONFLICT (id) DO NOTHING;
 
+-- This source has valid governed metadata and historical review provenance, but
+-- the Auth-only browser fixture intentionally does not provide Supabase Storage.
+-- The UI must therefore keep a failed source-open inside bounded EduTalent UX.
+INSERT INTO knowledge_source_files (
+  id, asset_id, original_file_url, original_filename, mime_type,
+  file_size_bytes, sha256, is_scanned_pdf
+) VALUES (
+  'f4000000-0000-0000-0000-0000000000a2',
+  'f3000000-0000-0000-0000-0000000000a2',
+  'storage://edutalent-knowledge-sources/a0000000-0000-0000-0000-0000000000a1/f4000000-0000-0000-0000-0000000000a2.pdf',
+  'e2e-reviewed-source.pdf',
+  'application/pdf',
+  128,
+  repeat('b', 64),
+  FALSE
+)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO knowledge_audit_logs (
+  actor_id, actor_role, action, target_type, target_id, school_id, details_json
+)
+SELECT
+  'b0000000-0000-0000-0000-0000000000a0',
+  'PlatformAdmin',
+  'knowledge_asset.source_reviewed',
+  'knowledge_asset',
+  'f3000000-0000-0000-0000-0000000000a2',
+  'a0000000-0000-0000-0000-0000000000a1',
+  jsonb_build_object(
+    'delivery', 'inline_pdf',
+    'byte_count', 128,
+    'source_file_id', 'f4000000-0000-0000-0000-0000000000a2'::uuid,
+    'source_sha256', repeat('b', 64)
+  )
+WHERE NOT EXISTS (
+  SELECT 1
+  FROM knowledge_audit_logs
+  WHERE action = 'knowledge_asset.source_reviewed'
+    AND target_id = 'f3000000-0000-0000-0000-0000000000a2'
+    AND actor_id = 'b0000000-0000-0000-0000-0000000000a0'
+    AND details_json ->> 'source_file_id' = 'f4000000-0000-0000-0000-0000000000a2'
+);
+
 INSERT INTO knowledge_ocr_texts (asset_id, raw_text, clean_text, ocr_provider, ocr_verified_by, text_sha256) VALUES
   ('f3000000-0000-0000-0000-0000000000a2', 'E2E preverified OCR text', 'E2E preverified OCR text', 'e2e-manual-review', 'b0000000-0000-0000-0000-0000000000a0', repeat('a', 64))
 ON CONFLICT (asset_id) DO NOTHING;
