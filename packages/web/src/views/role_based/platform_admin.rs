@@ -1,13 +1,15 @@
 use crate::application::AuthHooks;
 use crate::ui::{ConfirmDialog, Dialog};
 use crate::views::role_based::components::{DashboardSection, ResponsiveDashboardLayout};
+use api::server_functions::admin_knowledge_ocr_functions::{
+    get_admin_knowledge_source_revision, save_admin_verified_ocr, SaveAdminVerifiedOcrRequest,
+};
 use api::server_functions::admin_knowledge_review_functions::{
     get_admin_verified_ocr, list_admin_knowledge_assets_for_review, AdminKnowledgeReviewAssetDto,
 };
 use api::server_functions::knowledge_audit_functions::list_admin_knowledge_audit;
 use api::server_functions::knowledge_functions::{
-    archive_admin_knowledge_asset, attach_admin_ocr_text, embed_admin_knowledge_asset,
-    publish_admin_knowledge_asset, AttachOcrTextRequest,
+    archive_admin_knowledge_asset, embed_admin_knowledge_asset, publish_admin_knowledge_asset,
 };
 use dioxus::prelude::*;
 
@@ -21,6 +23,7 @@ struct OcrEditorState {
     verified_at: Option<String>,
     verified_by: Option<String>,
     text_sha256: Option<String>,
+    source_file_id: Option<String>,
     source_sha256: Option<String>,
     loading: bool,
     error: Option<String>,
@@ -37,6 +40,7 @@ impl OcrEditorState {
             verified_at: None,
             verified_by: None,
             text_sha256: None,
+            source_file_id: None,
             source_sha256: None,
             loading: true,
             error: None,
@@ -171,6 +175,7 @@ fn open_ocr_editor(
     ocr_text.set(String::new());
     provider.set("manual-verified".to_string());
     spawn(async move {
+        let source = get_admin_knowledge_source_revision(asset_id.clone()).await;
         let loaded = get_admin_verified_ocr(asset_id.clone()).await;
         let Some(current) = selected_ocr_asset() else {
             return;
@@ -178,6 +183,20 @@ fn open_ocr_editor(
         if current.asset_id != asset_id {
             return;
         }
+        let source = match source {
+            Ok(source) if source.asset_id == asset_id => source,
+            _ => {
+                selected_ocr_asset.set(Some(OcrEditorState {
+                    loading: false,
+                    error: Some(
+                        "The current governed source revision could not be loaded. Refresh and review the source again."
+                            .to_string(),
+                    ),
+                    ..current
+                }));
+                return;
+            }
+        };
         match loaded {
             Ok(Some(ocr)) => {
                 ocr_text.set(ocr.raw_text.clone());
@@ -191,17 +210,22 @@ fn open_ocr_editor(
                     verified_at: Some(ocr.verified_at),
                     verified_by: Some(ocr.verified_by),
                     text_sha256: ocr.text_sha256,
-                    source_sha256: ocr.source_sha256,
+                    source_file_id: Some(source.source_file_id),
+                    source_sha256: Some(source.source_sha256),
                     loading: false,
                     error: None,
                 }));
             }
             Ok(None) => selected_ocr_asset.set(Some(OcrEditorState {
                 original_provider: "manual-verified".to_string(),
+                source_file_id: Some(source.source_file_id),
+                source_sha256: Some(source.source_sha256),
                 loading: false,
                 ..current
             })),
             Err(_) => selected_ocr_asset.set(Some(OcrEditorState {
+                source_file_id: Some(source.source_file_id),
+                source_sha256: Some(source.source_sha256),
                 loading: false,
                 error: Some(
                     "The current verified OCR could not be loaded. Refresh and try again."
@@ -263,16 +287,38 @@ fn OcrEditorDialog(
         if ocr_text().trim().is_empty() || provider().trim().is_empty() {
             return;
         }
+        let Some(expected_source_file_id) = editor_for_submit.source_file_id.clone() else {
+            selected_ocr_asset.set(Some(OcrEditorState {
+                error: Some(
+                    "The governed source revision is unavailable. Refresh and review the source again."
+                        .to_string(),
+                ),
+                ..editor_for_submit.clone()
+            }));
+            return;
+        };
+        let Some(expected_source_sha256) = editor_for_submit.source_sha256.clone() else {
+            selected_ocr_asset.set(Some(OcrEditorState {
+                error: Some(
+                    "The governed source revision is unavailable. Refresh and review the source again."
+                        .to_string(),
+                ),
+                ..editor_for_submit.clone()
+            }));
+            return;
+        };
         busy.set(true);
-        let request = AttachOcrTextRequest {
+        let request = SaveAdminVerifiedOcrRequest {
             asset_id: editor_for_submit.asset_id.clone(),
             raw_text: ocr_text(),
             ocr_provider: provider().trim().to_string(),
+            expected_source_file_id,
+            expected_source_sha256,
             expected_revision: editor_for_submit.revision.clone(),
         };
         let editor_after_failure = editor_for_submit.clone();
         spawn(async move {
-            match attach_admin_ocr_text(request).await {
+            match save_admin_verified_ocr(request).await {
                 Ok(_) => {
                     selected_ocr_asset.set(None);
                     ocr_text.set(String::new());
@@ -280,7 +326,7 @@ fn OcrEditorDialog(
                     assets.restart();
                 }
                 Err(_) => selected_ocr_asset.set(Some(OcrEditorState {
-                    error: Some("OCR verification could not be saved because the record changed or is no longer eligible. Refresh and review it again.".to_string()),
+                    error: Some("OCR verification could not be saved because the source or OCR revision changed, the current source has not been reviewed, or the asset is no longer eligible. Refresh and review it again.".to_string()),
                     ..editor_after_failure
                 })),
             }
@@ -307,7 +353,15 @@ fn OcrEditorDialog(
                     p { class: "rounded-lg bg-blue-50 px-3 py-2 text-sm text-blue-800", role: "status", "Loading the current verified OCR…" }
                 } else {
                     if let Some(error) = editor.error.as_ref() {
-                    p { class: "rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800", role: "alert", "{error}" }
+                        p { class: "rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800", role: "alert", "{error}" }
+                    }
+                    if let Some(source_file_id) = editor.source_file_id.as_ref() {
+                        div { class: "rounded-lg bg-gray-50 p-3 text-xs text-gray-600 dark:bg-gray-900/40 dark:text-gray-300",
+                            p { "Governed source revision: {source_file_id}" }
+                            if let Some(source_sha256) = editor.source_sha256.as_ref() {
+                                p { "Source hash: {source_sha256}" }
+                            }
+                        }
                     }
                     if let Some(revision) = editor.revision.as_ref() {
                         div { class: "rounded-lg bg-gray-50 p-3 text-xs text-gray-600 dark:bg-gray-900/40 dark:text-gray-300",
@@ -317,9 +371,6 @@ fn OcrEditorDialog(
                             }
                             if let Some(verified_by) = editor.verified_by.as_ref() {
                                 p { "Verified by: {verified_by}" }
-                            }
-                            if let Some(source_sha256) = editor.source_sha256.as_ref() {
-                                p { "Source hash: {source_sha256}" }
                             }
                             if let Some(text_sha256) = editor.text_sha256.as_ref() {
                                 p { "Text hash: {text_sha256}" }
@@ -477,9 +528,9 @@ fn render_archive_confirmation(
                     match archive_admin_knowledge_asset(archived_asset_id.clone()).await {
                         Ok(_) => {
                             archive_confirmation.set(None);
-                                            if selected_ocr_asset()
-                                                .as_ref()
-                                                .is_some_and(|selected| selected.asset_id == archived_asset_id)
+                            if selected_ocr_asset()
+                                .as_ref()
+                                .is_some_and(|selected| selected.asset_id == archived_asset_id)
                             {
                                 selected_ocr_asset.set(None);
                                 ocr_text.set(String::new());
@@ -553,7 +604,7 @@ fn render_review_card(
                         target: "_blank",
                         rel: "noopener noreferrer",
                         "Review private PDF",
-                        span { class: "material-icons-outlined text-base", "open_in_new" }
+                        span { class: "material-icons-outlined text-base", aria_hidden: "true", "open_in_new" }
                     }
                 } else {
                     p { class: "mt-2 text-xs text-amber-700 dark:text-amber-300", "Private source review is unavailable for this legacy submission." }

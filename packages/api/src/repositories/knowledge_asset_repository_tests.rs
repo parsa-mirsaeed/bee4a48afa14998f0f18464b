@@ -69,6 +69,7 @@ fn only_review_stage_assets_accept_verified_ocr() {
 #[tokio::test]
 async fn verified_ocr_cannot_revive_terminal_assets() {
     use crate::rls_context::{AuthorizedActor, AuthorizedTx};
+    use sha2::{Digest, Sha256};
     use sqlx::postgres::PgPoolOptions;
     use uuid::Uuid;
 
@@ -132,6 +133,79 @@ async fn verified_ocr_cannot_revive_terminal_assets() {
         .await
         .expect("insert knowledge asset");
     }
+
+    // Review-stage fixtures must follow the real governed pipeline: immutable
+    // source revision -> protected byte review -> verified OCR. Do not fabricate
+    // audit evidence or let OCR establish source provenance itself.
+    let mut governed_sources = Vec::new();
+    for asset_id in [submitted_asset, ocr_ready_asset, failed_asset] {
+        let source_id = Uuid::new_v4();
+        let source_bytes = format!("%PDF-lifecycle-fixture-{asset_id}").into_bytes();
+        let source_sha = format!("{:x}", Sha256::digest(&source_bytes));
+        sqlx::query(
+            r#"
+            INSERT INTO knowledge_source_files (
+                id, asset_id, original_file_url, original_filename, mime_type,
+                file_size_bytes, sha256, is_scanned_pdf
+            ) VALUES ($1, $2, $3, 'fixture.pdf', 'application/pdf', $4, $5, FALSE)
+            "#,
+        )
+        .bind(source_id)
+        .bind(asset_id)
+        .bind(format!(
+            "storage://edutalent-knowledge-sources/{school_id}/{source_id}.pdf"
+        ))
+        .bind(i64::try_from(source_bytes.len()).expect("fixture size fits i64"))
+        .bind(&source_sha)
+        .execute(&pool)
+        .await
+        .expect("insert governed source revision");
+        governed_sources.push((asset_id, source_id, source_sha, source_bytes));
+    }
+
+    let mut review_tx = pool
+        .begin()
+        .await
+        .expect("begin source review fixture transaction");
+    sqlx::query("SELECT set_config('app.user_id', $1, true)")
+        .bind(actor_id.to_string())
+        .execute(&mut *review_tx)
+        .await
+        .expect("set review actor context");
+    sqlx::query("SELECT set_config('app.user_role', 'PlatformAdmin', true)")
+        .execute(&mut *review_tx)
+        .await
+        .expect("set review role context");
+    sqlx::query("SELECT set_config('app.school_id', $1, true)")
+        .bind(school_id.to_string())
+        .execute(&mut *review_tx)
+        .await
+        .expect("set review school context");
+    for (asset_id, source_id, _source_sha, source_bytes) in &governed_sources {
+        sqlx::query_scalar::<_, Uuid>("SELECT record_knowledge_source_review($1, $2, $3)")
+            .bind(asset_id)
+            .bind(source_id)
+            .bind(source_bytes)
+            .fetch_one(&mut *review_tx)
+            .await
+            .expect("record trusted source review evidence");
+    }
+    review_tx
+        .commit()
+        .await
+        .expect("commit source review fixture transaction");
+
+    let source_binding = |target_asset: Uuid| {
+        governed_sources
+            .iter()
+            .find(|(asset_id, _, _, _)| *asset_id == target_asset)
+            .map(|(_, source_id, source_sha, _)| (*source_id, source_sha.clone()))
+            .expect("governed source binding")
+    };
+    let (submitted_source_id, submitted_source_sha) = source_binding(submitted_asset);
+    let (ocr_ready_source_id, ocr_ready_source_sha) = source_binding(ocr_ready_asset);
+    let (failed_source_id, failed_source_sha) = source_binding(failed_asset);
+
     sqlx::query(
         "INSERT INTO knowledge_ocr_texts (asset_id, raw_text, clean_text, ocr_provider, ocr_verified_by, text_sha256) VALUES ($1, 'old text', 'old text', 'manual', $2, $3)",
     )
@@ -151,13 +225,15 @@ async fn verified_ocr_cannot_revive_terminal_assets() {
             async {
                 let repository = KnowledgeAssetRepository::new(());
                 repository
-                    .attach_verified_ocr(
+                    .attach_verified_ocr_for_source(
                         submitted_asset,
                         "verified source",
                         "verified source",
                         "manual",
                         actor_id,
                         &verified_hash,
+                        submitted_source_id,
+                        &submitted_source_sha,
                         None,
                     )
                     .await
@@ -170,25 +246,29 @@ async fn verified_ocr_cannot_revive_terminal_assets() {
                 .await
                 .expect("read the current OCR revision");
                 repository
-                    .attach_verified_ocr(
+                    .attach_verified_ocr_for_source(
                         ocr_ready_asset,
                         "corrected text",
                         "corrected text",
                         "manual",
                         actor_id,
                         &verified_hash,
+                        ocr_ready_source_id,
+                        &ocr_ready_source_sha,
                         Some(existing_revision),
                     )
                     .await
                     .expect("OCR-ready asset accepts a governed correction");
                 repository
-                    .attach_verified_ocr(
+                    .attach_verified_ocr_for_source(
                         failed_asset,
                         "recovered text",
                         "recovered text",
                         "manual",
                         actor_id,
                         &verified_hash,
+                        failed_source_id,
+                        &failed_source_sha,
                         None,
                     )
                     .await
@@ -235,13 +315,15 @@ async fn verified_ocr_cannot_revive_terminal_assets() {
         .scope(
             async {
                 KnowledgeAssetRepository::new(())
-                    .attach_verified_ocr(
+                    .attach_verified_ocr_for_source(
                         ocr_ready_asset,
                         "stale text",
                         "stale text",
                         "manual",
                         actor_id,
                         &rejected_hash,
+                        ocr_ready_source_id,
+                        &ocr_ready_source_sha,
                         Some(Uuid::new_v4()),
                     )
                     .await
@@ -250,6 +332,32 @@ async fn verified_ocr_cannot_revive_terminal_assets() {
         )
         .await
         .expect("finish stale OCR revision transaction");
+    assert!(matches!(outcome, Err(RepositoryError::Validation(_))));
+
+    let transaction = AuthorizedTx::begin(&pool, actor.clone())
+        .await
+        .expect("begin stale source revision transaction");
+    let outcome = transaction
+        .scope(
+            async {
+                KnowledgeAssetRepository::new(())
+                    .attach_verified_ocr_for_source(
+                        ocr_ready_asset,
+                        "stale source text",
+                        "stale source text",
+                        "manual",
+                        actor_id,
+                        &rejected_hash,
+                        Uuid::new_v4(),
+                        &ocr_ready_source_sha,
+                        None,
+                    )
+                    .await
+            },
+            |result| result.is_ok(),
+        )
+        .await
+        .expect("finish stale source revision transaction");
     assert!(matches!(outcome, Err(RepositoryError::Validation(_))));
 
     let transaction = AuthorizedTx::begin(&pool, actor)

@@ -243,6 +243,24 @@ impl ExternalLlmClient {
     }
 
     pub fn with_config(config: LlmConfig) -> Result<Self, LlmError> {
+        Self::validate_config(&config)?;
+        let client = reqwest::Client::builder()
+            .timeout(config.request_timeout)
+            .redirect(RedirectPolicy::none())
+            .build()?;
+        Ok(Self { client, config })
+    }
+
+    #[cfg(test)]
+    pub fn with_config_and_client(
+        config: LlmConfig,
+        client: reqwest::Client,
+    ) -> Result<Self, LlmError> {
+        Self::validate_config(&config)?;
+        Ok(Self { client, config })
+    }
+
+    fn validate_config(config: &LlmConfig) -> Result<(), LlmError> {
         validate_internal_gateway_url(&config.base_url)?;
         if config.model != APPROVED_LLM_MODEL {
             return Err(LlmError::InvalidResponse(format!(
@@ -252,22 +270,7 @@ impl ExternalLlmClient {
         if config.api_key.len() < 32 || looks_like_placeholder(&config.api_key) {
             return Err(LlmError::MissingApiKey);
         }
-        let client_builder = reqwest::Client::builder()
-            .timeout(config.request_timeout)
-            .redirect(RedirectPolicy::none());
-        #[cfg(test)]
-        let client_builder = match env::var("HTTP_PROXY")
-            .or_else(|_| env::var("http_proxy"))
-            .ok()
-            .filter(|value| !value.trim().is_empty())
-        {
-            Some(proxy_url) => client_builder
-                .no_proxy()
-                .proxy(reqwest::Proxy::all(&proxy_url)?),
-            None => client_builder,
-        };
-        let client = client_builder.build()?;
-        Ok(Self { client, config })
+        Ok(())
     }
 
     pub async fn personalize_assignment(
