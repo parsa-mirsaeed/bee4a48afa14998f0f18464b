@@ -1,6 +1,8 @@
 //! Teacher assignment workflow with truthful publish preconditions.
 
-use crate::i18n::{assignment_status_label, use_locale, Locale};
+use crate::i18n::{
+    assignment_status_label, format_product_date, format_product_date_text, use_locale, Locale,
+};
 use crate::views::role_based::components::DashboardSection;
 use crate::views::role_based::shared::common::Modal;
 use api::domain::AssignmentStatus;
@@ -41,19 +43,16 @@ pub fn AssignmentsList() -> Element {
     let locale = use_locale();
 
     let confirm_delete = move |assignment_id: String| {
+        let deleted_notice = locale.t("teacher.assignments.deleted_notice");
+        let delete_failed = locale.t("teacher.assignments.delete_failed");
         spawn(async move {
             match delete_assignment(assignment_id).await {
                 Ok(_) => {
-                    notice.set(Some((true, "Assignment deleted.".to_string())));
+                    notice.set(Some((true, deleted_notice)));
                     pending_delete.set(None);
                     resource.restart();
                 }
-                Err(_) => {
-                    notice.set(Some((
-                        false,
-                        "The assignment could not be deleted. Refresh and try again.".to_string(),
-                    )));
-                }
+                Err(_) => notice.set(Some((false, delete_failed))),
             }
         });
     };
@@ -82,7 +81,7 @@ pub fn AssignmentsList() -> Element {
                 button {
                     class: "btn-primary flex min-h-[44px] items-center justify-center gap-2",
                     onclick: move |_| show_create.set(true),
-                    span { class: "material-icons-outlined", "add" }
+                    span { class: "material-icons-outlined", "aria-hidden": "true", "add" }
                     "{locale.t(\"teacher.assignments.create\")}"
                 }
             }
@@ -95,8 +94,8 @@ pub fn AssignmentsList() -> Element {
                 },
                 Some(Err(_)) => rsx! {
                     div { class: "et-state-panel et-state-panel--error",
-                        p { "Assignments could not be loaded." }
-                        button { class: "et-inline-action mt-3", onclick: move |_| resource.restart(), "Try again" }
+                        p { "{locale.t(\"teacher.assignments.load_error\")}" }
+                        button { class: "et-inline-action mt-3", onclick: move |_| resource.restart(), "{locale.t(\"teacher.assignments.try_again\")}" }
                     }
                 },
                 Some(Ok(items)) => {
@@ -109,16 +108,16 @@ pub fn AssignmentsList() -> Element {
                     if items.is_empty() {
                         rsx! {
                             div { class: "et-state-panel",
-                                h3 { class: "font-semibold text-gray-900 dark:text-white", "No assignments yet" }
-                                p { class: "mt-1", "Create a draft for one of your assigned classes." }
-                                button { class: "et-inline-action mt-3", onclick: move |_| show_create.set(true), "Create assignment" }
+                                h3 { class: "font-semibold text-gray-900 dark:text-white", "{locale.t(\"teacher.assignments.empty_title\")}" }
+                                p { class: "mt-1", "{locale.t(\"teacher.assignments.empty_description\")}" }
+                                button { class: "et-inline-action mt-3", onclick: move |_| show_create.set(true), "{locale.t(\"teacher.assignments.create\")}" }
                             }
                         }
                     } else if filtered.is_empty() {
                         rsx! {
                             div { class: "et-state-panel",
-                                p { "No assignments match this filter." }
-                                button { class: "et-inline-action mt-3", onclick: move |_| filter.set("all".to_string()), "Clear filter" }
+                                p { "{locale.t(\"teacher.assignments.no_filter_matches\")}" }
+                                button { class: "et-inline-action mt-3", onclick: move |_| filter.set("all".to_string()), "{locale.t(\"teacher.assignments.clear_filter\")}" }
                             }
                         }
                     } else {
@@ -142,7 +141,7 @@ pub fn AssignmentsList() -> Element {
                     on_close: move |_| show_create.set(false),
                     on_created: move |_| {
                         show_create.set(false);
-                        notice.set(Some((true, "Draft assignment created.".to_string())));
+                        notice.set(Some((true, locale.t("teacher.assignments.draft_created_notice"))));
                         resource.restart();
                     }
                 }
@@ -154,7 +153,7 @@ pub fn AssignmentsList() -> Element {
                     on_close: move |_| selected.set(None),
                     on_published: move |_| {
                         selected.set(None);
-                        notice.set(Some((true, "Assignment published.".to_string())));
+                        notice.set(Some((true, locale.t("teacher.assignments.published_notice"))));
                         resource.restart();
                     }
                 }
@@ -162,20 +161,20 @@ pub fn AssignmentsList() -> Element {
 
             if let Some(id) = pending_delete() {
                 Modal {
-                    title: "Delete assignment".to_string(),
+                    title: locale.t("teacher.assignments.delete_title"),
                     open: true,
                     on_close: move |_| pending_delete.set(None),
                     children: rsx! {
                         div { class: "space-y-5",
                             p { class: "text-sm text-gray-600 dark:text-gray-300",
-                                "Delete this assignment? This action may remove its downstream assignment records and cannot be undone from this screen."
+                                "{locale.t(\"teacher.assignments.delete_confirmation\")}"
                             }
                             div { class: "flex justify-end gap-3",
-                                button { class: "rounded-lg border border-gray-300 px-4 py-2 dark:border-gray-700", onclick: move |_| pending_delete.set(None), "Cancel" }
+                                button { class: "rounded-lg border border-gray-300 px-4 py-2 dark:border-gray-700", onclick: move |_| pending_delete.set(None), "{locale.t(\"common.cancel\")}" }
                                 {
                                     let id_for_delete = id.clone();
                                     rsx! {
-                                        button { class: "rounded-lg bg-red-600 px-4 py-2 font-medium text-white", onclick: move |_| confirm_delete(id_for_delete.clone()), "Delete" }
+                                        button { class: "rounded-lg bg-red-600 px-4 py-2 font-medium text-white", onclick: move |_| confirm_delete(id_for_delete.clone()), "{locale.t(\"teacher.assignments.delete\")}" }
                                     }
                                 }
                             }
@@ -253,6 +252,14 @@ fn AssignmentCard(
     };
     let locale = use_locale();
     let status_label = teacher_assignment_status_label(&assignment, locale.current());
+    let due_date = format_product_date_text(&assignment.due_date, locale.current());
+    let due_text = format!("{} {due_date}", locale.t("teacher.assignments.due_prefix"));
+    let submitted_text = format!(
+        "{}/{} {}",
+        assignment.submitted_count,
+        assignment.total_count,
+        locale.t("teacher.assignments.submitted_count")
+    );
 
     rsx! {
         article { class: "et-ui-card overflow-hidden",
@@ -265,8 +272,8 @@ fn AssignmentCard(
                     span { class: "rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-300", "{status_label}" }
                 }
                 div { class: "mt-4 flex items-center justify-between text-sm text-gray-500 dark:text-gray-400",
-                    span { "{locale.t(\"teacher.assignments.due_prefix\")} {assignment.due_date}" }
-                    span { "{assignment.submitted_count}/{assignment.total_count} {locale.t(\"teacher.assignments.submitted_count\")}" }
+                    span { "{due_text}" }
+                    span { "{submitted_text}" }
                 }
                 progress {
                     class: "et-ui-progress mt-2",
@@ -304,6 +311,7 @@ fn CreateAssignmentModal(on_close: EventHandler, on_created: EventHandler) -> El
     let mut material_ids = use_signal(Vec::<String>::new);
     let mut busy = use_signal(|| false);
     let mut error = use_signal(|| None::<String>);
+    let locale = use_locale();
 
     let classes = use_resource(move || async move { get_teacher_assignment_class_options().await });
     let materials = use_resource(move || {
@@ -327,9 +335,7 @@ fn CreateAssignmentModal(on_close: EventHandler, on_created: EventHandler) -> El
             || subject_id().is_empty()
             || due_date().is_empty()
         {
-            error.set(Some(
-                "Title, class, due date, and instructions are required.".to_string(),
-            ));
+            error.set(Some(locale.t("teacher.assignments.required_fields")));
             return;
         }
 
@@ -339,7 +345,7 @@ fn CreateAssignmentModal(on_close: EventHandler, on_created: EventHandler) -> El
         ) {
             Ok(value) => chrono::DateTime::from_naive_utc_and_offset(value, chrono::Utc),
             Err(_) => {
-                error.set(Some("The due date is invalid.".to_string()));
+                error.set(Some(locale.t("teacher.assignments.invalid_due_date")));
                 return;
             }
         };
@@ -362,14 +368,12 @@ fn CreateAssignmentModal(on_close: EventHandler, on_created: EventHandler) -> El
 
         busy.set(true);
         error.set(None);
+        let create_failed = locale.t("teacher.assignments.create_failed");
         spawn(async move {
             match create_assignment(payload).await {
                 Ok(_) => on_created.call(()),
                 Err(_) => {
-                    error.set(Some(
-                        "The draft could not be created. Check the class and try again."
-                            .to_string(),
-                    ));
+                    error.set(Some(create_failed));
                     busy.set(false);
                 }
             }
@@ -378,7 +382,7 @@ fn CreateAssignmentModal(on_close: EventHandler, on_created: EventHandler) -> El
 
     rsx! {
         Modal {
-            title: "Create assignment".to_string(),
+            title: locale.t("teacher.assignments.create"),
             open: true,
             on_close: move |_| if !busy() { on_close.call(()) },
             children: rsx! {
@@ -386,9 +390,9 @@ fn CreateAssignmentModal(on_close: EventHandler, on_created: EventHandler) -> El
                     if let Some(message) = error() {
                         div { class: "rounded-lg bg-red-50 p-3 text-sm text-red-800 dark:bg-red-900/20 dark:text-red-200", role: "alert", "{message}" }
                     }
-                    LabeledInput { label: "Title", value: title, required: true }
+                    LabeledInput { label: locale.t("teacher.assignments.title_label"), value: title, required: true }
                     div {
-                        label { class: "mb-1 block text-sm font-medium", "Class *" }
+                        label { class: "mb-1 block text-sm font-medium", "{locale.t(\"teacher.assignments.class_label\")} *" }
                         select {
                             class: "w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 dark:border-gray-700 dark:bg-gray-900",
                             value: "{class_id}",
@@ -402,21 +406,21 @@ fn CreateAssignmentModal(on_close: EventHandler, on_created: EventHandler) -> El
                                 }
                                 material_ids.set(Vec::new());
                             },
-                            option { value: "", "Select one of your classes" }
+                            option { value: "", "{locale.t(\"teacher.assignments.select_class\")}" }
                             match classes.read().as_ref() {
                                 Some(Ok(options)) => rsx! {
                                     for option in options {
                                         option { value: "{option.class_section_id}", "{option.class_name} · {option.subject_name}" }
                                     }
                                 },
-                                Some(Err(_)) => rsx! { option { disabled: true, "Unable to load assigned classes" } },
-                                None => rsx! { option { disabled: true, "Loading assigned classes…" } },
+                                Some(Err(_)) => rsx! { option { disabled: true, "{locale.t(\"teacher.assignments.classes_load_error\")}" } },
+                                None => rsx! { option { disabled: true, "{locale.t(\"teacher.assignments.classes_loading\")}" } },
                             }
                         }
                     }
-                    LabeledInput { label: "Due date", value: due_date, required: true, input_type: "date" }
+                    LabeledInput { label: locale.t("teacher.assignments.due_date_label"), value: due_date, required: true, input_type: "date" }
                     div {
-                        label { class: "mb-1 block text-sm font-medium", "Instructions *" }
+                        label { class: "mb-1 block text-sm font-medium", "{locale.t(\"teacher.assignments.instructions_label\")} *" }
                         textarea {
                             class: "min-h-32 w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 dark:border-gray-700 dark:bg-gray-900",
                             value: "{body}",
@@ -427,9 +431,9 @@ fn CreateAssignmentModal(on_close: EventHandler, on_created: EventHandler) -> El
                         MaterialPicker { resource: materials, selected: material_ids }
                     }
                     div { class: "flex justify-end gap-3",
-                        button { class: "rounded-lg border border-gray-300 px-4 py-2 dark:border-gray-700", disabled: busy(), onclick: move |_| on_close.call(()), "Cancel" }
+                        button { class: "rounded-lg border border-gray-300 px-4 py-2 dark:border-gray-700", disabled: busy(), onclick: move |_| on_close.call(()), "{locale.t(\"common.cancel\")}" }
                         button { class: "rounded-lg bg-primary px-4 py-2 font-medium text-white disabled:opacity-50", disabled: busy(), onclick: submit,
-                            if busy() { "Creating…" } else { "Create draft" }
+                            if busy() { "{locale.t(\"teacher.assignments.creating\")}" } else { "{locale.t(\"teacher.assignments.create_draft\")}" }
                         }
                     }
                 }
@@ -440,7 +444,7 @@ fn CreateAssignmentModal(on_close: EventHandler, on_created: EventHandler) -> El
 
 #[component]
 fn LabeledInput(
-    label: &'static str,
+    label: String,
     value: Signal<String>,
     required: bool,
     #[props(default = "text")] input_type: &'static str,
@@ -464,13 +468,14 @@ fn MaterialPicker(
     resource: Resource<Result<Vec<ClassMaterialInfo>, ServerFnError>>,
     selected: Signal<Vec<String>>,
 ) -> Element {
+    let locale = use_locale();
     rsx! {
         fieldset { class: "rounded-lg border border-gray-200 p-4 dark:border-gray-700",
-            legend { class: "px-1 text-sm font-medium", "Governed class materials (optional)" }
+            legend { class: "px-1 text-sm font-medium", "{locale.t(\"teacher.assignments.materials_legend\")}" }
             match resource.read().as_ref() {
-                None => rsx! { p { class: "text-sm text-gray-500", "Loading materials…" } },
-                Some(Err(_)) => rsx! { p { class: "text-sm text-red-600", "Materials could not be loaded. You can still create the assignment without them." } },
-                Some(Ok(items)) if items.is_empty() => rsx! { p { class: "text-sm text-gray-500", "No class materials are available." } },
+                None => rsx! { p { class: "text-sm text-gray-500", "{locale.t(\"teacher.assignments.materials_loading\")}" } },
+                Some(Err(_)) => rsx! { p { class: "text-sm text-red-600", "{locale.t(\"teacher.assignments.materials_load_error\")}" } },
+                Some(Ok(items)) if items.is_empty() => rsx! { p { class: "text-sm text-gray-500", "{locale.t(\"teacher.assignments.materials_empty\")}" } },
                 Some(Ok(items)) => rsx! {
                     div { class: "max-h-48 space-y-2 overflow-y-auto",
                         for item in items {
@@ -511,6 +516,7 @@ fn AssignmentDetailModal(
     let id_for_publish = assignment_id.clone();
     let mut busy = use_signal(|| false);
     let mut error = use_signal(|| None::<String>);
+    let locale = use_locale();
     let details = use_resource(move || {
         let id = id_for_fetch.clone();
         async move { get_assignment_by_id(id).await }
@@ -527,11 +533,11 @@ fn AssignmentDetailModal(
             match publish_assignment_guided(id).await {
                 Ok(PublishAssignmentOutcome::Published { .. }) => on_published.call(()),
                 Ok(PublishAssignmentOutcome::NeedsEnrollment { .. }) => {
-                    error.set(Some(no_eligible_students_message()));
+                    error.set(Some(locale.t("teacher.assignments.no_eligible_students")));
                     busy.set(false);
                 }
                 Err(err) => {
-                    error.set(Some(publish_error_message(&err.to_string())));
+                    error.set(Some(locale.t(publish_error_key(&err.to_string()))));
                     busy.set(false);
                 }
             }
@@ -540,7 +546,7 @@ fn AssignmentDetailModal(
 
     rsx! {
         Modal {
-            title: "Assignment details".to_string(),
+            title: locale.t("teacher.assignments.details_title"),
             open: true,
             on_close: move |_| if !busy() { on_close.call(()) },
             children: rsx! {
@@ -549,9 +555,9 @@ fn AssignmentDetailModal(
                         div { class: "rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-100", role: "alert", "{message}" }
                     }
                     match details.read().as_ref() {
-                        None => rsx! { p { class: "py-8 text-center text-gray-500", "Loading assignment…" } },
-                        Some(Err(_)) => rsx! { p { class: "py-8 text-center text-red-600", "The assignment could not be loaded." } },
-                        Some(Ok(None)) => rsx! { p { class: "py-8 text-center text-gray-500", "This assignment is no longer available." } },
+                        None => rsx! { p { class: "py-8 text-center text-gray-500", "{locale.t(\"teacher.assignments.details_loading\")}" } },
+                        Some(Err(_)) => rsx! { p { class: "py-8 text-center text-red-600", "{locale.t(\"teacher.assignments.details_load_error\")}" } },
+                        Some(Ok(None)) => rsx! { p { class: "py-8 text-center text-gray-500", "{locale.t(\"teacher.assignments.details_unavailable\")}" } },
                         Some(Ok(Some(item))) => rsx! { AssignmentDetail { item: item.clone(), busy, on_publish: publish } },
                     }
                 }
@@ -566,19 +572,28 @@ fn AssignmentDetail(
     busy: Signal<bool>,
     on_publish: EventHandler,
 ) -> Element {
+    let locale = use_locale();
+    let status_label = assignment_status_label(&item.status, locale.current());
+    let due_date = format_product_date(item.due_at, locale.current());
+    let status_text = format!(
+        "{}: {status_label}",
+        locale.t("teacher.assignments.status_prefix")
+    );
+    let due_text = format!("{} {due_date}", locale.t("teacher.assignments.due_prefix"));
+
     rsx! {
         div { class: "space-y-5",
             div {
                 h3 { class: "text-xl font-bold text-gray-900 dark:text-white", "{item.title}" }
                 p { class: "mt-1 text-sm text-gray-500", "{item.class_section_name} · {item.subject_name}" }
-                p { class: "mt-1 text-sm text-gray-500", "Status: {item.status}" }
+                p { class: "mt-1 text-sm text-gray-500", "{status_text}" }
             }
             div { class: "rounded-lg bg-gray-50 p-4 text-sm whitespace-pre-wrap dark:bg-gray-800", "{item.body}" }
-            p { class: "text-sm text-gray-500", "Due {item.due_at}" }
+            p { class: "text-sm text-gray-500", "{due_text}" }
             div { class: "flex justify-end gap-3",
                 if item.status == "Draft" {
                     button { class: "rounded-lg bg-primary px-4 py-2 font-medium text-white disabled:opacity-50", disabled: busy(), onclick: move |_| on_publish.call(()),
-                        if busy() { "Publishing…" } else { "Publish" }
+                        if busy() { "{locale.t(\"teacher.assignments.publishing\")}" } else { "{locale.t(\"teacher.assignments.publish\")}" }
                     }
                 }
             }
@@ -586,18 +601,13 @@ fn AssignmentDetail(
     }
 }
 
-fn no_eligible_students_message() -> String {
-    "This assignment cannot be published because the class has no active enrolled students. Ask a School Manager to enroll at least one student, then try again.".to_string()
-}
-
-fn publish_error_message(raw: &str) -> String {
+fn publish_error_key(raw: &str) -> &'static str {
     if raw.contains("assignment.publish_conflict") {
-        "The assignment or class changed while publishing. Refresh the assignment and try again."
-            .to_string()
+        "teacher.assignments.publish_conflict"
     } else if raw.contains("assignment.not_found") || raw.contains("assignment.forbidden") {
-        "This assignment is no longer available to your teacher account.".to_string()
+        "teacher.assignments.publish_unavailable"
     } else {
-        "The assignment could not be published. Refresh and try again.".to_string()
+        "teacher.assignments.publish_failed"
     }
 }
 
@@ -622,10 +632,19 @@ mod tests {
     }
 
     #[test]
-    fn no_student_publish_state_is_actionable() {
-        let message = no_eligible_students_message();
-        assert!(message.contains("School Manager"));
-        assert!(message.contains("active enrolled students"));
+    fn publish_errors_are_classified_without_exposing_backend_bodies() {
+        assert_eq!(
+            publish_error_key("assignment.publish_conflict: row changed"),
+            "teacher.assignments.publish_conflict"
+        );
+        assert_eq!(
+            publish_error_key("assignment.forbidden: internal details"),
+            "teacher.assignments.publish_unavailable"
+        );
+        assert_eq!(
+            publish_error_key("database connection details"),
+            "teacher.assignments.publish_failed"
+        );
     }
 
     #[test]

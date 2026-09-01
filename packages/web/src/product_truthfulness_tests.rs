@@ -188,9 +188,14 @@ mod tests {
     #[test]
     fn teacher_publish_ui_uses_guided_domain_contract() {
         let source = include_str!("views/role_based/teacher/assignments.rs");
+        let translations = include_str!("i18n/teacher_assignments_translations.rs");
         assert!(source.contains("publish_assignment_guided"));
         assert!(!source.contains("publish_assignment("));
-        assert!(source.contains("active enrolled students"));
+        assert!(source.contains("teacher.assignments.no_eligible_students"));
+        assert!(translations.contains("\"teacher.assignments.no_eligible_students\""));
+        assert!(translations.contains("active enrolled students"));
+        assert!(translations.contains("School Manager"));
+        assert!(translations.contains("مدیر مدرسه"));
     }
 
     #[test]
