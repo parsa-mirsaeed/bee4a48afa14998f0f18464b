@@ -1,6 +1,9 @@
 //! Locale provider and language switching for the web application.
 
-use super::{supplemental_translation, t, teacher_dashboard_translation, Locale, LocalizedGrade};
+use super::{
+    supplemental_translation, t, teacher_assignments_translation, teacher_dashboard_translation,
+    Locale, LocalizedGrade,
+};
 use dioxus::prelude::*;
 
 const LOCALE_STORAGE_KEY: &str = "edutalent_locale";
@@ -37,6 +40,7 @@ impl LocaleContext {
 
     pub fn t(&self, key: &'static str) -> String {
         teacher_dashboard_translation(key, self.current())
+            .or_else(|| teacher_assignments_translation(key, self.current()))
             .or_else(|| supplemental_translation(key, self.current()))
             .map(str::to_owned)
             .unwrap_or_else(|| t(key, self.current()))
