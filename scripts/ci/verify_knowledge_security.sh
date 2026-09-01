@@ -35,7 +35,9 @@ BEGIN
         VALUES
             ('knowledge_assets'),
             ('knowledge_source_files'),
+            ('knowledge_source_reviews'),
             ('knowledge_ocr_texts'),
+            ('knowledge_ocr_revision_provenance'),
             ('knowledge_chunks'),
             ('teacher_asset_selections'),
             ('ingestion_jobs'),
@@ -64,7 +66,10 @@ BEGIN
             ('knowledge_source_files_scoped_select'),
             ('knowledge_source_files_scoped_insert'),
             ('knowledge_source_files_admin_write'),
+            ('knowledge_source_reviews_admin_select'),
             ('knowledge_ocr_texts_admin_all'),
+            ('knowledge_ocr_revision_provenance_admin_select'),
+            ('knowledge_ocr_revision_provenance_trigger_insert'),
             ('knowledge_chunks_admin_all'),
             ('teacher_asset_selection_owner'),
             ('ingestion_jobs_admin_all'),
@@ -80,6 +85,52 @@ BEGIN
 
     IF missing_policies IS NOT NULL THEN
         RAISE EXCEPTION 'Missing governed knowledge policies: %', missing_policies;
+    END IF;
+
+    -- Trusted source-review evidence has no direct application INSERT/ALL policy.
+    -- The table owner bypasses ordinary RLS only inside the byte-verifying
+    -- SECURITY DEFINER function; the long-running app role is NOBYPASSRLS and
+    -- therefore cannot mint evidence directly.
+    IF EXISTS (
+        SELECT 1
+        FROM pg_policies
+        WHERE schemaname = 'public'
+          AND tablename = 'knowledge_source_reviews'
+          AND cmd IN ('INSERT', 'ALL')
+    ) THEN
+        RAISE EXCEPTION 'Trusted source-review evidence unexpectedly has a direct INSERT/ALL RLS policy';
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_class relation
+        JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
+        WHERE namespace.nspname = 'public'
+          AND relation.relname = 'knowledge_source_reviews'
+          AND relation.relrowsecurity
+          AND NOT relation.relforcerowsecurity
+    ) THEN
+        RAISE EXCEPTION 'Source-review evidence must use ordinary RLS so its non-superuser SECURITY DEFINER owner can perform the verified insert';
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_proc procedure
+        WHERE procedure.oid = 'public.record_knowledge_source_review(uuid,uuid,bytea)'::regprocedure
+          AND procedure.prosecdef
+    ) THEN
+        RAISE EXCEPTION 'Source-review evidence function is not SECURITY DEFINER';
+    END IF;
+
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.routine_privileges
+        WHERE specific_schema = 'public'
+          AND routine_name = 'record_knowledge_source_review'
+          AND grantee = 'PUBLIC'
+          AND privilege_type = 'EXECUTE'
+    ) THEN
+        RAISE EXCEPTION 'Source-review evidence function remains executable by PUBLIC';
     END IF;
 
     SELECT COUNT(*)
