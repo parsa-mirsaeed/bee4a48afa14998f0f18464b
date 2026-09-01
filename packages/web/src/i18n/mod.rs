@@ -15,7 +15,7 @@ pub mod translations;
 mod ui_translations;
 
 pub use assignment_status::assignment_status_label;
-pub use date_presentation::format_product_date;
+pub use date_presentation::{format_product_date, format_product_date_text};
 pub use grading::*;
 pub use locale::*;
 pub use provider::*;
