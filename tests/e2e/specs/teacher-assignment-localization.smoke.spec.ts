@@ -52,7 +52,7 @@ for (const scenario of [
     status: 'منتشرشده',
   },
 ]) {
-  test(`teacher assignment create/detail chrome is localized in ${scenario.locale} @smoke @final @teacher @i18n`, async ({ page }) => {
+  test(`teacher assignment create/detail chrome is localized in ${scenario.locale} @smoke @final @teacher @i18n @workflow-truth`, async ({ page }) => {
     await signIn(page, scenario.locale);
     await page.goto('/dashboard/assignments');
     await expect(page).toHaveURL(/\/dashboard\/assignments$/);
