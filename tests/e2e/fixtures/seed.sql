@@ -72,7 +72,7 @@ INSERT INTO custom_assignments (id, assignment_id, student_id, due_at, status) V
   ('f1000000-0000-0000-0000-0000000000a3', 'f0000000-0000-0000-0000-0000000000a3', 'c0000000-0000-0000-0000-0000000000a3', NOW() + INTERVAL '9 days', 'Assigned'),
   ('f1000000-0000-0000-0000-0000000000a4', 'f0000000-0000-0000-0000-0000000000a4', 'c0000000-0000-0000-0000-0000000000a3', NOW() + INTERVAL '10 days', 'Submitted'),
   ('f1000000-0000-0000-0000-0000000000b1', 'f0000000-0000-0000-0000-0000000000b1', 'c0000000-0000-0000-0000-0000000000b3', NOW() + INTERVAL '10 days', 'Submitted')
-ON CONFLICT (id) DO NOTHING;
+ON CONFLICT DO NOTHING;
 
 INSERT INTO submissions (id, custom_assignment_id, student_id, content, grade, grade_scale, graded_by) VALUES
   ('f2000000-0000-0000-0000-0000000000a1', 'f1000000-0000-0000-0000-0000000000a1', 'c0000000-0000-0000-0000-0000000000a3', '{"text":"synthetic"}'::jsonb, 18.00, 20, 'c0000000-0000-0000-0000-0000000000a2'),
@@ -86,51 +86,49 @@ INSERT INTO knowledge_assets (id, school_id, title, status, created_by, publishe
   ('f3000000-0000-0000-0000-0000000000b1', 'a0000000-0000-0000-0000-0000000000b1', 'E2E School B Asset', 'published', 'b0000000-0000-0000-0000-0000000000b1', NOW())
 ON CONFLICT (id) DO NOTHING;
 
--- This source has valid governed metadata and historical review provenance, but
--- the Auth-only browser fixture intentionally does not provide Supabase Storage.
--- The UI must therefore keep a failed source-open inside bounded EduTalent UX.
+-- The browser environment intentionally has no matching private Storage object.
+-- We still seed a legitimate historical review using synthetic bytes so OCR is
+-- valid, while clicking Review source proves the live missing-object path is
+-- rendered as bounded EduTalent UI rather than raw provider output.
+SELECT set_config('app.user_id', 'b0000000-0000-0000-0000-0000000000a0', true);
+SELECT set_config('app.user_role', 'PlatformAdmin', true);
+SELECT set_config('app.school_id', 'a0000000-0000-0000-0000-0000000000a1', true);
+
+WITH source_bytes AS (
+  SELECT convert_to('%PDF-e2e-reviewed-source', 'UTF8') AS bytes
+)
 INSERT INTO knowledge_source_files (
   id, asset_id, original_file_url, original_filename, mime_type,
   file_size_bytes, sha256, is_scanned_pdf
-) VALUES (
+)
+SELECT
   'f4000000-0000-0000-0000-0000000000a2',
   'f3000000-0000-0000-0000-0000000000a2',
   'storage://edutalent-knowledge-sources/a0000000-0000-0000-0000-0000000000a1/f4000000-0000-0000-0000-0000000000a2.pdf',
   'e2e-reviewed-source.pdf',
   'application/pdf',
-  128,
-  repeat('b', 64),
+  octet_length(bytes),
+  lower(encode(digest(bytes, 'sha256'), 'hex')),
   FALSE
-)
+FROM source_bytes
 ON CONFLICT (id) DO NOTHING;
 
-INSERT INTO knowledge_audit_logs (
-  actor_id, actor_role, action, target_type, target_id, school_id, details_json
-)
-SELECT
-  'b0000000-0000-0000-0000-0000000000a0',
-  'PlatformAdmin',
-  'knowledge_asset.source_reviewed',
-  'knowledge_asset',
+SELECT record_knowledge_source_review(
   'f3000000-0000-0000-0000-0000000000a2',
-  'a0000000-0000-0000-0000-0000000000a1',
-  jsonb_build_object(
-    'delivery', 'inline_pdf',
-    'byte_count', 128,
-    'source_file_id', 'f4000000-0000-0000-0000-0000000000a2'::uuid,
-    'source_sha256', repeat('b', 64)
-  )
-WHERE NOT EXISTS (
-  SELECT 1
-  FROM knowledge_audit_logs
-  WHERE action = 'knowledge_asset.source_reviewed'
-    AND target_id = 'f3000000-0000-0000-0000-0000000000a2'
-    AND actor_id = 'b0000000-0000-0000-0000-0000000000a0'
-    AND details_json ->> 'source_file_id' = 'f4000000-0000-0000-0000-0000000000a2'
+  'f4000000-0000-0000-0000-0000000000a2',
+  convert_to('%PDF-e2e-reviewed-source', 'UTF8')
 );
 
-INSERT INTO knowledge_ocr_texts (asset_id, raw_text, clean_text, ocr_provider, ocr_verified_by, text_sha256) VALUES
-  ('f3000000-0000-0000-0000-0000000000a2', 'E2E preverified OCR text', 'E2E preverified OCR text', 'e2e-manual-review', 'b0000000-0000-0000-0000-0000000000a0', repeat('a', 64))
+INSERT INTO knowledge_ocr_texts (
+  asset_id, raw_text, clean_text, ocr_provider, ocr_verified_by, text_sha256
+) VALUES (
+  'f3000000-0000-0000-0000-0000000000a2',
+  'E2E preverified OCR text',
+  'E2E preverified OCR text',
+  'e2e-manual-review',
+  'b0000000-0000-0000-0000-0000000000a0',
+  repeat('a', 64)
+)
 ON CONFLICT (asset_id) DO NOTHING;
 
 COMMIT;
