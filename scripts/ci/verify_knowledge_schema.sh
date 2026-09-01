@@ -20,6 +20,7 @@ DECLARE
     ];
     missing_indexes text[];
     missing_job_columns text[];
+    missing_ocr_columns text[];
 BEGIN
     SELECT array_agg(required_name ORDER BY required_name)
     INTO missing_tables
@@ -76,6 +77,24 @@ BEGIN
         RAISE EXCEPTION 'Missing teacher document-ingestion guard trigger';
     END IF;
 
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_trigger
+        WHERE tgname = 'trg_require_reviewed_source_for_verified_ocr'
+          AND NOT tgisinternal
+    ) THEN
+        RAISE EXCEPTION 'Missing reviewed-source OCR provenance trigger';
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_trigger
+        WHERE tgname = 'trg_validate_knowledge_ocr_source_provenance'
+          AND NOT tgisinternal
+    ) THEN
+        RAISE EXCEPTION 'Missing embedding/publication source provenance trigger';
+    END IF;
+
     SELECT array_agg(required_name ORDER BY required_name)
     INTO missing_indexes
     FROM (
@@ -90,7 +109,8 @@ BEGIN
             ('idx_ingestion_jobs_claimable'),
             ('idx_ingestion_jobs_one_active_embed'),
             ('idx_knowledge_audit_target'),
-            ('idx_knowledge_audit_school')
+            ('idx_knowledge_audit_school'),
+            ('idx_knowledge_ocr_source_file')
     ) AS required(required_name)
     WHERE to_regclass('public.' || required_name) IS NULL;
 
@@ -117,6 +137,26 @@ BEGIN
 
     IF missing_job_columns IS NOT NULL THEN
         RAISE EXCEPTION 'Missing durable ingestion job columns: %', missing_job_columns;
+    END IF;
+
+    SELECT array_agg(required_name ORDER BY required_name)
+    INTO missing_ocr_columns
+    FROM (
+        VALUES
+            ('revision'),
+            ('source_file_id'),
+            ('source_sha256')
+    ) AS required(required_name)
+    WHERE NOT EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'knowledge_ocr_texts'
+          AND column_name = required_name
+    );
+
+    IF missing_ocr_columns IS NOT NULL THEN
+        RAISE EXCEPTION 'Missing verified OCR provenance columns: %', missing_ocr_columns;
     END IF;
 
     IF NOT EXISTS (
@@ -262,5 +302,157 @@ END
 $$;
 ROLLBACK;
 
-SELECT 'governed knowledge schema, lifecycle, and durable queue verified' AS result;
+-- Prove that verified OCR is tied to the exact successfully reviewed source
+-- revision and that a newer source invalidates the old OCR provenance before
+-- embedding can begin.
+BEGIN;
+DO $$
+DECLARE
+    school_uuid uuid;
+    admin_role_uuid uuid;
+    admin_uuid uuid;
+    asset_uuid uuid;
+    source_uuid uuid;
+    replacement_source_uuid uuid;
+    bound_source_uuid uuid;
+    bound_sha text;
+    first_sha constant text := 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    second_sha constant text := 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+BEGIN
+    INSERT INTO schools (name)
+    VALUES ('Knowledge provenance probe ' || gen_random_uuid()::text)
+    RETURNING id INTO school_uuid;
+
+    SELECT id INTO admin_role_uuid
+    FROM roles
+    WHERE name = 'PlatformAdmin'::role_name;
+
+    INSERT INTO users (name, email, role_id, school_id)
+    VALUES (
+        'Knowledge Provenance Probe Admin',
+        'knowledge-provenance-' || gen_random_uuid()::text || '@example.invalid',
+        admin_role_uuid,
+        school_uuid
+    )
+    RETURNING id INTO admin_uuid;
+
+    INSERT INTO knowledge_assets (
+        school_id, title, source_type, status, language, created_by
+    ) VALUES (
+        school_uuid, 'Reviewed source provenance probe', 'pdf', 'submitted', 'fa', admin_uuid
+    )
+    RETURNING id INTO asset_uuid;
+
+    INSERT INTO knowledge_source_files (
+        asset_id, original_file_url, original_filename, mime_type,
+        file_size_bytes, sha256, is_scanned_pdf
+    ) VALUES (
+        asset_uuid,
+        'storage://edutalent-knowledge-sources/' || school_uuid::text || '/' || gen_random_uuid()::text || '.pdf',
+        'probe.pdf',
+        'application/pdf',
+        128,
+        first_sha,
+        FALSE
+    )
+    RETURNING id INTO source_uuid;
+
+    BEGIN
+        INSERT INTO knowledge_ocr_texts (
+            asset_id, raw_text, clean_text, ocr_provider, ocr_verified_by,
+            text_sha256
+        ) VALUES (
+            asset_uuid, 'unreviewed', 'unreviewed', 'manual-verified', admin_uuid,
+            repeat('1', 64)
+        );
+        RAISE EXCEPTION 'Verified OCR was accepted without a successful source review';
+    EXCEPTION
+        WHEN check_violation THEN NULL;
+    END;
+
+    INSERT INTO knowledge_audit_logs (
+        actor_id, actor_role, action, target_type, target_id, school_id, details_json
+    ) VALUES (
+        admin_uuid,
+        'PlatformAdmin',
+        'knowledge_asset.source_reviewed',
+        'knowledge_asset',
+        asset_uuid,
+        school_uuid,
+        jsonb_build_object(
+            'source_file_id', source_uuid,
+            'source_sha256', first_sha,
+            'delivery', 'inline_pdf'
+        )
+    );
+
+    INSERT INTO knowledge_ocr_texts (
+        asset_id, raw_text, clean_text, ocr_provider, ocr_verified_by,
+        text_sha256
+    ) VALUES (
+        asset_uuid, 'reviewed', 'reviewed', 'manual-verified', admin_uuid,
+        repeat('2', 64)
+    );
+
+    SELECT source_file_id, source_sha256
+    INTO bound_source_uuid, bound_sha
+    FROM knowledge_ocr_texts
+    WHERE asset_id = asset_uuid;
+
+    IF bound_source_uuid IS DISTINCT FROM source_uuid OR bound_sha IS DISTINCT FROM first_sha THEN
+        RAISE EXCEPTION 'Verified OCR did not persist exact reviewed source provenance';
+    END IF;
+
+    UPDATE knowledge_assets SET status = 'ocr_ready' WHERE id = asset_uuid;
+
+    INSERT INTO knowledge_source_files (
+        asset_id, original_file_url, original_filename, mime_type,
+        file_size_bytes, sha256, is_scanned_pdf,
+        created_at
+    ) VALUES (
+        asset_uuid,
+        'storage://edutalent-knowledge-sources/' || school_uuid::text || '/' || gen_random_uuid()::text || '.pdf',
+        'replacement.pdf',
+        'application/pdf',
+        256,
+        second_sha,
+        FALSE,
+        NOW() + interval '1 second'
+    )
+    RETURNING id INTO replacement_source_uuid;
+
+    BEGIN
+        UPDATE knowledge_ocr_texts
+        SET raw_text = 'stale edit',
+            clean_text = 'stale edit',
+            ocr_verified_at = NOW(),
+            revision = gen_random_uuid()
+        WHERE asset_id = asset_uuid;
+        RAISE EXCEPTION 'OCR update against an unreviewed replacement source was accepted';
+    EXCEPTION
+        WHEN check_violation THEN NULL;
+    END;
+
+    BEGIN
+        UPDATE knowledge_assets SET status = 'embedding_pending' WHERE id = asset_uuid;
+        RAISE EXCEPTION 'Stale OCR provenance advanced into embedding';
+    EXCEPTION
+        WHEN check_violation THEN NULL;
+    END;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM knowledge_assets
+        WHERE id = asset_uuid AND status = 'ocr_ready'
+    ) THEN
+        RAISE EXCEPTION 'Rejected stale provenance changed the asset lifecycle';
+    END IF;
+
+    IF replacement_source_uuid = source_uuid THEN
+        RAISE EXCEPTION 'Source revision probe did not create a distinct source row';
+    END IF;
+END
+$$;
+ROLLBACK;
+
+SELECT 'governed knowledge schema, lifecycle, source provenance, and durable queue verified' AS result;
 SQL
