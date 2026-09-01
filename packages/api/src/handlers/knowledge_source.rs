@@ -12,7 +12,6 @@ use axum::{
     Extension,
 };
 use serde::Deserialize;
-use serde_json::json;
 use sha2::{Digest, Sha256};
 use sqlx::Row;
 use std::{sync::Arc, time::Duration};
@@ -39,8 +38,6 @@ pub async fn knowledge_source_handler(
         return Err(reject(StatusCode::FORBIDDEN, "Insufficient role"));
     }
 
-    let actor_id = Uuid::parse_str(&user.id)
-        .map_err(|_| reject(StatusCode::UNAUTHORIZED, "Invalid active session"))?;
     let asset_id = Uuid::parse_str(query.asset_id.trim())
         .map_err(|_| reject(StatusCode::BAD_REQUEST, "Invalid asset ID"))?;
 
@@ -55,14 +52,9 @@ pub async fn knowledge_source_handler(
             source.file_size_bytes,
             source.sha256
         FROM knowledge_assets ka
-        JOIN LATERAL (
-            SELECT id, original_file_url, original_filename, mime_type,
-                   file_size_bytes, sha256
-            FROM knowledge_source_files
-            WHERE asset_id = ka.id
-            ORDER BY created_at DESC, id DESC
-            LIMIT 1
-        ) source ON TRUE
+        JOIN knowledge_source_files source
+          ON source.id = ka.current_source_file_id
+         AND source.asset_id = ka.id
         WHERE ka.id = $1
         "#,
     )
@@ -206,26 +198,20 @@ pub async fn knowledge_source_handler(
         ));
     }
 
-    sqlx::query(
-        r#"
-        INSERT INTO knowledge_audit_logs (
-            actor_id, actor_role, action, target_type, target_id, school_id, details_json
-        ) VALUES ($1, 'PlatformAdmin', 'knowledge_asset.source_reviewed', 'knowledge_asset', $2, $3, $4)
-        "#,
+    // The database independently re-checks the actual bytes against the
+    // canonical immutable source revision before minting append-only review
+    // evidence. The generic audit stream is written by that protected function
+    // only after the evidence row succeeds.
+    sqlx::query_scalar::<_, Uuid>(
+        "SELECT record_knowledge_source_review($1, $2, $3)",
     )
-    .bind(actor_id)
     .bind(asset_id)
-    .bind(school_id)
-    .bind(json!({
-        "delivery": "inline_pdf",
-        "byte_count": bytes.len(),
-        "source_file_id": source_file_id,
-        "source_sha256": actual_sha256,
-    }))
-    .execute(&*pool)
+    .bind(source_file_id)
+    .bind(&bytes)
+    .fetch_one(&*pool)
     .await
     .map_err(|error| {
-        error!(%error, %asset_id, "knowledge source review audit write failed");
+        error!(%error, %asset_id, %source_file_id, "trusted knowledge source review write failed");
         reject(StatusCode::INTERNAL_SERVER_ERROR, "Unable to record source review")
     })?;
 
