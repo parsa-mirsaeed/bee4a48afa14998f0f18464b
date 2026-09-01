@@ -210,6 +210,37 @@ pub(crate) fn supplemental_translation(key: &'static str, locale: Locale) -> Opt
         (Locale::En, "teachers.students.no_grades") => Some("No grades are available yet."),
         (Locale::Fa, "teachers.students.no_grades") => Some("هنوز نمره‌ای در دسترس نیست."),
 
+        (Locale::En, "assignment.status.draft") => Some("Draft"),
+        (Locale::Fa, "assignment.status.draft") => Some("پیش‌نویس"),
+        (Locale::En, "assignment.status.published") => Some("Published"),
+        (Locale::Fa, "assignment.status.published") => Some("منتشرشده"),
+        (Locale::En, "assignment.status.active") => Some("Active"),
+        (Locale::Fa, "assignment.status.active") => Some("فعال"),
+        (Locale::En, "assignment.status.grading") => Some("Grading"),
+        (Locale::Fa, "assignment.status.grading") => Some("در حال نمره‌دهی"),
+        (Locale::En, "assignment.status.complete") => Some("Complete"),
+        (Locale::Fa, "assignment.status.complete") => Some("تکمیل‌شده"),
+        (Locale::En, "teacher.assignments.all_filter") => Some("All"),
+        (Locale::Fa, "teacher.assignments.all_filter") => Some("همه"),
+        (Locale::En, "teacher.assignments.draft_filter") => Some("Draft"),
+        (Locale::Fa, "teacher.assignments.draft_filter") => Some("پیش‌نویس"),
+        (Locale::En, "teacher.assignments.active_filter") => Some("Active"),
+        (Locale::Fa, "teacher.assignments.active_filter") => Some("فعال"),
+        (Locale::En, "teacher.assignments.complete_filter") => Some("Completed"),
+        (Locale::Fa, "teacher.assignments.complete_filter") => Some("تکمیل‌شده"),
+        (Locale::En, "teacher.assignments.create") => Some("Create assignment"),
+        (Locale::Fa, "teacher.assignments.create") => Some("ایجاد تکلیف"),
+        (Locale::En, "teacher.assignments.due_prefix") => Some("Due"),
+        (Locale::Fa, "teacher.assignments.due_prefix") => Some("مهلت"),
+        (Locale::En, "teacher.assignments.submitted_count") => Some("submitted"),
+        (Locale::Fa, "teacher.assignments.submitted_count") => Some("ارسال‌شده"),
+        (Locale::En, "teacher.assignments.submission_progress") => Some("Submission progress"),
+        (Locale::Fa, "teacher.assignments.submission_progress") => Some("پیشرفت ارسال"),
+        (Locale::En, "teacher.assignments.view_details") => Some("View details"),
+        (Locale::Fa, "teacher.assignments.view_details") => Some("مشاهده جزئیات"),
+        (Locale::En, "teacher.assignments.delete") => Some("Delete"),
+        (Locale::Fa, "teacher.assignments.delete") => Some("حذف"),
+
         (Locale::En, "teacher.knowledge_assets.title") => Some("Knowledge assets"),
         (Locale::Fa, "teacher.knowledge_assets.title") => Some("منابع دانشی"),
         (Locale::En, "teacher.knowledge_assets.description") => {
@@ -255,6 +286,21 @@ pub(crate) fn supplemental_translation(key: &'static str, locale: Locale) -> Opt
 
         _ => None,
     }
+}
+
+pub fn assignment_status_label(value: &str, locale: Locale) -> String {
+    let normalized = value.trim().to_ascii_lowercase();
+    let key = match normalized.as_str() {
+        "draft" => "assignment.status.draft",
+        "published" => "assignment.status.published",
+        "active" => "assignment.status.active",
+        "grading" => "assignment.status.grading",
+        "complete" | "completed" => "assignment.status.complete",
+        _ => return value.to_string(),
+    };
+    supplemental_translation(key, locale)
+        .unwrap_or(value)
+        .to_string()
 }
 
 /// Product role labels are locale-aware presentation, never domain display text.

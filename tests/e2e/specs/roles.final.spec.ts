@@ -131,7 +131,6 @@ test('teacher sees the persisted published assignment and governed knowledge ass
   await expect(page.getByText('E2E Published Asset', { exact: true })).toBeVisible();
 });
 
-
 for (const [locale, emptyResources] of [
   ['en', 'No Materials Yet'],
   ['fa', 'منبعی وجود ندارد'],
@@ -282,4 +281,21 @@ test('platform admin updates verified OCR in an accessible prefilled dialog @fin
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
   await expect(trigger).toBeFocused();
+});
+
+test('teacher assignment status chrome is localized in English and Persian @smoke @final @teacher @i18n', async ({ page }) => {
+  const publishedAssignment = (selectedPage: Page) => selectedPage
+    .getByText('E2E Assignment A1', { exact: true })
+    .locator('xpath=ancestor::article[1]');
+
+  await page.addInitScript(() => localStorage.setItem('edutalent_locale', 'en'));
+  await signIn(page, 'e2e-teacher-a@example.test');
+  await page.goto('/dashboard/assignments');
+  await expect(publishedAssignment(page)).toContainText(/Published/);
+
+  await endSessionForRoleSwitch(page);
+  await page.addInitScript(() => localStorage.setItem('edutalent_locale', 'fa'));
+  await signIn(page, 'e2e-teacher-a@example.test');
+  await page.goto('/dashboard/assignments');
+  await expect(publishedAssignment(page)).toContainText(/منتشرشده/);
 });

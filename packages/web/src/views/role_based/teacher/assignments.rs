@@ -1,6 +1,6 @@
 //! Teacher assignment workflow with truthful publish preconditions.
 
-use crate::i18n::use_locale;
+use crate::i18n::{assignment_status_label, use_locale, Locale};
 use crate::views::role_based::components::DashboardSection;
 use crate::views::role_based::shared::common::Modal;
 use api::domain::AssignmentStatus;
@@ -38,6 +38,7 @@ pub fn AssignmentsList() -> Element {
     let mut filter = use_signal(|| "all".to_string());
     let mut notice = use_signal(|| None::<(bool, String)>);
     let mut resource = use_resource(move || async move { get_teacher_assignments().await });
+    let locale = use_locale();
 
     let confirm_delete = move |assignment_id: String| {
         spawn(async move {
@@ -73,16 +74,16 @@ pub fn AssignmentsList() -> Element {
 
             div { class: "flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between",
                 div { class: "flex flex-wrap gap-2",
-                    FilterButton { value: "all", label: "All", filter }
-                    FilterButton { value: "draft", label: "Draft", filter }
-                    FilterButton { value: "active", label: "Active", filter }
-                    FilterButton { value: "completed", label: "Completed", filter }
+                    FilterButton { value: "all", label: locale.t("teacher.assignments.all_filter"), filter }
+                    FilterButton { value: "draft", label: locale.t("teacher.assignments.draft_filter"), filter }
+                    FilterButton { value: "active", label: locale.t("teacher.assignments.active_filter"), filter }
+                    FilterButton { value: "completed", label: locale.t("teacher.assignments.complete_filter"), filter }
                 }
                 button {
                     class: "btn-primary flex min-h-[44px] items-center justify-center gap-2",
                     onclick: move |_| show_create.set(true),
                     span { class: "material-icons-outlined", "add" }
-                    "Create assignment"
+                    "{locale.t(\"teacher.assignments.create\")}"
                 }
             }
 
@@ -187,7 +188,7 @@ pub fn AssignmentsList() -> Element {
 }
 
 #[component]
-fn FilterButton(value: &'static str, label: &'static str, filter: Signal<String>) -> Element {
+fn FilterButton(value: &'static str, label: String, filter: Signal<String>) -> Element {
     let active = filter() == value;
     rsx! {
         button {
@@ -226,14 +227,14 @@ fn assignment_matches_filter(item: &TeacherAssignmentInfo, filter: &str) -> bool
     }
 }
 
-fn assignment_status_label(item: &TeacherAssignmentInfo) -> String {
+fn teacher_assignment_status_label(item: &TeacherAssignmentInfo, locale: Locale) -> String {
     match item.progress_state {
         Some(progress_state) => format!(
             "{} · {}",
-            item.lifecycle_status,
-            progress_state.display_name()
+            assignment_status_label(&item.lifecycle_status.to_string(), locale),
+            assignment_status_label(progress_state.display_name(), locale)
         ),
-        None => item.lifecycle_status.to_string(),
+        None => assignment_status_label(&item.lifecycle_status.to_string(), locale),
     }
 }
 
@@ -250,7 +251,8 @@ fn AssignmentCard(
     } else {
         0
     };
-    let status_label = assignment_status_label(&assignment);
+    let locale = use_locale();
+    let status_label = teacher_assignment_status_label(&assignment, locale.current());
 
     rsx! {
         article { class: "et-ui-card overflow-hidden",
@@ -263,19 +265,19 @@ fn AssignmentCard(
                     span { class: "rounded-full bg-gray-100 px-2 py-1 text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-300", "{status_label}" }
                 }
                 div { class: "mt-4 flex items-center justify-between text-sm text-gray-500 dark:text-gray-400",
-                    span { "Due {assignment.due_date}" }
-                    span { "{assignment.submitted_count}/{assignment.total_count} submitted" }
+                    span { "{locale.t(\"teacher.assignments.due_prefix\")} {assignment.due_date}" }
+                    span { "{assignment.submitted_count}/{assignment.total_count} {locale.t(\"teacher.assignments.submitted_count\")}" }
                 }
                 progress {
                     class: "et-ui-progress mt-2",
                     max: "100",
                     value: "{progress}",
-                    "aria-label": "Submission progress"
+                    "aria-label": locale.t("teacher.assignments.submission_progress")
                 }
             }
             div { class: "flex gap-2 border-t border-gray-100 p-3 dark:border-gray-800",
-                button { class: "flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700", onclick: move |_| on_view.call(id_view.clone()), "View details" }
-                button { class: "rounded-lg px-3 py-2 text-sm text-red-600 hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-900/20", onclick: move |_| on_delete.call(id_delete.clone()), "Delete" }
+                button { class: "flex-1 rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-gray-700", onclick: move |_| on_view.call(id_view.clone()), "{locale.t(\"teacher.assignments.view_details\")}" }
+                button { class: "rounded-lg px-3 py-2 text-sm text-red-600 hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-900/20", onclick: move |_| on_delete.call(id_delete.clone()), "{locale.t(\"teacher.assignments.delete\")}" }
             }
         }
     }
