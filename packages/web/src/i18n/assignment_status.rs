@@ -62,10 +62,7 @@ mod tests {
             assignment_status_label("IN-PROGRESS", Locale::En),
             "In progress"
         );
-        assert_eq!(
-            assignment_status_label("completed", Locale::Fa),
-            "تکمیل‌شده"
-        );
+        assert_eq!(assignment_status_label("completed", Locale::Fa), "تکمیل‌شده");
     }
 
     #[test]

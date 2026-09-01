@@ -18,5 +18,5 @@ pub use grading::*;
 pub use locale::*;
 pub use provider::*;
 pub use translations::*;
-pub(crate) use ui_translations::supplemental_translation;
 pub use ui_translations::role_label;
+pub(crate) use ui_translations::supplemental_translation;
