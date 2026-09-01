@@ -340,7 +340,8 @@ mod tests {
 
     #[test]
     fn source_rejections_render_bounded_product_html() {
-        let (status, Html(body)) = reject(StatusCode::BAD_GATEWAY, "Source document is unavailable");
+        let (status, Html(body)) =
+            reject(StatusCode::BAD_GATEWAY, "Source document is unavailable");
         assert_eq!(status, StatusCode::BAD_GATEWAY);
         assert!(body.contains("EduTalent source review"));
         assert!(body.contains("Source document is unavailable"));
