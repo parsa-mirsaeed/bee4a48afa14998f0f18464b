@@ -156,10 +156,7 @@ fn TeacherAssignmentOverviewRow(assignment: TeacherAssignmentInfo) -> Element {
     let submitted_label = locale.t("teachers.students.submitted_label");
     let metadata = format!(
         "{} · {}/{} {}",
-        assignment.class_name,
-        assignment.submitted_count,
-        assignment.total_count,
-        submitted_label
+        assignment.class_name, assignment.submitted_count, assignment.total_count, submitted_label
     );
     let status_label = assignment_presentation_label(&assignment, locale.current());
     let due_date = format_product_date_text(&assignment.due_date, locale.current());
