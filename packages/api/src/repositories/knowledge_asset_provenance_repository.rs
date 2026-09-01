@@ -104,6 +104,23 @@ impl KnowledgeAssetRepository {
             ));
         }
 
+        // The database trigger requires the exact optimistic source revision for
+        // PlatformAdmin OCR writes. Keeping these transaction-local settings on
+        // the same locked transaction means legacy/direct endpoints that omit the
+        // precondition fail closed instead of silently binding stale text to a
+        // newly reviewed replacement source.
+        sqlx::query(
+            r#"
+            SELECT
+                set_config('app.knowledge_expected_source_file_id', $1, true),
+                set_config('app.knowledge_expected_source_sha256', $2, true)
+            "#,
+        )
+        .bind(current_source_file_id.to_string())
+        .bind(&current_source_sha256)
+        .execute(&mut *tx)
+        .await?;
+
         let current_revision = sqlx::query_scalar::<_, Uuid>(
             "SELECT revision FROM knowledge_ocr_texts WHERE asset_id = $1 FOR UPDATE",
         )
