@@ -1,8 +1,6 @@
 //! Locale provider and language switching for the web application.
 
-use super::{
-    supplemental_translation, t, teacher_dashboard_translation, Locale, LocalizedGrade,
-};
+use super::{supplemental_translation, t, teacher_dashboard_translation, Locale, LocalizedGrade};
 use dioxus::prelude::*;
 
 const LOCALE_STORAGE_KEY: &str = "edutalent_locale";
