@@ -26,8 +26,11 @@ test.afterEach(() => {
 test('platform admin source storage failure is bounded product UI @smoke @final @workflow-truth', async ({ page }) => {
   await signInAdmin(page);
 
-  await expect(page.getByText('E2E Verified OCR Asset', { exact: true })).toBeVisible();
-  const sourceLink = page.getByRole('link', { name: 'Review private PDF', exact: true });
+  const assetCard = page.locator('article').filter({
+    has: page.getByText('E2E Verified OCR Asset', { exact: true }),
+  });
+  await expect(assetCard).toBeVisible();
+  const sourceLink = assetCard.getByRole('link', { name: 'Review private PDF', exact: true });
   await expect(sourceLink).toBeVisible();
 
   const popupPromise = page.waitForEvent('popup');
