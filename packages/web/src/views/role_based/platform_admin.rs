@@ -604,7 +604,7 @@ fn render_review_card(
                         target: "_blank",
                         rel: "noopener noreferrer",
                         "Review private PDF",
-                        span { class: "material-icons-outlined text-base", "open_in_new" }
+                        span { class: "material-icons-outlined text-base", aria_hidden: "true", "open_in_new" }
                     }
                 } else {
                     p { class: "mt-2 text-xs text-amber-700 dark:text-amber-300", "Private source review is unavailable for this legacy submission." }
