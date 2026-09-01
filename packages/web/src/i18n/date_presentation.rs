@@ -1,31 +1,49 @@
 use super::Locale;
-use chrono::{DateTime, Datelike, Utc};
+use chrono::{DateTime, Datelike, NaiveDate, Utc};
 
 /// Format a persisted UTC instant as product date chrome.
 ///
 /// This intentionally stays at the presentation boundary: domain/API values
 /// remain structured timestamps and user-entered content is never translated.
 pub fn format_product_date(value: DateTime<Utc>, locale: Locale) -> String {
+    format_date_parts(value.year(), value.month(), value.day(), locale)
+}
+
+/// Format date text received from an older API boundary without leaking its
+/// English month presentation into Persian product chrome.
+///
+/// RFC 3339 is accepted for the structured boundary we are moving toward, and
+/// the legacy `%b %d, %Y` shape remains supported until the dashboard response
+/// model is migrated to a timestamp. Unknown user/data text is returned as-is.
+pub fn format_product_date_text(value: &str, locale: Locale) -> String {
+    if let Ok(parsed) = DateTime::parse_from_rfc3339(value) {
+        return format_product_date(parsed.with_timezone(&Utc), locale);
+    }
+    if let Ok(parsed) = NaiveDate::parse_from_str(value, "%b %d, %Y") {
+        return format_date_parts(parsed.year(), parsed.month(), parsed.day(), locale);
+    }
+    value.to_string()
+}
+
+fn format_date_parts(year: i32, month: u32, day: u32, locale: Locale) -> String {
+    let (english_month, persian_month) = match month {
+        1 => ("Jan", "ژانویه"),
+        2 => ("Feb", "فوریه"),
+        3 => ("Mar", "مارس"),
+        4 => ("Apr", "آوریل"),
+        5 => ("May", "مه"),
+        6 => ("Jun", "ژوئن"),
+        7 => ("Jul", "ژوئیه"),
+        8 => ("Aug", "اوت"),
+        9 => ("Sep", "سپتامبر"),
+        10 => ("Oct", "اکتبر"),
+        11 => ("Nov", "نوامبر"),
+        12 => ("Dec", "دسامبر"),
+        _ => unreachable!("chrono month is always 1..=12"),
+    };
     match locale {
-        Locale::En => value.format("%b %d, %Y").to_string(),
-        Locale::Fa => {
-            let month = match value.month() {
-                1 => "ژانویه",
-                2 => "فوریه",
-                3 => "مارس",
-                4 => "آوریل",
-                5 => "مه",
-                6 => "ژوئن",
-                7 => "ژوئیه",
-                8 => "اوت",
-                9 => "سپتامبر",
-                10 => "اکتبر",
-                11 => "نوامبر",
-                12 => "دسامبر",
-                _ => unreachable!("chrono month is always 1..=12"),
-            };
-            to_persian_digits(&format!("{} {} {}", value.day(), month, value.year()))
-        }
+        Locale::En => format!("{english_month} {day:02}, {year}"),
+        Locale::Fa => to_persian_digits(&format!("{day} {persian_month} {year}")),
     }
 }
 
@@ -66,5 +84,25 @@ mod tests {
         assert_eq!(formatted, "۱۰ سپتامبر ۲۰۲۶");
         assert!(!formatted.contains("Sep"));
         assert!(!formatted.chars().any(|character| character.is_ascii_digit()));
+    }
+
+    #[test]
+    fn legacy_dashboard_date_is_localized_at_the_ui_boundary() {
+        assert_eq!(
+            format_product_date_text("Sep 10, 2026", Locale::Fa),
+            "۱۰ سپتامبر ۲۰۲۶"
+        );
+        assert_eq!(
+            format_product_date_text("Sep 10, 2026", Locale::En),
+            "Sep 10, 2026"
+        );
+    }
+
+    #[test]
+    fn rfc3339_dashboard_date_is_ready_for_structured_api_migration() {
+        assert_eq!(
+            format_product_date_text("2026-09-10T13:45:00Z", Locale::Fa),
+            "۱۰ سپتامبر ۲۰۲۶"
+        );
     }
 }
