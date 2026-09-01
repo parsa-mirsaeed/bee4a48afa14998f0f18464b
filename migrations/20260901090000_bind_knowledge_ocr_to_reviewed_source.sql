@@ -148,6 +148,77 @@ BEGIN
 END;
 $$;
 
+-- Existing downstream state predates durable source provenance. Do not pretend
+-- those OCR/chunk rows were reviewed against the canonical source. Walk only
+-- legal historical transitions back to the safe OCR-review stage. The predicate
+-- keeps migration replay idempotent once an asset has a real source binding.
+UPDATE public.teacher_asset_selections AS selection
+SET enabled = FALSE, updated_at = NOW()
+WHERE selection.enabled = TRUE
+  AND EXISTS (
+      SELECT 1
+      FROM public.knowledge_assets AS asset
+      WHERE asset.id = selection.asset_id
+        AND asset.status IN ('embedding_pending', 'embedded', 'published')
+        AND NOT EXISTS (
+            SELECT 1
+            FROM public.knowledge_ocr_texts AS ocr
+            WHERE ocr.asset_id = asset.id
+              AND ocr.source_file_id = asset.current_source_file_id
+              AND ocr.source_sha256 IS NOT NULL
+        )
+  );
+
+UPDATE public.ingestion_jobs AS job
+SET status = 'cancelled',
+    finished_at = NOW(),
+    error_message = 'Legacy knowledge provenance requires governed re-verification',
+    updated_at = NOW()
+WHERE job.status IN ('queued', 'running')
+  AND EXISTS (
+      SELECT 1
+      FROM public.knowledge_assets AS asset
+      WHERE asset.id = job.asset_id
+        AND asset.status IN ('embedding_pending', 'embedded', 'published')
+        AND NOT EXISTS (
+            SELECT 1
+            FROM public.knowledge_ocr_texts AS ocr
+            WHERE ocr.asset_id = asset.id
+              AND ocr.source_file_id = asset.current_source_file_id
+              AND ocr.source_sha256 IS NOT NULL
+        )
+  );
+
+UPDATE public.knowledge_assets AS asset
+SET status = 'embedded'
+WHERE asset.status = 'published'
+  AND NOT EXISTS (
+      SELECT 1 FROM public.knowledge_ocr_texts AS ocr
+      WHERE ocr.asset_id = asset.id
+        AND ocr.source_file_id = asset.current_source_file_id
+        AND ocr.source_sha256 IS NOT NULL
+  );
+
+UPDATE public.knowledge_assets AS asset
+SET status = 'embedding_pending'
+WHERE asset.status = 'embedded'
+  AND NOT EXISTS (
+      SELECT 1 FROM public.knowledge_ocr_texts AS ocr
+      WHERE ocr.asset_id = asset.id
+        AND ocr.source_file_id = asset.current_source_file_id
+        AND ocr.source_sha256 IS NOT NULL
+  );
+
+UPDATE public.knowledge_assets AS asset
+SET status = 'ocr_ready', reviewed_by = NULL, failure_reason = NULL
+WHERE asset.status = 'embedding_pending'
+  AND NOT EXISTS (
+      SELECT 1 FROM public.knowledge_ocr_texts AS ocr
+      WHERE ocr.asset_id = asset.id
+        AND ocr.source_file_id = asset.current_source_file_id
+        AND ocr.source_sha256 IS NOT NULL
+  );
+
 CREATE OR REPLACE FUNCTION public.advance_knowledge_current_source()
 RETURNS TRIGGER
 LANGUAGE plpgsql
@@ -342,6 +413,11 @@ BEGIN
 END;
 $$;
 
+-- Do not leave the privileged evidence minting function executable merely by
+-- virtue of PostgreSQL's default PUBLIC function privilege. Production grants
+-- EXECUTE explicitly to the dedicated NOBYPASSRLS application identity.
+REVOKE ALL ON FUNCTION public.record_knowledge_source_review(UUID, UUID, BYTEA) FROM PUBLIC;
+
 -- A revision UUID is historical identity for one OCR verification event. The
 -- append-only provenance table prevents an existing OCR revision from ever being
 -- repointed to another source, even though knowledge_ocr_texts stores the latest
@@ -355,6 +431,22 @@ CREATE TABLE IF NOT EXISTS public.knowledge_ocr_revision_provenance (
     verified_by UUID NOT NULL REFERENCES public.users(id),
     verified_at TIMESTAMPTZ NOT NULL
 );
+
+ALTER TABLE public.knowledge_ocr_revision_provenance ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.knowledge_ocr_revision_provenance FORCE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS knowledge_ocr_revision_provenance_admin_select
+    ON public.knowledge_ocr_revision_provenance;
+CREATE POLICY knowledge_ocr_revision_provenance_admin_select
+ON public.knowledge_ocr_revision_provenance
+FOR SELECT USING (get_role() = 'PlatformAdmin');
+
+-- Provenance history can be inserted only from the verified-OCR trigger path.
+DROP POLICY IF EXISTS knowledge_ocr_revision_provenance_trigger_insert
+    ON public.knowledge_ocr_revision_provenance;
+CREATE POLICY knowledge_ocr_revision_provenance_trigger_insert
+ON public.knowledge_ocr_revision_provenance
+FOR INSERT WITH CHECK (get_role() = 'PlatformAdmin' AND pg_trigger_depth() > 0);
 
 CREATE OR REPLACE FUNCTION public.prevent_knowledge_ocr_provenance_mutation()
 RETURNS TRIGGER
@@ -465,6 +557,24 @@ FOR EACH ROW
 WHEN (NEW.source_file_id IS NOT NULL AND NEW.source_sha256 IS NOT NULL)
 EXECUTE FUNCTION public.record_knowledge_ocr_revision_provenance();
 
+-- Embedding rows are immutable snapshots. Re-embedding already replaces them by
+-- DELETE + INSERT; an UPDATE must never relabel an old vector as a new source.
+CREATE OR REPLACE FUNCTION public.prevent_knowledge_chunk_mutation()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RAISE EXCEPTION 'Knowledge embedding chunks are immutable; re-embed the asset instead'
+        USING ERRCODE = '55000';
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_knowledge_chunk_immutable ON public.knowledge_chunks;
+CREATE TRIGGER trg_knowledge_chunk_immutable
+BEFORE UPDATE ON public.knowledge_chunks
+FOR EACH ROW
+EXECUTE FUNCTION public.prevent_knowledge_chunk_mutation();
+
 -- Embedding rows are bound to the exact current OCR/source revision at insertion.
 CREATE OR REPLACE FUNCTION public.bind_knowledge_chunk_provenance()
 RETURNS TRIGGER
@@ -502,9 +612,65 @@ $$;
 DROP TRIGGER IF EXISTS trg_bind_knowledge_chunk_provenance
     ON public.knowledge_chunks;
 CREATE TRIGGER trg_bind_knowledge_chunk_provenance
-BEFORE INSERT OR UPDATE ON public.knowledge_chunks
+BEFORE INSERT ON public.knowledge_chunks
 FOR EACH ROW
 EXECUTE FUNCTION public.bind_knowledge_chunk_provenance();
+
+-- One reusable fail-closed predicate for teacher visibility and service/repository
+-- defense-in-depth. SECURITY DEFINER is read-only and exposes only a boolean.
+CREATE OR REPLACE FUNCTION public.knowledge_asset_has_current_provenance(p_asset_id UUID)
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+    SELECT EXISTS (
+        SELECT 1
+        FROM public.knowledge_assets AS asset
+        JOIN public.knowledge_source_files AS source
+          ON source.id = asset.current_source_file_id
+         AND source.asset_id = asset.id
+        JOIN public.knowledge_ocr_texts AS ocr
+          ON ocr.asset_id = asset.id
+         AND ocr.source_file_id = source.id
+         AND lower(ocr.source_sha256) = lower(source.sha256)
+        WHERE asset.id = p_asset_id
+          AND EXISTS (
+              SELECT 1
+              FROM public.knowledge_source_reviews AS review
+              WHERE review.asset_id = asset.id
+                AND review.source_file_id = source.id
+                AND review.source_sha256 = lower(source.sha256)
+          )
+          AND EXISTS (
+              SELECT 1
+              FROM public.knowledge_chunks AS chunk
+              WHERE chunk.asset_id = asset.id
+                AND chunk.source_file_id = source.id
+                AND chunk.source_sha256 = lower(source.sha256)
+                AND chunk.ocr_revision = ocr.revision
+          )
+    );
+$$;
+
+REVOKE ALL ON FUNCTION public.knowledge_asset_has_current_provenance(UUID) FROM PUBLIC;
+
+-- Replace teacher visibility with the exact provenance contract. Platform Admin
+-- and School Manager visibility stays unchanged; teacher reads fail closed even
+-- if a stale row is accidentally left marked published.
+DROP POLICY IF EXISTS knowledge_assets_scoped_select ON public.knowledge_assets;
+CREATE POLICY knowledge_assets_scoped_select ON public.knowledge_assets
+FOR SELECT USING (
+    get_role() = 'PlatformAdmin'
+    OR (get_role() = 'SchoolManager' AND school_id = get_school_id())
+    OR (
+        get_role() = 'Teacher'
+        AND school_id = get_school_id()
+        AND status = 'published'
+        AND public.knowledge_asset_has_current_provenance(id)
+    )
+);
 
 -- Advancing into downstream lifecycle states requires one exact provenance chain:
 -- asset current source == trusted review == verified OCR == embedding chunks.
