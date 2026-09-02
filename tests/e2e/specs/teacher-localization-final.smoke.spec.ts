@@ -27,6 +27,8 @@ async function signInTeacher(page: Page, locale: 'en' | 'fa'): Promise<void> {
 async function waitForTeacherRouteData(page: Page, route: typeof TEACHER_ROUTES[number]): Promise<void> {
   switch (route) {
     case '/dashboard':
+      await expect(page.getByText('E2E Assignment A1', { exact: true }).first()).toBeVisible();
+      break;
     case '/dashboard/classes':
       await expect(page.getByText('E2E Class A1', { exact: true }).first()).toBeVisible();
       break;
