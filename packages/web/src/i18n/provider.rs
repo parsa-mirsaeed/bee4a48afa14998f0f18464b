@@ -1,8 +1,9 @@
 //! Locale provider and language switching for the web application.
 
 use super::{
-    student_translation, supplemental_translation, t, teacher_assignments_translation,
-    teacher_classes_translation, teacher_dashboard_translation, Locale, LocalizedGrade,
+    parent_translation, student_translation, supplemental_translation, t,
+    teacher_assignments_translation, teacher_classes_translation, teacher_dashboard_translation,
+    Locale, LocalizedGrade,
 };
 use dioxus::prelude::*;
 
@@ -40,6 +41,7 @@ impl LocaleContext {
 
     pub fn t(&self, key: &'static str) -> String {
         student_translation(key, self.current())
+            .or_else(|| parent_translation(key, self.current()))
             .or_else(|| teacher_dashboard_translation(key, self.current()))
             .or_else(|| teacher_assignments_translation(key, self.current()))
             .or_else(|| teacher_classes_translation(key, self.current()))

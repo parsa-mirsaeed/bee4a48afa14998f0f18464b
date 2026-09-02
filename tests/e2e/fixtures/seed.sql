@@ -23,6 +23,7 @@ INSERT INTO users (id, name, email, role_id, school_id, is_active) VALUES
   ('b0000000-0000-0000-0000-0000000000b3', 'E2E Student B',      'e2e-student-b@example.test',(SELECT id FROM roles WHERE name = 'Student'),       'a0000000-0000-0000-0000-0000000000b1', true),
   ('b0000000-0000-0000-0000-0000000000a4', 'E2E Parent A',       'e2e-parent-a@example.test', (SELECT id FROM roles WHERE name = 'Parent'),        'a0000000-0000-0000-0000-0000000000a1', true),
   ('b0000000-0000-0000-0000-0000000000b4', 'E2E Parent B',       'e2e-parent-b@example.test', (SELECT id FROM roles WHERE name = 'Parent'),        'a0000000-0000-0000-0000-0000000000b1', true),
+  ('b0000000-0000-0000-0000-0000000000a5', 'E2E Parent Empty',   'e2e-parent-empty@example.test', (SELECT id FROM roles WHERE name = 'Parent'),     'a0000000-0000-0000-0000-0000000000a1', true),
   ('b0000000-0000-0000-0000-0000000000a9', 'E2E Inactive Teacher','e2e-inactive@example.test',(SELECT id FROM roles WHERE name = 'Teacher'),       'a0000000-0000-0000-0000-0000000000a1', false)
 ON CONFLICT (id) DO NOTHING;
 
