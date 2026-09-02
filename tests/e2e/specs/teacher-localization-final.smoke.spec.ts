@@ -3,7 +3,7 @@ import { enforceOfflineAllowlist, assertNoUnexpectedOrigins } from '../fixtures/
 import { watchConsole, assertNoConsoleErrors } from '../fixtures/console-guard';
 
 const PASSWORD = 'e2e-password';
-const RAW_TRANSLATION_KEY = /\b(?:teachers|students|assignments|grades|classes|materials|submissions|nav|common)\.[a-z0-9_.]+\b/i;
+const RAW_TRANSLATION_KEY = /\b(?:teacher|teachers|students|assignments|grades|classes|materials|submissions|nav|common)\.[a-z0-9_.]+\b/i;
 const TEACHER_ROUTES = [
   '/dashboard',
   '/dashboard/classes',
@@ -22,6 +22,27 @@ async function signInTeacher(page: Page, locale: 'en' | 'fa'): Promise<void> {
   await page.locator('input[type="password"]').fill(PASSWORD);
   await page.getByRole('button', { name: /sign in|ورود/i }).click();
   await expect(page).toHaveURL(/\/dashboard$/);
+}
+
+async function waitForTeacherRouteData(page: Page, route: typeof TEACHER_ROUTES[number]): Promise<void> {
+  switch (route) {
+    case '/dashboard':
+    case '/dashboard/classes':
+      await expect(page.getByText('E2E Class A1', { exact: true }).first()).toBeVisible();
+      break;
+    case '/dashboard/assignments':
+      await expect(page.getByText('E2E Assignment A1', { exact: true }).first()).toBeVisible();
+      break;
+    case '/dashboard/knowledge-assets':
+      await expect(page.getByText('E2E Published Asset', { exact: true }).first()).toBeVisible();
+      break;
+    case '/dashboard/students':
+      await expect(page.getByText('E2E Student A', { exact: true }).first()).toBeVisible();
+      break;
+    case '/dashboard/submissions':
+      await expect(page.locator('.animate-pulse')).toHaveCount(0);
+      break;
+  }
 }
 
 async function assertLocalizedTeacherChrome(page: Page, locale: 'en' | 'fa'): Promise<void> {
@@ -67,6 +88,7 @@ for (const locale of ['en', 'fa'] as const) {
     for (const route of TEACHER_ROUTES) {
       await page.goto(route);
       await expect(page).toHaveURL(new RegExp(`${route.replaceAll('/', '\\/')}$`));
+      await waitForTeacherRouteData(page, route);
       await assertLocalizedTeacherChrome(page, locale);
     }
   });
@@ -82,14 +104,24 @@ for (const locale of ['en', 'fa'] as const) {
     await expect(card).toBeVisible();
     await assertLocalizedTeacherChrome(page, locale);
 
-    const overflow = await card.evaluate((element) => ({
-      clientWidth: element.clientWidth,
-      scrollWidth: element.scrollWidth,
-    }));
-    expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth + 1);
-
-    const stats = card.locator('.max-w-\\[7rem\\]').first();
-    await expect(stats).toBeVisible();
-    await expect(stats).toHaveClass(/\btext-end\b/);
+    const layout = await card.evaluate((element) => {
+      const stats = Array.from(element.querySelectorAll('div')).find((candidate) =>
+        candidate.getAttribute('style')?.includes('text-align: end'),
+      );
+      const submittedLabel = stats?.querySelector('div:last-child');
+      const statsStyle = stats ? getComputedStyle(stats) : null;
+      const labelStyle = submittedLabel ? getComputedStyle(submittedLabel) : null;
+      return {
+        clientWidth: element.clientWidth,
+        scrollWidth: element.scrollWidth,
+        statsMaxWidth: statsStyle?.maxWidth ?? '',
+        statsTextAlign: statsStyle?.textAlign ?? '',
+        labelOverflowWrap: labelStyle?.overflowWrap ?? '',
+      };
+    });
+    expect(layout.scrollWidth).toBeLessThanOrEqual(layout.clientWidth + 1);
+    expect(layout.statsMaxWidth).toBe('128px');
+    expect(['start', 'end', 'left', 'right']).toContain(layout.statsTextAlign);
+    expect(['anywhere', 'break-word']).toContain(layout.labelOverflowWrap);
   });
 }
