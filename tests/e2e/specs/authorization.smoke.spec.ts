@@ -15,7 +15,7 @@ const STUDENT = { email: 'e2e-student-a@example.test', password: 'e2e-password' 
 const TEACHER = { email: 'e2e-teacher-a@example.test', password: 'e2e-password' };
 const SCHOOL_A_ASSET = 'f3000000-0000-0000-0000-0000000000a1';
 const SCHOOL_B_ASSET = 'f3000000-0000-0000-0000-0000000000b1';
-const SCHOOL_A_CUSTOM_ASSIGNMENT = 'f1000000-0000-0000-0000-0000000000a2';
+const SCHOOL_A_CUSTOM_ASSIGNMENT = 'f1000000-0000-0000-0000-0000000000a4';
 const SCHOOL_B_CUSTOM_ASSIGNMENT = 'f1000000-0000-0000-0000-0000000000b1';
 const SCHOOL_A_SUBMISSION = 'f2000000-0000-0000-0000-0000000000a4';
 const SCHOOL_B_SUBMISSION = 'f2000000-0000-0000-0000-0000000000b1';
@@ -86,13 +86,23 @@ test('student direct navigation to teacher-only area is denied @smoke @authoriza
 });
 
 test('student cannot submit a School B assignment by tampering its object ID @smoke @authorization', async ({ page }) => {
+  // Authorization semantics are locale-independent. Pin this negative journey to
+  // English so selectors remain deterministic now that Student actions are truly
+  // localized and the product default may be Farsi.
+  await page.addInitScript(() => localStorage.setItem('edutalent_locale', 'en'));
   await signIn(page, STUDENT.email, STUDENT.password);
   await actionWithIcon(page, 'assignment').click();
 
-  const assignmentTitle = page.getByText('E2E Submission Journey Desktop', { exact: true }).first();
+  // Use the dedicated authorization fixture rather than the stateful final-workflow
+  // assignment. The exact Student presentation state is intentionally derived from
+  // persisted grade/submission/due data, so accept any canonical non-graded entry
+  // action while keeping the cross-school submit denial itself strict.
+  const assignmentTitle = page.getByText('E2E Authorization Submission A', { exact: true }).first();
   await expect(assignmentTitle).toBeVisible();
   const assignmentCard = assignmentTitle.locator('xpath=ancestor::article[1]');
-  await assignmentCard.getByRole('button', { name: /start assignment/i }).click();
+  await assignmentCard
+    .getByRole('button', { name: /start assignment|submit late|view submission/i })
+    .click();
   await page.getByRole('button', { name: /open my submission/i }).click();
   await page.locator('textarea').first().fill('School A authorization probe');
 

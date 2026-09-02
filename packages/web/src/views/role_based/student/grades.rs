@@ -27,14 +27,18 @@ pub fn StudentGrades() -> Element {
 
     rsx! {
         div { class: "space-y-6",
-            div { class: "et-ui-card p-5 border-l-4 border-blue-500",
-                h3 { class: "font-semibold text-gray-900 dark:text-white", "Recorded grades" }
-                p { class: "mt-1 text-sm text-gray-500 dark:text-gray-400", "Grades recorded by your teachers appear here." }
+            div { class: "et-ui-card p-5 border-s-4 border-blue-500",
+                h3 { class: "font-semibold text-gray-900 dark:text-white", "{locale.t(\"student.grades.recorded_title\")}" }
+                p { class: "mt-1 text-sm text-gray-500 dark:text-gray-400", "{locale.t(\"student.grades.recorded_description\")}" }
             }
             match &*classes.read() {
                 None => rsx! { div { class: "grid grid-cols-1 md:grid-cols-2 gap-4", SkeletonCard {} SkeletonCard {} } },
-                Some(Err(_)) => rsx! { div { class: "et-ui-card p-8 text-center text-red-600", "Unable to load grades." } },
-                Some(Ok(items)) if items.is_empty() => rsx! { div { class: "et-ui-card p-8 text-center text-gray-500", "{locale.t(\"grades.no_classes\")}" } },
+                Some(Err(_)) => rsx! {
+                    div { class: "et-ui-card p-8 text-center text-red-600", "{locale.t(\"student.grades.load_error\")}" }
+                },
+                Some(Ok(items)) if items.is_empty() => rsx! {
+                    div { class: "et-ui-card p-8 text-center text-gray-500", "{locale.t(\"grades.no_classes\")}" }
+                },
                 Some(Ok(items)) => rsx! {
                     div { class: "grid grid-cols-1 md:grid-cols-2 gap-4",
                         for class in items.iter() {
@@ -85,7 +89,7 @@ fn ClassGradesModal(class: StudentClassView, on_close: EventHandler) -> Element 
                 div { class: "space-y-3 max-h-96 overflow-y-auto",
                     match &*grades.read() {
                         None => rsx! { p { class: "py-8 text-center text-gray-500", "{locale.t(\"grades.loading\")}" } },
-                        Some(Err(_)) => rsx! { p { class: "py-8 text-center text-red-600", "Unable to load recorded grades." } },
+                        Some(Err(_)) => rsx! { p { class: "py-8 text-center text-red-600", "{locale.t(\"student.grades.detail_load_error\")}" } },
                         Some(Ok(items)) if items.is_empty() => rsx! { p { class: "py-8 text-center text-gray-500", "{locale.t(\"grades.no_grades\")}" } },
                         Some(Ok(items)) => rsx! {
                             for grade in items.iter() {
@@ -98,7 +102,7 @@ fn ClassGradesModal(class: StudentClassView, on_close: EventHandler) -> Element 
                                             }
                                         }
                                     }
-                                    div { class: "text-right",
+                                    div { class: "text-end",
                                         GradeToken { value: grade.grade.clone(), class: Some("font-bold text-primary".to_string()) }
                                         GradeToken { value: grade.points.clone(), class: Some("text-xs text-gray-500".to_string()) }
                                     }
@@ -109,5 +113,20 @@ fn ClassGradesModal(class: StudentClassView, on_close: EventHandler) -> Element 
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn student_grade_errors_are_bounded_and_translation_driven() {
+        let source = include_str!("grades.rs");
+        let implementation = source
+            .split("#[cfg(test)]")
+            .next()
+            .expect("grade implementation before tests");
+        assert!(implementation.contains("student.grades.load_error"));
+        assert!(implementation.contains("student.grades.detail_load_error"));
+        assert!(!implementation.contains("Some(Err(e))"));
     }
 }

@@ -200,8 +200,8 @@ mod tests {
 
     #[test]
     fn student_assignment_ui_never_invents_missing_points() {
-        let source = include_str!("views/role_based/student/assignments.rs");
-        assert!(source.contains("Points not specified"));
+        let source = production_source(include_str!("views/role_based/student/assignments.rs"));
+        assert!(source.contains("student.assignments.points_unspecified"));
         assert!(!source.contains("unwrap_or_else(|| \"100\""));
     }
 
