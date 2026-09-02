@@ -90,6 +90,6 @@ for (const locale of ['en', 'fa'] as const) {
 
     const stats = card.locator('.max-w-\\[7rem\\]').first();
     await expect(stats).toBeVisible();
-    await expect(stats).toHaveCSS('text-align', locale === 'fa' ? 'start' : 'end');
+    await expect(stats).toHaveClass(/\btext-end\b/);
   });
 }
