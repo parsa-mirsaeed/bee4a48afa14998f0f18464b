@@ -10,6 +10,7 @@ mod assignment_status;
 mod date_presentation;
 pub mod grading;
 pub mod locale;
+mod parent_translations;
 pub mod provider;
 mod teacher_assignments_translations;
 mod teacher_classes_translations;
@@ -23,6 +24,7 @@ pub use date_presentation::{
 };
 pub use grading::*;
 pub use locale::*;
+pub(crate) use parent_translations::{format_parent_class_count, parent_translation};
 pub use provider::*;
 pub(crate) use teacher_assignments_translations::teacher_assignments_translation;
 pub(crate) use teacher_classes_translations::{
