@@ -86,12 +86,16 @@ test('student direct navigation to teacher-only area is denied @smoke @authoriza
 });
 
 test('student cannot submit a School B assignment by tampering its object ID @smoke @authorization', async ({ page }) => {
+  // Authorization semantics are locale-independent. Pin this negative journey to
+  // English so selectors remain deterministic now that Student actions are truly
+  // localized and the product default may be Farsi.
+  await page.addInitScript(() => localStorage.setItem('edutalent_locale', 'en'));
   await signIn(page, STUDENT.email, STUDENT.password);
   await actionWithIcon(page, 'assignment').click();
 
   // Use the dedicated authorization fixture rather than the stateful final-workflow
   // assignment. The latter is intentionally mutated by roles.final.spec.ts and can
-  // otherwise race this negative authorization journey when browser files overlap.
+  // otherwise race this negative authorization journey when browser scopes change.
   const assignmentTitle = page.getByText('E2E Authorization Submission A', { exact: true }).first();
   await expect(assignmentTitle).toBeVisible();
   const assignmentCard = assignmentTitle.locator('xpath=ancestor::article[1]');
