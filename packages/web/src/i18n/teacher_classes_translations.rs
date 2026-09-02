@@ -52,21 +52,14 @@ pub(crate) fn teacher_classes_translation(
 }
 
 pub(crate) fn format_teacher_vectorization_duration(seconds: i32, locale: Locale) -> String {
-    let seconds_label = teacher_classes_translation(
-        "teachers.classes.vectorization.seconds",
-        locale,
-    )
-    .expect("vectorization seconds unit has EN/FA parity");
-    let minutes_label = teacher_classes_translation(
-        "teachers.classes.vectorization.minutes",
-        locale,
-    )
-    .expect("vectorization minutes unit has EN/FA parity");
-    let hours_label = teacher_classes_translation(
-        "teachers.classes.vectorization.hours",
-        locale,
-    )
-    .expect("vectorization hours unit has EN/FA parity");
+    let seconds_label =
+        teacher_classes_translation("teachers.classes.vectorization.seconds", locale)
+            .expect("vectorization seconds unit has EN/FA parity");
+    let minutes_label =
+        teacher_classes_translation("teachers.classes.vectorization.minutes", locale)
+            .expect("vectorization minutes unit has EN/FA parity");
+    let hours_label = teacher_classes_translation("teachers.classes.vectorization.hours", locale)
+        .expect("vectorization hours unit has EN/FA parity");
 
     if seconds < 60 {
         format!(
@@ -188,8 +181,6 @@ mod tests {
         );
         let persian = format_teacher_vectorization_duration(125, Locale::Fa);
         assert_eq!(persian, "۲ دقیقه ۵ ثانیه");
-        assert!(!persian
-            .chars()
-            .any(|character| character.is_ascii_digit()));
+        assert!(!persian.chars().any(|character| character.is_ascii_digit()));
     }
 }
