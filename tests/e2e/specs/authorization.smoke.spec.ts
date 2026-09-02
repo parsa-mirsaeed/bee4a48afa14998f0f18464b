@@ -94,12 +94,15 @@ test('student cannot submit a School B assignment by tampering its object ID @sm
   await actionWithIcon(page, 'assignment').click();
 
   // Use the dedicated authorization fixture rather than the stateful final-workflow
-  // assignment. The latter is intentionally mutated by roles.final.spec.ts and can
-  // otherwise race this negative authorization journey when browser scopes change.
+  // assignment. The exact Student presentation state is intentionally derived from
+  // persisted grade/submission/due data, so accept any canonical non-graded entry
+  // action while keeping the cross-school submit denial itself strict.
   const assignmentTitle = page.getByText('E2E Authorization Submission A', { exact: true }).first();
   await expect(assignmentTitle).toBeVisible();
   const assignmentCard = assignmentTitle.locator('xpath=ancestor::article[1]');
-  await assignmentCard.getByRole('button', { name: /view submission/i }).click();
+  await assignmentCard
+    .getByRole('button', { name: /start assignment|submit late|view submission/i })
+    .click();
   await page.getByRole('button', { name: /open my submission/i }).click();
   await page.locator('textarea').first().fill('School A authorization probe');
 
