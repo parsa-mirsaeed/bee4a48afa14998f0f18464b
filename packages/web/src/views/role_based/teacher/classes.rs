@@ -776,8 +776,9 @@ mod tests {
     fn teacher_class_modals_do_not_render_backend_error_bodies() {
         let source = include_str!("classes.rs");
         let backend_error_pattern = [": ", "{e}"].concat();
+        let backend_error_field = ["s.", "error_message"].concat();
         assert!(!source.contains(&backend_error_pattern));
-        assert!(!source.contains("s.error_message"));
+        assert!(!source.contains(&backend_error_field));
         assert!(source.contains("assignment_status_label"));
         assert!(source.contains("format_product_date_text"));
         assert!(source.contains("format_product_datetime_text"));
