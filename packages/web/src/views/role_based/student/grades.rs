@@ -121,8 +121,12 @@ mod tests {
     #[test]
     fn student_grade_errors_are_bounded_and_translation_driven() {
         let source = include_str!("grades.rs");
-        assert!(source.contains("student.grades.load_error"));
-        assert!(source.contains("student.grades.detail_load_error"));
-        assert!(!source.contains("Some(Err(e))"));
+        let implementation = source
+            .split("#[cfg(test)]")
+            .next()
+            .expect("grade implementation before tests");
+        assert!(implementation.contains("student.grades.load_error"));
+        assert!(implementation.contains("student.grades.detail_load_error"));
+        assert!(!implementation.contains("Some(Err(e))"));
     }
 }
