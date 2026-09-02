@@ -1,5 +1,5 @@
 use crate::components::skeleton::SkeletonCard;
-use crate::i18n::use_locale;
+use crate::i18n::{assignment_status_label, format_product_date_text, use_locale};
 use crate::views::role_based::components::DashboardSection;
 use crate::views::role_based::shared::common::Modal;
 use crate::views::role_based::shared::common::{format_grade_date, GradeToken};
@@ -35,23 +35,18 @@ pub fn ChildrenDetail() -> Element {
 
     rsx! {
         div { class: "space-y-6",
-            div { class: "et-ui-card p-5 border-l-4 border-blue-500",
-                p { class: "text-sm text-gray-600 dark:text-gray-300",
-                    "Attendance, parent reports, and parent-teacher communication are not enabled in this release. This page shows only linked child identity, enrollment, assignments, and persisted grades."
-                }
-            }
             match children.read().as_ref() {
                 None => rsx! { div { class: "grid grid-cols-1 xl:grid-cols-3 gap-4", SkeletonCard {} SkeletonCard {} } },
                 Some(Err(_)) => rsx! {
                     div { class: "et-state-panel et-state-panel--error",
-                        p { "Children could not be loaded." }
-                        button { class: "et-inline-action mt-3", onclick: move |_| children.restart(), "Try again" }
+                        p { "{locale.t(\"parent.children.load_error\")}" }
+                        button { class: "et-inline-action mt-3", onclick: move |_| children.restart(), "{locale.t(\"common.retry\")}" }
                     }
                 },
                 Some(Ok(items)) if items.is_empty() => rsx! {
                     div { class: "et-ui-card p-10 text-center text-gray-500 dark:text-gray-400",
-                        h3 { class: "font-semibold text-gray-900 dark:text-white", "No student is linked to this parent account yet" }
-                        p { class: "mt-2 text-sm", "School administration must link a student before academic information appears." }
+                        h3 { class: "font-semibold text-gray-900 dark:text-white", "{locale.t(\"parent.dashboard.empty_title\")}" }
+                        p { class: "mt-2 text-sm", "{locale.t(\"parent.dashboard.empty_description\")}" }
                     }
                 },
                 Some(Ok(items)) => rsx! {
@@ -64,7 +59,11 @@ pub fn ChildrenDetail() -> Element {
                                     div { key: "{child.id}", class: "et-ui-card p-5",
                                         h3 { class: "text-lg font-bold text-gray-900 dark:text-white", "{child.name}" }
                                         p { class: "mt-1 text-sm text-gray-500 dark:text-gray-400",
-                                            if let Some(grade) = child.grade_level.as_ref() { "{grade}" } else { "Grade not recorded" }
+                                            if let Some(grade) = child.grade_level.as_ref() {
+                                                "{grade}"
+                                            } else {
+                                                "{locale.t(\"parent.child.grade_not_recorded\")}"
+                                            }
                                         }
                                         div { class: "mt-4 rounded-lg bg-gray-50 dark:bg-gray-800/50 p-3",
                                             p { class: "text-xs text-gray-500", "{locale.t(\"parent.dashboard.child_card.classes\")}" }
@@ -119,8 +118,8 @@ fn ChildGradesModal(child: ParentChildSummary, on_close: EventHandler) -> Elemen
             children: rsx! {
                 div { class: "space-y-3 max-h-96 overflow-y-auto",
                     match grades.read().as_ref() {
-                        None => rsx! { p { class: "py-8 text-center text-gray-500", "Loading…" } },
-                        Some(Err(_)) => rsx! { p { class: "py-8 text-center text-red-600", "Recorded grades could not be loaded." } },
+                        None => rsx! { p { class: "py-8 text-center text-gray-500", "{locale.t(\"parent.children.grades.loading\")}" } },
+                        Some(Err(_)) => rsx! { p { class: "py-8 text-center text-red-600", "{locale.t(\"parent.children.grades.load_error\")}" } },
                         Some(Ok(items)) if items.is_empty() => rsx! { p { class: "py-8 text-center text-gray-500", "{locale.t(\"parent.children.grades.empty\")}" } },
                         Some(Ok(items)) => rsx! {
                             for grade in items {
@@ -164,20 +163,32 @@ fn ChildAssignmentsModal(child: ParentChildSummary, on_close: EventHandler) -> E
             children: rsx! {
                 div { class: "space-y-3 max-h-96 overflow-y-auto",
                     match assignments.read().as_ref() {
-                        None => rsx! { p { class: "py-8 text-center text-gray-500", "Loading…" } },
-                        Some(Err(_)) => rsx! { p { class: "py-8 text-center text-red-600", "Assignments could not be loaded." } },
-                        Some(Ok(items)) if items.is_empty() => rsx! { p { class: "py-8 text-center text-gray-500", "No assignments available." } },
+                        None => rsx! { p { class: "py-8 text-center text-gray-500", "{locale.t(\"parent.children.assignments.loading\")}" } },
+                        Some(Err(_)) => rsx! { p { class: "py-8 text-center text-red-600", "{locale.t(\"parent.children.assignments.load_error\")}" } },
+                        Some(Ok(items)) if items.is_empty() => rsx! { p { class: "py-8 text-center text-gray-500", "{locale.t(\"parent.children.assignments.empty\")}" } },
                         Some(Ok(items)) => rsx! {
                             for assignment in items {
-                                div { key: "{assignment.id}", class: "p-4 border border-gray-200 dark:border-gray-700 rounded-lg",
-                                    div { class: "flex justify-between gap-3",
-                                        div {
-                                            h4 { class: "font-semibold text-gray-900 dark:text-white", "{assignment.title}" }
-                                            p { class: "text-sm text-gray-500", "{assignment.class_name}" }
+                                {
+                                    let status = assignment_status_label(
+                                        &assignment.status,
+                                        locale.current(),
+                                    );
+                                    let due_date = format_product_date_text(
+                                        &assignment.due_date,
+                                        locale.current(),
+                                    );
+                                    rsx! {
+                                        div { key: "{assignment.id}", class: "p-4 border border-gray-200 dark:border-gray-700 rounded-lg",
+                                            div { class: "flex justify-between gap-3",
+                                                div {
+                                                    h4 { class: "font-semibold text-gray-900 dark:text-white", "{assignment.title}" }
+                                                    p { class: "text-sm text-gray-500", "{assignment.class_name}" }
+                                                }
+                                                span { class: "text-xs text-gray-500", "{status}" }
+                                            }
+                                            p { class: "mt-2 text-xs text-gray-400", "{locale.t(\"parent.children.assignments.due_label\")}: {due_date}" }
                                         }
-                                        span { class: "text-xs text-gray-500", "{assignment.status}" }
                                     }
-                                    p { class: "mt-2 text-xs text-gray-400", "{assignment.due_date}" }
                                 }
                             }
                         }
@@ -185,5 +196,24 @@ fn ChildAssignmentsModal(child: ParentChildSummary, on_close: EventHandler) -> E
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn parent_children_use_shared_localized_status_date_and_grade_primitives() {
+        let source = include_str!("children.rs");
+        let implementation = source
+            .split("#[cfg(test)]")
+            .next()
+            .expect("parent children implementation before tests");
+        assert!(implementation.contains("assignment_status_label"));
+        assert!(implementation.contains("format_product_date_text"));
+        assert!(implementation.contains("GradeToken"));
+        assert!(!implementation.contains("not enabled in this release"));
+        assert!(!implementation.contains("\"{assignment.status}\""));
+        assert!(!implementation.contains("\"{assignment.due_date}\""));
+        assert!(!implementation.contains("Grade not recorded"));
     }
 }
