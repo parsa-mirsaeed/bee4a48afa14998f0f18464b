@@ -24,6 +24,13 @@ async function signInStudent(page: Page, locale: 'en' | 'fa'): Promise<void> {
   await expect(page).toHaveURL(/\/dashboard$/);
 }
 
+async function waitForStudentRouteData(page: Page, route: (typeof STUDENT_ROUTES)[number]): Promise<void> {
+  const sentinel = route === '/dashboard/classes' || route === '/dashboard/grades'
+    ? 'E2E Class A1'
+    : 'E2E Assignment A1';
+  await expect(page.getByText(sentinel, { exact: true }).first()).toBeVisible();
+}
+
 async function assertLocalizedStudentChrome(page: Page, locale: 'en' | 'fa'): Promise<void> {
   await expect.poll(() => page.evaluate(() => document.documentElement.lang)).toMatch(
     locale === 'fa' ? /^fa/i : /^en/i,
@@ -82,6 +89,7 @@ for (const locale of ['en', 'fa'] as const) {
     for (const route of STUDENT_ROUTES) {
       await page.goto(route);
       await expect(page).toHaveURL(new RegExp(`${route.replaceAll('/', '\\/')}$`));
+      await waitForStudentRouteData(page, route);
       await assertLocalizedStudentChrome(page, locale);
     }
   });
@@ -89,6 +97,7 @@ for (const locale of ['en', 'fa'] as const) {
   test(`student class assignments grades and materials dialogs stay localized in ${locale} @smoke @student @i18n`, async ({ page }) => {
     await signInStudent(page, locale);
     await page.goto('/dashboard/classes');
+    await waitForStudentRouteData(page, '/dashboard/classes');
 
     await openClassAction(page, 'assignment');
     let dialog = page.getByRole('dialog');
@@ -113,18 +122,25 @@ for (const locale of ['en', 'fa'] as const) {
   test(`student assignment details and submission editor stay localized in ${locale} @smoke @student @i18n`, async ({ page }) => {
     await signInStudent(page, locale);
     await page.goto('/dashboard/assignments');
+    await waitForStudentRouteData(page, '/dashboard/assignments');
 
     const card = page
       .getByText('E2E Submission Journey Desktop', { exact: true })
       .locator('xpath=ancestor::article[1]');
     await expect(card).toBeVisible();
-    await card.getByRole('button').click();
+    await card.getByRole('button', {
+      name: locale === 'fa' ? 'شروع تکلیف' : 'Start assignment',
+      exact: true,
+    }).click();
 
     let dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible();
     await assertLocalizedStudentChrome(page, locale);
 
-    await dialog.getByRole('button').click();
+    await dialog.getByRole('button', {
+      name: locale === 'fa' ? 'باز کردن ارسال من' : 'Open my submission',
+      exact: true,
+    }).click();
     dialog = page.getByRole('dialog');
     await expect(dialog.locator('textarea')).toBeVisible();
     await assertLocalizedStudentChrome(page, locale);
@@ -133,6 +149,7 @@ for (const locale of ['en', 'fa'] as const) {
   test(`student recorded grade details stay localized in ${locale} @smoke @student @i18n`, async ({ page }) => {
     await signInStudent(page, locale);
     await page.goto('/dashboard/grades');
+    await waitForStudentRouteData(page, '/dashboard/grades');
 
     const classCard = page
       .getByText('E2E Class A1', { exact: true })
