@@ -1,5 +1,5 @@
 use crate::application::AuthHooks;
-use crate::i18n::{use_locale, Locale};
+use crate::i18n::{assignment_status_label, format_product_date_text, use_locale};
 use crate::views::role_based::components::ResponsiveDashboardLayout;
 use api::server_functions::dashboard_functions::{
     get_student_assignments, get_student_classes_view, StudentAssignmentPresentationState,
@@ -56,48 +56,12 @@ pub fn StudentOverviewSection(on_navigate: EventHandler<String>) -> Element {
         Some(Ok(items)) => items.len().to_string(),
         _ => "—".to_string(),
     };
-    let is_fa = locale.current() == Locale::Fa;
-    let intro = if is_fa {
-        "ابتدا کارهایی را ببینید که نیاز به اقدام دارند، سپس کلاس‌ها و نمره‌های خود را مرور کنید."
-    } else {
-        "Start with work that needs attention, then review your classes and grades."
-    };
-    let view_all = if is_fa {
-        "مشاهده همه"
-    } else {
-        "View all"
-    };
-    let loading_assignments = if is_fa {
-        "در حال بارگذاری تکلیف‌ها…"
-    } else {
-        "Loading assignments…"
-    };
-    let failed_assignments = if is_fa {
-        "بارگذاری تکلیف‌ها ناموفق بود."
-    } else {
-        "Unable to load assignments."
-    };
-    let loading_classes = if is_fa {
-        "در حال بارگذاری کلاس‌ها…"
-    } else {
-        "Loading classes…"
-    };
-    let failed_classes = if is_fa {
-        "بارگذاری کلاس‌ها ناموفق بود."
-    } else {
-        "Unable to load classes."
-    };
-    let no_upcoming_assignments = if is_fa {
-        "تکلیف آینده‌ای وجود ندارد."
-    } else {
-        "No upcoming assignments."
-    };
 
     rsx! {
         div { class: "et-page-stack",
             header { class: "et-overview-intro",
                 h2 { class: "et-overview-title", "{locale.t(\"dashboard.overview\")}" }
-                p { class: "et-overview-copy", "{intro}" }
+                p { class: "et-overview-copy", "{locale.t(\"student.dashboard.intro\")}" }
             }
 
             section { class: "et-section",
@@ -106,12 +70,22 @@ pub fn StudentOverviewSection(on_navigate: EventHandler<String>) -> Element {
                     button {
                         class: "et-inline-action",
                         onclick: move |_| on_navigate.call("assignments".to_string()),
-                        "{view_all}"
+                        "{locale.t(\"student.dashboard.view_all\")}"
                     }
                 }
                 match &*assignments.read() {
-                    None => rsx! { StudentState { message: loading_assignments.to_string(), error: false } },
-                    Some(Err(_)) => rsx! { StudentState { message: failed_assignments.to_string(), error: true } },
+                    None => rsx! {
+                        StudentState {
+                            message: locale.t("student.dashboard.loading_assignments"),
+                            error: false,
+                        }
+                    },
+                    Some(Err(_)) => rsx! {
+                        StudentState {
+                            message: locale.t("student.dashboard.assignments_load_error"),
+                            error: true,
+                        }
+                    },
                     Some(Ok(items)) if items.is_empty() => rsx! {
                         StudentState { message: locale.t("assignments.no_assignments"), error: false }
                     },
@@ -147,20 +121,32 @@ pub fn StudentOverviewSection(on_navigate: EventHandler<String>) -> Element {
                             }
                             if upcoming.is_empty() {
                                 StudentState {
-                                    message: no_upcoming_assignments.to_string(),
+                                    message: locale.t("student.dashboard.no_upcoming_assignments"),
                                     error: false,
                                 }
                             } else {
                                 div { class: "et-panel",
                                     for assignment in upcoming {
-                                        div { key: "{assignment.id}", class: "et-list-row",
-                                            div { class: "et-list-primary",
-                                                h4 { class: "et-list-title", "{assignment.title}" }
-                                                p { class: "et-list-meta", "{assignment.class_name}" }
-                                            }
-                                            div { class: "et-list-aside",
-                                                p { "{assignment.presentation_state.display_name()}" }
-                                                p { class: "mt-1", "{assignment.due_date}" }
+                                        {
+                                            let status = assignment_status_label(
+                                                assignment.presentation_state.display_name(),
+                                                locale.current(),
+                                            );
+                                            let due_date = format_product_date_text(
+                                                &assignment.due_date,
+                                                locale.current(),
+                                            );
+                                            rsx! {
+                                                div { key: "{assignment.id}", class: "et-list-row",
+                                                    div { class: "et-list-primary",
+                                                        h4 { class: "et-list-title", "{assignment.title}" }
+                                                        p { class: "et-list-meta", "{assignment.class_name}" }
+                                                    }
+                                                    div { class: "et-list-aside text-end",
+                                                        p { "{status}" }
+                                                        p { class: "mt-1", "{due_date}" }
+                                                    }
+                                                }
                                             }
                                         }
                                     }
@@ -177,12 +163,22 @@ pub fn StudentOverviewSection(on_navigate: EventHandler<String>) -> Element {
                     button {
                         class: "et-inline-action",
                         onclick: move |_| on_navigate.call("classes".to_string()),
-                        "{view_all}"
+                        "{locale.t(\"student.dashboard.view_all\")}"
                     }
                 }
                 match &*classes.read() {
-                    None => rsx! { StudentState { message: loading_classes.to_string(), error: false } },
-                    Some(Err(_)) => rsx! { StudentState { message: failed_classes.to_string(), error: true } },
+                    None => rsx! {
+                        StudentState {
+                            message: locale.t("student.dashboard.loading_classes"),
+                            error: false,
+                        }
+                    },
+                    Some(Err(_)) => rsx! {
+                        StudentState {
+                            message: locale.t("student.dashboard.classes_load_error"),
+                            error: true,
+                        }
+                    },
                     Some(Ok(items)) if items.is_empty() => rsx! {
                         StudentState { message: locale.t("classes.no_classes"), error: false }
                     },
@@ -226,5 +222,13 @@ mod tests {
             .expect("dashboard implementation before tests");
         assert!(implementation.contains("StudentAssignmentPresentationState::Pending"));
         assert!(!implementation.contains("assignment.status"));
+    }
+
+    #[test]
+    fn overview_localizes_status_and_legacy_date_at_the_presentation_boundary() {
+        let source = include_str!("dashboard.rs");
+        assert!(source.contains("assignment_status_label"));
+        assert!(source.contains("format_product_date_text"));
+        assert!(!source.contains("let is_fa"));
     }
 }
