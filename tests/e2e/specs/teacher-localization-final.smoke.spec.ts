@@ -9,7 +9,7 @@ const TEACHER_ROUTES = [
   '/dashboard/classes',
   '/dashboard/assignments',
   '/dashboard/knowledge-assets',
-  '/dashboard/grading',
+  '/dashboard/submissions',
   '/dashboard/students',
 ] as const;
 
