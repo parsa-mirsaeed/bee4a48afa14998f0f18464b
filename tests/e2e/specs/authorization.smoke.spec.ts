@@ -92,7 +92,7 @@ test('student cannot submit a School B assignment by tampering its object ID @sm
   const assignmentTitle = page.getByText('E2E Submission Journey Desktop', { exact: true }).first();
   await expect(assignmentTitle).toBeVisible();
   const assignmentCard = assignmentTitle.locator('xpath=ancestor::article[1]');
-  await assignmentCard.getByRole('button', { name: /start assignment/i }).click();
+  await assignmentCard.getByRole('button', { name: /start assignment|submit late/i }).click();
   await page.getByRole('button', { name: /open my submission/i }).click();
   await page.locator('textarea').first().fill('School A authorization probe');
 
