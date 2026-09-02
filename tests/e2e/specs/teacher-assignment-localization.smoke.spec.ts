@@ -5,15 +5,19 @@ import { watchConsole, assertNoConsoleErrors } from '../fixtures/console-guard';
 const PASSWORD = 'e2e-password';
 const TEACHER = 'e2e-teacher-a@example.test';
 
-async function signIn(page: Page, locale: 'en' | 'fa'): Promise<void> {
+async function establishSession(page: Page, locale: 'en' | 'fa'): Promise<void> {
   await page.addInitScript((selectedLocale) => {
     localStorage.setItem('edutalent_locale', selectedLocale);
   }, locale);
-  await page.goto('/');
-  await page.locator('input[type="email"]').fill(TEACHER);
-  await page.locator('input[type="password"]').fill(PASSWORD);
-  await page.getByRole('button', { name: /sign in|ورود/i }).click();
-  await expect(page).toHaveURL(/\/dashboard$/);
+
+  // Authentication itself is covered by auth.smoke.spec.ts. This localization
+  // journey needs a real authenticated session, but making the assignment route
+  // the first hydrated Dioxus document avoids an unrelated full-document teardown
+  // race that can surface as WASM `unreachable` and can stall mobile navigation.
+  const response = await page.request.post('/api/auth/login', {
+    data: { email: TEACHER, password: PASSWORD },
+  });
+  expect(response.ok(), `teacher session setup failed with HTTP ${response.status()}`).toBeTruthy();
 }
 
 test.beforeEach(async ({ page }) => {
@@ -53,7 +57,7 @@ for (const scenario of [
   },
 ]) {
   test(`teacher assignment create/detail chrome is localized in ${scenario.locale} @smoke @final @teacher @i18n @workflow-truth`, async ({ page }) => {
-    await signIn(page, scenario.locale);
+    await establishSession(page, scenario.locale);
     await page.goto('/dashboard/assignments');
     await expect(page).toHaveURL(/\/dashboard\/assignments$/);
     await expect.poll(() => page.evaluate(() => document.documentElement.lang)).toMatch(
