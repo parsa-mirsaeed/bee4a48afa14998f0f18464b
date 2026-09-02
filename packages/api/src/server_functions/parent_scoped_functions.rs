@@ -264,12 +264,13 @@ mod tests {
     #[test]
     fn parent_assignment_query_returns_neutral_dates_and_student_canonical_states() {
         let source = include_str!("parent_scoped_functions.rs");
-        assert!(source.contains(".to_rfc3339()"));
-        assert!(source.contains("WHEN s.grade IS NOT NULL THEN 'Graded'"));
-        assert!(source.contains("WHEN ca.submitted_at IS NOT NULL THEN 'Submitted'"));
-        assert!(source.contains("WHEN ca.due_at < NOW() THEN 'Overdue'"));
-        assert!(source.contains("ELSE 'Pending'"));
-        assert!(!source.contains("ca.status::text AS status"));
-        assert!(!source.contains(".format(\"%b %d, %Y\")"));
+        let production = source.split("#[cfg(test)]").next().unwrap_or(source);
+        assert!(production.contains(".to_rfc3339()"));
+        assert!(production.contains("WHEN s.grade IS NOT NULL THEN 'Graded'"));
+        assert!(production.contains("WHEN ca.submitted_at IS NOT NULL THEN 'Submitted'"));
+        assert!(production.contains("WHEN ca.due_at < NOW() THEN 'Overdue'"));
+        assert!(production.contains("ELSE 'Pending'"));
+        assert!(!production.contains("ca.status::text AS status"));
+        assert!(!production.contains(".format(\"%b %d, %Y\")"));
     }
 }
