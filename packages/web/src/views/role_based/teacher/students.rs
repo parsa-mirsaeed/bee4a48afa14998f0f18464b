@@ -197,15 +197,19 @@ fn StudentCard(
                     }
                 }
 
-                // Grade and stats
+                // Grade and stats. Inline logical styles are deliberate here:
+                // the production bundle ships a tracked Tailwind build, so a
+                // new utility class is not safe until that bundle is rebuilt.
                 div {
-                    class: "text-end shrink-0 max-w-[7rem] md:max-w-[8rem]",
+                    class: "shrink-0",
+                    style: "max-width: 8rem; text-align: end;",
                     div {
                         class: "px-2 md:px-2.5 py-0.5 md:py-1 rounded-full text-[10px] md:text-xs font-bold mb-0.5 md:mb-1 {grade_bg}",
                         "{student.average_grade}"
                     }
                     div {
-                        class: "text-[8px] md:text-[10px] leading-tight font-medium text-gray-400 dark:text-gray-500 break-words",
+                        class: "text-[8px] md:text-[10px] font-medium text-gray-400 dark:text-gray-500",
+                        style: "overflow-wrap: anywhere; line-height: 1.25;",
                         "{student.submitted_count} {locale.t(\"teachers.students.submitted_label\")}"
                     }
                 }
