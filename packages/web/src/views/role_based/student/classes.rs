@@ -448,8 +448,14 @@ mod tests {
     #[test]
     fn class_assignment_and_material_dates_are_localized_at_the_web_boundary() {
         let source = include_str!("classes.rs");
-        assert!(source.contains("assignment_status_label"));
-        assert!(source.contains("format_product_date_text"));
-        assert!(!source.contains("presentation_state.display_name()}"));
+        let implementation = source
+            .split("#[cfg(test)]")
+            .next()
+            .expect("class implementation before tests");
+        assert!(implementation.contains("assignment_status_label"));
+        assert!(implementation.contains("format_product_date_text"));
+        assert!(!implementation.contains("\"{task.presentation_state.display_name()}\""));
+        assert!(!implementation.contains("\"{task.due_date}\""));
+        assert!(!implementation.contains("\"{material.created_at}\""));
     }
 }
