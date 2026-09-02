@@ -199,13 +199,13 @@ fn StudentCard(
 
                 // Grade and stats
                 div {
-                    class: "text-right shrink-0",
+                    class: "text-end shrink-0 max-w-[7rem] md:max-w-[8rem]",
                     div {
                         class: "px-2 md:px-2.5 py-0.5 md:py-1 rounded-full text-[10px] md:text-xs font-bold mb-0.5 md:mb-1 {grade_bg}",
                         "{student.average_grade}"
                     }
                     div {
-                        class: "text-[8px] md:text-[10px] font-medium text-gray-400 dark:text-gray-500",
+                        class: "text-[8px] md:text-[10px] leading-tight font-medium text-gray-400 dark:text-gray-500 break-words",
                         "{student.submitted_count} {locale.t(\"teachers.students.submitted_label\")}"
                     }
                 }
