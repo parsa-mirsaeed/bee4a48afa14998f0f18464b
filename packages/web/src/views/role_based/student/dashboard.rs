@@ -227,8 +227,14 @@ mod tests {
     #[test]
     fn overview_localizes_status_and_legacy_date_at_the_presentation_boundary() {
         let source = include_str!("dashboard.rs");
-        assert!(source.contains("assignment_status_label"));
-        assert!(source.contains("format_product_date_text"));
-        assert!(!source.contains("let is_fa"));
+        let implementation = source
+            .split("#[cfg(test)]")
+            .next()
+            .expect("dashboard implementation before tests");
+        assert!(implementation.contains("assignment_status_label"));
+        assert!(implementation.contains("format_product_date_text"));
+        assert!(!implementation.contains("let is_fa"));
+        assert!(!implementation.contains("\"{assignment.status}\""));
+        assert!(!implementation.contains("\"{assignment.due_date}\""));
     }
 }
