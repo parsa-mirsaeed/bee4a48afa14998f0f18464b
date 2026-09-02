@@ -24,6 +24,7 @@ const USERS = new Map([
   ['e2e-student-b@example.test', 'b0000000-0000-0000-0000-0000000000b3'],
   ['e2e-parent-a@example.test', 'b0000000-0000-0000-0000-0000000000a4'],
   ['e2e-parent-b@example.test', 'b0000000-0000-0000-0000-0000000000b4'],
+  ['e2e-parent-empty@example.test', 'b0000000-0000-0000-0000-0000000000a5'],
   ['e2e-inactive@example.test', 'b0000000-0000-0000-0000-0000000000a9'],
 ]);
 const PASSWORDS = new Map([...USERS.keys()].map((email) => [email, FIXTURE_PASSWORD]));

@@ -172,7 +172,12 @@ pub async fn get_child_assignments_for_parent_scoped(
                 a.title,
                 cs.name AS class_name,
                 ca.due_at,
-                ca.status::text AS status,
+                CASE
+                    WHEN s.grade IS NOT NULL THEN 'Graded'
+                    WHEN ca.submitted_at IS NOT NULL THEN 'Submitted'
+                    WHEN ca.due_at < NOW() THEN 'Overdue'
+                    ELSE 'Pending'
+                END AS presentation_status,
                 CAST(s.grade AS DOUBLE PRECISION) AS grade
             FROM custom_assignments ca
             JOIN assignments a ON ca.assignment_id = a.id
@@ -200,9 +205,8 @@ pub async fn get_child_assignments_for_parent_scoped(
                     class_name: row.try_get("class_name")?,
                     due_date: row
                         .try_get::<chrono::DateTime<chrono::Utc>, _>("due_at")?
-                        .format("%b %d, %Y")
-                        .to_string(),
-                    status: row.try_get::<String, _>("status")?.to_lowercase(),
+                        .to_rfc3339(),
+                    status: row.try_get("presentation_status")?,
                     grade: grade.map(|value| percentage_to_letter_grade(value).to_owned()),
                 })
             })
@@ -255,5 +259,17 @@ mod tests {
         assert!(source.contains("COALESCE(s.grade_scale, 100::SMALLINT) AS grade_scale"));
         assert!(source.contains("present_grade(grade, grade_scale)"));
         assert!(!source.contains("format!(\"{grade:.0}/100\")"));
+    }
+
+    #[test]
+    fn parent_assignment_query_returns_neutral_dates_and_student_canonical_states() {
+        let source = include_str!("parent_scoped_functions.rs");
+        assert!(source.contains(".to_rfc3339()"));
+        assert!(source.contains("WHEN s.grade IS NOT NULL THEN 'Graded'"));
+        assert!(source.contains("WHEN ca.submitted_at IS NOT NULL THEN 'Submitted'"));
+        assert!(source.contains("WHEN ca.due_at < NOW() THEN 'Overdue'"));
+        assert!(source.contains("ELSE 'Pending'"));
+        assert!(!source.contains("ca.status::text AS status"));
+        assert!(!source.contains(".format(\"%b %d, %Y\")"));
     }
 }
