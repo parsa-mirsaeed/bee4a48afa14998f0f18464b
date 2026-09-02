@@ -48,8 +48,8 @@ test.afterEach(() => {
 });
 
 for (const scenario of [
-  { locale: 'en' as const, status: 'Published', emptyMaterials: 'No Materials Yet' },
-  { locale: 'fa' as const, status: 'منتشرشده', emptyMaterials: 'منبعی وجود ندارد' },
+  { locale: 'en' as const, status: 'Published', materialDate: 'Sep 10, 2026' },
+  { locale: 'fa' as const, status: 'منتشرشده', materialDate: '۱۰ سپتامبر ۲۰۲۶' },
 ]) {
   test(`teacher class grading and materials are localized in ${scenario.locale} @smoke @final @teacher @i18n`, async ({ page }) => {
     await signIn(page, scenario.locale);
@@ -71,12 +71,14 @@ for (const scenario of [
 
     await openClassAction(page, 'folder');
     dialog = page.getByRole('dialog');
-    await expect(dialog).toContainText(scenario.emptyMaterials);
+    await expect(dialog.getByText('E2E Class Material A1', { exact: true })).toBeVisible();
+    await expect(dialog).toContainText(scenario.materialDate);
     await expect(dialog).not.toContainText(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/);
     await expectNoRawTeacherKeys(page);
 
     if (scenario.locale === 'fa') {
-      await expect(dialog).not.toContainText('No Materials Yet');
+      await expect(dialog).not.toContainText('Sep 10, 2026');
+      await expect(dialog).not.toContainText(/\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b/);
     }
   });
 }
