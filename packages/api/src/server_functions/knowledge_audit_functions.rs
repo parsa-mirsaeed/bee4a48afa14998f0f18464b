@@ -3,25 +3,20 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 #[cfg(feature = "server")]
-use crate::app_state::extract_server_state;
-#[cfg(feature = "server")]
-use crate::dioxus_fullstack::extract;
-#[cfg(feature = "server")]
-use crate::domain::UserInfo;
-#[cfg(feature = "server")]
 use crate::repositories::{KnowledgeAuditLog, KnowledgeAuditRepository};
-#[cfg(feature = "server")]
-use axum::Extension;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct KnowledgeAuditLogDto {
     pub id: String,
     pub actor_id: Option<String>,
+    pub actor_name: Option<String>,
     pub actor_role: String,
     pub action: String,
     pub target_type: String,
     pub target_id: String,
+    pub target_name: Option<String>,
     pub school_id: Option<String>,
+    pub school_name: Option<String>,
     pub details: Value,
     pub request_id: Option<String>,
     pub created_at: String,
@@ -33,11 +28,14 @@ impl From<KnowledgeAuditLog> for KnowledgeAuditLogDto {
         Self {
             id: log.id.to_string(),
             actor_id: log.actor_id.map(|id| id.to_string()),
+            actor_name: log.actor_name,
             actor_role: log.actor_role,
             action: log.action,
             target_type: log.target_type,
             target_id: log.target_id.to_string(),
+            target_name: log.target_name,
             school_id: log.school_id.map(|id| id.to_string()),
+            school_name: log.school_name,
             details: log.details,
             request_id: log.request_id,
             created_at: log.created_at.to_rfc3339(),
@@ -51,20 +49,37 @@ pub async fn list_admin_knowledge_audit(
 ) -> Result<Vec<KnowledgeAuditLogDto>, ServerFnError> {
     #[cfg(feature = "server")]
     {
-        let Extension(user): Extension<UserInfo> = extract()
-            .await
-            .map_err(|_| ServerFnError::new("Unauthorized: no active session"))?;
+        let (user, pool) =
+            crate::server_functions::rls_helpers::extract_user_with_full_rls().await?;
         if user.role != "PlatformAdmin" {
             return Err(ServerFnError::new("Forbidden: insufficient role"));
         }
 
-        let state = extract_server_state()?;
-        let logs = KnowledgeAuditRepository::new(state.services.pool.clone())
+        let logs = KnowledgeAuditRepository::new(pool.clone())
             .list_recent(limit)
             .await
-            .map_err(|error| ServerFnError::new(error.to_string()))?;
+            .map_err(|error| {
+                tracing::error!(%error, "platform knowledge audit list failed");
+                ServerFnError::new("Unable to load knowledge audit events")
+            })?;
         Ok(logs.into_iter().map(Into::into).collect())
     }
     #[cfg(not(feature = "server"))]
     Ok(Vec::new())
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn audit_endpoint_preserves_technical_evidence_and_readable_context() {
+        let source = include_str!("knowledge_audit_functions.rs");
+        let production = source.split("#[cfg(test)]").next().unwrap_or(source);
+        assert!(production.contains("pub actor_name: Option<String>"));
+        assert!(production.contains("pub target_name: Option<String>"));
+        assert!(production.contains("pub school_name: Option<String>"));
+        assert!(production.contains("pub target_id: String"));
+        assert!(production.contains("pub details: Value"));
+        assert!(production.contains("pub request_id: Option<String>"));
+        assert!(production.contains("extract_user_with_full_rls"));
+    }
 }
