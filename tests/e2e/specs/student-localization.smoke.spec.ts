@@ -25,10 +25,16 @@ async function signInStudent(page: Page, locale: 'en' | 'fa'): Promise<void> {
 }
 
 async function waitForStudentRouteData(page: Page, route: (typeof STUDENT_ROUTES)[number]): Promise<void> {
-  const sentinel = route === '/dashboard/classes' || route === '/dashboard/grades'
-    ? 'E2E Class A1'
-    : 'E2E Assignment A1';
-  await expect(page.getByText(sentinel, { exact: true }).first()).toBeVisible();
+  switch (route) {
+    case '/dashboard':
+    case '/dashboard/classes':
+    case '/dashboard/grades':
+      await expect(page.getByText('E2E Class A1', { exact: true }).first()).toBeVisible();
+      break;
+    case '/dashboard/assignments':
+      await expect(page.getByText('E2E Assignment A1', { exact: true }).first()).toBeVisible();
+      break;
+  }
 }
 
 async function assertLocalizedStudentChrome(page: Page, locale: 'en' | 'fa'): Promise<void> {
