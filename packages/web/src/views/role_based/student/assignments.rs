@@ -1,7 +1,8 @@
 //! Student assignments with truthful optional values and retry-safe submission UI.
 
 use crate::i18n::{
-    assignment_status_label, format_product_date, format_product_date_text, use_locale, Locale,
+    assignment_status_label, format_product_date, format_product_date_text, student_translation,
+    use_locale, Locale,
 };
 use crate::views::role_based::components::DashboardSection;
 use crate::views::role_based::shared::common::Modal;
@@ -148,7 +149,7 @@ fn assignment_action_label(state: StudentAssignmentPresentationState, locale: Lo
         StudentAssignmentPresentationState::Submitted => "student.assignments.action_submission",
         StudentAssignmentPresentationState::Graded => "student.assignments.action_feedback",
     };
-    crate::i18n::t(key, locale)
+    student_translation(key, locale).unwrap_or(key).to_string()
 }
 
 #[component]
