@@ -181,7 +181,10 @@ fn StudentAssignmentCard(
         .map(|value| format!("{value} {}", locale.t("student.assignments.points_label")))
         .unwrap_or_else(|| locale.t("student.assignments.points_unspecified"));
     let due_date = format_product_date_text(&assignment.due_date, locale.current());
-    let status = assignment_status_label(assignment.presentation_state.display_name(), locale.current());
+    let status = assignment_status_label(
+        assignment.presentation_state.display_name(),
+        locale.current(),
+    );
     let action = assignment_action_label(assignment.presentation_state, locale.current());
 
     rsx! {
