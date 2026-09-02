@@ -245,7 +245,10 @@ mod tests {
         for key in CANONICAL_KEYS {
             for locale in [Locale::En, Locale::Fa] {
                 let translated = student_translation(key, locale);
-                assert!(translated.is_some(), "missing {locale:?} translation for {key}");
+                assert!(
+                    translated.is_some(),
+                    "missing {locale:?} translation for {key}"
+                );
                 assert_ne!(translated, Some(*key), "raw key fallback for {key}");
             }
         }
