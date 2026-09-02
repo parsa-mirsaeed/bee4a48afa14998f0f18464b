@@ -57,6 +57,23 @@ INSERT INTO enrollments (class_section_id, student_id) VALUES
   ('e0000000-0000-0000-0000-0000000000b1', 'c0000000-0000-0000-0000-0000000000b3')
 ON CONFLICT DO NOTHING;
 
+INSERT INTO class_materials (
+  id, class_section_id, title, description, material_type, is_required,
+  display_order, created_by, created_at, updated_at
+) VALUES (
+  'f5000000-0000-0000-0000-0000000000a1',
+  'e0000000-0000-0000-0000-0000000000a1',
+  'E2E Class Material A1',
+  'Synthetic class material for localized date acceptance.',
+  'other',
+  false,
+  0,
+  'b0000000-0000-0000-0000-0000000000a2',
+  TIMESTAMPTZ '2026-09-10 13:45:00+00',
+  TIMESTAMPTZ '2026-09-10 13:45:00+00'
+)
+ON CONFLICT (id) DO NOTHING;
+
 INSERT INTO assignments (id, teacher_id, class_section_id, subject_id, title, body, due_at, status, published_at) VALUES
   ('f0000000-0000-0000-0000-0000000000a1', 'c0000000-0000-0000-0000-0000000000a2', 'e0000000-0000-0000-0000-0000000000a1', 'd0000000-0000-0000-0000-0000000000a1', 'E2E Assignment A1', 'Synthetic body', NOW() + INTERVAL '7 days', 'Published', NOW()),
   ('f0000000-0000-0000-0000-0000000000a2', 'c0000000-0000-0000-0000-0000000000a2', 'e0000000-0000-0000-0000-0000000000a1', 'd0000000-0000-0000-0000-0000000000a1', 'E2E Submission Journey Desktop', 'Desktop stateful acceptance body', NOW() + INTERVAL '8 days', 'Published', NOW()),

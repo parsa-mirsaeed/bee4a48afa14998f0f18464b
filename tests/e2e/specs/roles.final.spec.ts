@@ -131,10 +131,7 @@ test('teacher sees the persisted published assignment and governed knowledge ass
   await expect(page.getByText('E2E Published Asset', { exact: true })).toBeVisible();
 });
 
-for (const [locale, emptyResources] of [
-  ['en', 'No Materials Yet'],
-  ['fa', 'منبعی وجود ندارد'],
-] as const) {
+for (const locale of ['en', 'fa'] as const) {
   test(`teacher class resources omit internal migration copy in ${locale} @smoke @final @teacher @i18n`, async ({ page }) => {
     await page.addInitScript((selectedLocale) => localStorage.setItem('edutalent_locale', selectedLocale), locale);
     await signIn(page, 'e2e-teacher-a@example.test');
@@ -146,7 +143,7 @@ for (const [locale, emptyResources] of [
     await classCard.locator('xpath=.//button[.//span[normalize-space()="folder"]]').click();
 
     const dialog = page.getByRole('dialog');
-    await expect(dialog).toContainText(emptyResources);
+    await expect(dialog).toContainText('E2E Class Material A1');
     await expect(dialog).not.toContainText('Teacher file uploads are retired');
     await expect(dialog).not.toContainText('Governed knowledge assets');
   });
