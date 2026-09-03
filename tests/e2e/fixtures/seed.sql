@@ -95,11 +95,12 @@ INSERT INTO custom_assignments (
 ON CONFLICT DO NOTHING;
 
 INSERT INTO submissions (
-  id, custom_assignment_id, student_id, content, grade, grade_scale, graded_by, submitted_at
+  id, custom_assignment_id, student_id, content, grade, grade_scale, graded_by,
+  submitted_at, graded_at
 ) VALUES
-  ('f2000000-0000-0000-0000-0000000000a1', 'f1000000-0000-0000-0000-0000000000a1', 'c0000000-0000-0000-0000-0000000000a3', '{"text":"synthetic"}'::jsonb, 18.00, 20, 'c0000000-0000-0000-0000-0000000000a2', NOW() - INTERVAL '2 days'),
-  ('f2000000-0000-0000-0000-0000000000a4', 'f1000000-0000-0000-0000-0000000000a4', 'c0000000-0000-0000-0000-0000000000a3', '{"text":"school-a authorization submission"}'::jsonb, NULL, 100, NULL, NOW() - INTERVAL '1 day'),
-  ('f2000000-0000-0000-0000-0000000000b1', 'f1000000-0000-0000-0000-0000000000b1', 'c0000000-0000-0000-0000-0000000000b3', '{"text":"school-b authorization submission"}'::jsonb, NULL, 100, NULL, NOW() - INTERVAL '1 day')
+  ('f2000000-0000-0000-0000-0000000000a1', 'f1000000-0000-0000-0000-0000000000a1', 'c0000000-0000-0000-0000-0000000000a3', '{"text":"synthetic"}'::jsonb, 18.00, 20, 'c0000000-0000-0000-0000-0000000000a2', NOW() - INTERVAL '2 days', NOW() - INTERVAL '1 day'),
+  ('f2000000-0000-0000-0000-0000000000a4', 'f1000000-0000-0000-0000-0000000000a4', 'c0000000-0000-0000-0000-0000000000a3', '{"text":"school-a authorization submission"}'::jsonb, NULL, 100, NULL, NOW() - INTERVAL '1 day', NULL),
+  ('f2000000-0000-0000-0000-0000000000b1', 'f1000000-0000-0000-0000-0000000000b1', 'c0000000-0000-0000-0000-0000000000b3', '{"text":"school-b authorization submission"}'::jsonb, NULL, 100, NULL, NOW() - INTERVAL '1 day', NULL)
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO knowledge_assets (id, school_id, title, status, created_by, published_at) VALUES
@@ -188,6 +189,26 @@ BEGIN
 
   IF EXISTS (
     SELECT 1
+    FROM submissions s
+    JOIN custom_assignments ca ON ca.id = s.custom_assignment_id
+    WHERE ca.status = 'Graded'::custom_status
+      AND (s.graded_at IS NULL OR s.graded_at < s.submitted_at)
+  ) THEN
+    RAISE EXCEPTION 'E2E invariant: graded submissions require coherent graded_at';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM custom_assignments ca
+    LEFT JOIN submissions s ON s.custom_assignment_id = ca.id
+    WHERE ca.status IN ('Submitted'::custom_status, 'Graded'::custom_status)
+      AND s.id IS NULL
+  ) THEN
+    RAISE EXCEPTION 'E2E invariant: Submitted/Graded custom assignments require a persisted submission';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
     FROM custom_assignments ca
     LEFT JOIN submissions s ON s.custom_assignment_id = ca.id
     WHERE ca.id IN (
@@ -204,6 +225,16 @@ BEGIN
     WHERE class_section_id = 'e0000000-0000-0000-0000-0000000000a2'::uuid
   ) THEN
     RAISE EXCEPTION 'E2E invariant: guided-publish class must start empty';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM custom_assignments ca
+    LEFT JOIN submissions s ON s.custom_assignment_id = ca.id
+    WHERE ca.assignment_id = 'f0000000-0000-0000-0000-0000000000a5'::uuid
+      AND (ca.id IS NOT NULL OR s.id IS NOT NULL)
+  ) THEN
+    RAISE EXCEPTION 'E2E invariant: guided draft must have no generated custom assignment or submission';
   END IF;
 
   IF EXISTS (
