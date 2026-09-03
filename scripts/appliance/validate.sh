@@ -322,6 +322,12 @@ fi
 fixture="$(mktemp -d)"
 trap 'rm -rf "${fixture}"' EXIT
 
+create_release_fixture_file() {
+  local path="$1"
+  install -m 0644 /dev/null "${path}"
+  test "$(stat -c %a "${path}")" = "644"
+}
+
 permissions_fixture="${fixture}/strict-umask-runtime"
 (
   umask 077
@@ -689,8 +695,9 @@ python3 "${ROOT_DIR}/scripts/appliance/release_manifest.py" generate \
   --signing-mode keyless \
   --images "${fixture}/bundle/manifests/images.json" \
   --model-lock "${fixture}/model.lock.json"
-touch \
-  "${fixture}/bundle/signatures/release-manifest.sigstore.json" \
+create_release_fixture_file \
+  "${fixture}/bundle/signatures/release-manifest.sigstore.json"
+create_release_fixture_file \
   "${fixture}/bundle/signatures/SHA256SUMS.sigstore.json"
 python3 "${ROOT_DIR}/scripts/appliance/release_manifest.py" verify \
   --bundle "${fixture}/bundle"
@@ -737,9 +744,11 @@ python3 "${ROOT_DIR}/scripts/appliance/release_manifest.py" generate \
   --signing-mode ephemeral \
   --images "${fixture}/bundle/manifests/images.json" \
   --model-lock "${fixture}/model.lock.json"
-touch \
-  "${fixture}/bundle/signatures/verification.pub" \
-  "${fixture}/bundle/signatures/release-manifest.sig" \
+create_release_fixture_file \
+  "${fixture}/bundle/signatures/verification.pub"
+create_release_fixture_file \
+  "${fixture}/bundle/signatures/release-manifest.sig"
+create_release_fixture_file \
   "${fixture}/bundle/signatures/SHA256SUMS.sig"
 printf 'unsigned payload\n' > "${fixture}/bundle/signatures/extra.bin"
 if python3 "${ROOT_DIR}/scripts/appliance/release_manifest.py" verify \
@@ -953,7 +962,9 @@ portable_checksums="${fixture}/portable-checksums"
 mkdir -p "${portable_checksums}/source" "${portable_checksums}/moved"
 printf 'portable archive\n' > "${portable_checksums}/source/release.tar.gz"
 (cd "${portable_checksums}/source" && sha256sum release.tar.gz > release.tar.gz.SHA256SUMS)
-cp "${portable_checksums}/source/release.tar.gz"   "${portable_checksums}/source/release.tar.gz.SHA256SUMS"   "${portable_checksums}/moved/"
+cp "${portable_checksums}/source/release.tar.gz" \
+  "${portable_checksums}/source/release.tar.gz.SHA256SUMS" \
+  "${portable_checksums}/moved/"
 (cd "${portable_checksums}/moved" && sha256sum --check release.tar.gz.SHA256SUMS)
 test "$(awk '{print $2}' "${portable_checksums}/moved/release.tar.gz.SHA256SUMS")" = 'release.tar.gz'
 grep -Fq 'sha256sum "${BUNDLE_NAME}.tar.gz.part-"*' "${ROOT_DIR}/scripts/appliance/build.sh"
