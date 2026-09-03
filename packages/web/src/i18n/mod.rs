@@ -28,10 +28,9 @@ pub use grading::*;
 pub use locale::*;
 pub(crate) use parent_translations::{format_parent_class_count, parent_translation};
 pub(crate) use platform_admin_translations::{
-    platform_admin_actor_label, platform_admin_audit_action_label,
-    platform_admin_language_label, platform_admin_lifecycle_guidance,
-    platform_admin_status_label, platform_admin_target_type_label,
-    platform_admin_translation,
+    platform_admin_actor_label, platform_admin_audit_action_label, platform_admin_language_label,
+    platform_admin_lifecycle_guidance, platform_admin_status_label,
+    platform_admin_target_type_label, platform_admin_translation,
 };
 pub use provider::*;
 pub(crate) use student_translations::student_translation;
