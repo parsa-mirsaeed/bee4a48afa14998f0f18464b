@@ -42,8 +42,14 @@ test "${reset_line}" -lt "${migration_line}"
 test "${migration_line}" -lt "${seed_line}"
 
 grep -q "status IN ('Submitted'::custom_status, 'Graded'::custom_status)" tests/e2e/fixtures/seed.sql
-grep -q 'graded submissions require coherent graded_at' tests/e2e/fixtures/seed.sql
+grep -q 'Graded custom assignments require coherent graded_at' tests/e2e/fixtures/seed.sql
+grep -q 'Graded custom assignments require persisted graded submissions' tests/e2e/fixtures/seed.sql
+grep -q 'persisted Submitted/Graded work requires submission submitted_at' tests/e2e/fixtures/seed.sql
 grep -q 'guided draft must have no generated custom assignment or submission' tests/e2e/fixtures/seed.sql
 grep -q 'browser-created e2e-pr1 accounts leaked into fresh baseline' tests/e2e/fixtures/seed.sql
+
+# `graded_at` belongs to custom_assignments in the current persistence model;
+# the submission row carries the submitted timestamp and persisted grade.
+! grep -A2 '^INSERT INTO submissions' tests/e2e/fixtures/seed.sql | grep -q 'graded_at'
 
 echo "browser harness verification passed"
