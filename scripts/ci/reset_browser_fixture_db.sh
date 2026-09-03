@@ -2,8 +2,8 @@
 # Reset the dedicated browser-test database before migrations/fixtures are applied.
 #
 # This is intentionally destructive and must fail closed for ordinary databases.
-# The canonical CI database is `edutalent_ci`. A non-canonical database requires
-# an explicit one-shot acknowledgement through E2E_ALLOW_FIXTURE_RESET=1.
+# The canonical CI database is `edutalent_ci`. A non-canonical database must both
+# look explicitly test-owned and require a one-shot acknowledgement.
 set -euo pipefail
 
 : "${DATABASE_URL:?DATABASE_URL is required for browser fixture reset}"
@@ -14,10 +14,20 @@ if [[ -z "${current_database}" ]]; then
   exit 1
 fi
 
-if [[ "${current_database}" != "edutalent_ci" && "${E2E_ALLOW_FIXTURE_RESET:-}" != "1" ]]; then
-  echo "Refusing browser fixture reset for database '${current_database}'." >&2
-  echo "Expected dedicated database 'edutalent_ci'; set E2E_ALLOW_FIXTURE_RESET=1 only for an intentionally disposable E2E database." >&2
-  exit 1
+if [[ "${current_database}" != "edutalent_ci" ]]; then
+  if [[ "${E2E_ALLOW_FIXTURE_RESET:-}" != "1" ]]; then
+    echo "Refusing browser fixture reset for database '${current_database}'." >&2
+    echo "Expected dedicated database 'edutalent_ci'." >&2
+    exit 1
+  fi
+
+  # The override is not a bypass for arbitrary databases: require an explicit
+  # test-owned database name as a second independent safety signal.
+  if [[ ! "${current_database}" =~ (^|[_-])(ci|e2e|test)([_-]|$) ]]; then
+    echo "Refusing destructive reset for non-test database '${current_database}' even with E2E_ALLOW_FIXTURE_RESET=1." >&2
+    echo "Use a dedicated database whose name contains a standalone ci/e2e/test marker." >&2
+    exit 1
+  fi
 fi
 
 # Resetting the dedicated schema before migrations is simpler and safer than a
