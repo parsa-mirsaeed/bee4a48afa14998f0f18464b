@@ -1,8 +1,8 @@
 //! Locale provider and language switching for the web application.
 
 use super::{
-    parent_translation, platform_admin_translation, student_translation, supplemental_translation, t,
-    teacher_assignments_translation, teacher_classes_translation, teacher_dashboard_translation,
+    parent_translation, platform_admin_translation, student_translation, supplemental_translation,
+    t, teacher_assignments_translation, teacher_classes_translation, teacher_dashboard_translation,
     Locale, LocalizedGrade,
 };
 use dioxus::prelude::*;
