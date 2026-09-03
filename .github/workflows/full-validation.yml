@@ -203,6 +203,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           show-progress: false
+          fetch-depth: 0
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -243,9 +244,23 @@ jobs:
         shell: bash
         env:
           E2E_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
-          set -o pipefail
-          bash scripts/ci/run_browser_final.sh 2>&1 | tee browser-final.log
+          set -euo pipefail
+
+          passes=1
+          if [[ -n "${PR_BASE_SHA}" ]] && \
+             git diff --name-only "${PR_BASE_SHA}" "${PR_HEAD_SHA}" -- | \
+               grep -Fxq 'scripts/ci/reset_browser_fixture_db.sh'; then
+            passes=2
+          fi
+
+          : > browser-final.log
+          for pass in $(seq 1 "${passes}"); do
+            echo "=== final browser acceptance pass ${pass}/${passes} ===" | tee -a browser-final.log
+            bash scripts/ci/run_browser_final.sh 2>&1 | tee -a browser-final.log
+          done
 
       - name: Upload final browser evidence
         if: always()
