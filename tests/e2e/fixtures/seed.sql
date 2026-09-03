@@ -96,11 +96,11 @@ ON CONFLICT DO NOTHING;
 
 INSERT INTO submissions (
   id, custom_assignment_id, student_id, content, grade, grade_scale, graded_by,
-  submitted_at, graded_at
+  submitted_at
 ) VALUES
-  ('f2000000-0000-0000-0000-0000000000a1', 'f1000000-0000-0000-0000-0000000000a1', 'c0000000-0000-0000-0000-0000000000a3', '{"text":"synthetic"}'::jsonb, 18.00, 20, 'c0000000-0000-0000-0000-0000000000a2', NOW() - INTERVAL '2 days', NOW() - INTERVAL '1 day'),
-  ('f2000000-0000-0000-0000-0000000000a4', 'f1000000-0000-0000-0000-0000000000a4', 'c0000000-0000-0000-0000-0000000000a3', '{"text":"school-a authorization submission"}'::jsonb, NULL, 100, NULL, NOW() - INTERVAL '1 day', NULL),
-  ('f2000000-0000-0000-0000-0000000000b1', 'f1000000-0000-0000-0000-0000000000b1', 'c0000000-0000-0000-0000-0000000000b3', '{"text":"school-b authorization submission"}'::jsonb, NULL, 100, NULL, NOW() - INTERVAL '1 day', NULL)
+  ('f2000000-0000-0000-0000-0000000000a1', 'f1000000-0000-0000-0000-0000000000a1', 'c0000000-0000-0000-0000-0000000000a3', '{"text":"synthetic"}'::jsonb, 18.00, 20, 'c0000000-0000-0000-0000-0000000000a2', NOW() - INTERVAL '2 days'),
+  ('f2000000-0000-0000-0000-0000000000a4', 'f1000000-0000-0000-0000-0000000000a4', 'c0000000-0000-0000-0000-0000000000a3', '{"text":"school-a authorization submission"}'::jsonb, NULL, 100, NULL, NOW() - INTERVAL '1 day'),
+  ('f2000000-0000-0000-0000-0000000000b1', 'f1000000-0000-0000-0000-0000000000b1', 'c0000000-0000-0000-0000-0000000000b3', '{"text":"school-b authorization submission"}'::jsonb, NULL, 100, NULL, NOW() - INTERVAL '1 day')
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO knowledge_assets (id, school_id, title, status, created_by, published_at) VALUES
@@ -189,12 +189,12 @@ BEGIN
 
   IF EXISTS (
     SELECT 1
-    FROM submissions s
-    JOIN custom_assignments ca ON ca.id = s.custom_assignment_id
+    FROM custom_assignments ca
+    LEFT JOIN submissions s ON s.custom_assignment_id = ca.id
     WHERE ca.status = 'Graded'::custom_status
-      AND (s.graded_at IS NULL OR s.graded_at < s.submitted_at)
+      AND (s.id IS NULL OR s.grade IS NULL OR s.submitted_at IS NULL)
   ) THEN
-    RAISE EXCEPTION 'E2E invariant: graded submissions require coherent graded_at';
+    RAISE EXCEPTION 'E2E invariant: Graded custom assignments require persisted graded submissions';
   END IF;
 
   IF EXISTS (
