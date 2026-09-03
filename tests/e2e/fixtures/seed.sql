@@ -84,18 +84,22 @@ INSERT INTO assignments (id, teacher_id, class_section_id, subject_id, title, bo
   ('f0000000-0000-0000-0000-0000000000b1', 'c0000000-0000-0000-0000-0000000000b2', 'e0000000-0000-0000-0000-0000000000b1', 'd0000000-0000-0000-0000-0000000000a1', 'E2E Authorization Submission B', 'School B authorization probe', NOW() + INTERVAL '10 days', 'Published', NOW())
 ON CONFLICT (id) DO NOTHING;
 
-INSERT INTO custom_assignments (id, assignment_id, student_id, due_at, status) VALUES
-  ('f1000000-0000-0000-0000-0000000000a1', 'f0000000-0000-0000-0000-0000000000a1', 'c0000000-0000-0000-0000-0000000000a3', NOW() + INTERVAL '7 days', 'Graded'),
-  ('f1000000-0000-0000-0000-0000000000a2', 'f0000000-0000-0000-0000-0000000000a2', 'c0000000-0000-0000-0000-0000000000a3', NOW() + INTERVAL '8 days', 'Assigned'),
-  ('f1000000-0000-0000-0000-0000000000a3', 'f0000000-0000-0000-0000-0000000000a3', 'c0000000-0000-0000-0000-0000000000a3', NOW() + INTERVAL '9 days', 'Assigned'),
-  ('f1000000-0000-0000-0000-0000000000a4', 'f0000000-0000-0000-0000-0000000000a4', 'c0000000-0000-0000-0000-0000000000a3', NOW() + INTERVAL '10 days', 'Submitted'),
-  ('f1000000-0000-0000-0000-0000000000b1', 'f0000000-0000-0000-0000-0000000000b1', 'c0000000-0000-0000-0000-0000000000b3', NOW() + INTERVAL '10 days', 'Submitted')
+INSERT INTO custom_assignments (
+  id, assignment_id, student_id, due_at, status, submitted_at, graded_at
+) VALUES
+  ('f1000000-0000-0000-0000-0000000000a1', 'f0000000-0000-0000-0000-0000000000a1', 'c0000000-0000-0000-0000-0000000000a3', NOW() + INTERVAL '7 days', 'Graded', NOW() - INTERVAL '2 days', NOW() - INTERVAL '1 day'),
+  ('f1000000-0000-0000-0000-0000000000a2', 'f0000000-0000-0000-0000-0000000000a2', 'c0000000-0000-0000-0000-0000000000a3', NOW() + INTERVAL '8 days', 'Assigned', NULL, NULL),
+  ('f1000000-0000-0000-0000-0000000000a3', 'f0000000-0000-0000-0000-0000000000a3', 'c0000000-0000-0000-0000-0000000000a3', NOW() + INTERVAL '9 days', 'Assigned', NULL, NULL),
+  ('f1000000-0000-0000-0000-0000000000a4', 'f0000000-0000-0000-0000-0000000000a4', 'c0000000-0000-0000-0000-0000000000a3', NOW() + INTERVAL '10 days', 'Submitted', NOW() - INTERVAL '1 day', NULL),
+  ('f1000000-0000-0000-0000-0000000000b1', 'f0000000-0000-0000-0000-0000000000b1', 'c0000000-0000-0000-0000-0000000000b3', NOW() + INTERVAL '10 days', 'Submitted', NOW() - INTERVAL '1 day', NULL)
 ON CONFLICT DO NOTHING;
 
-INSERT INTO submissions (id, custom_assignment_id, student_id, content, grade, grade_scale, graded_by) VALUES
-  ('f2000000-0000-0000-0000-0000000000a1', 'f1000000-0000-0000-0000-0000000000a1', 'c0000000-0000-0000-0000-0000000000a3', '{"text":"synthetic"}'::jsonb, 18.00, 20, 'c0000000-0000-0000-0000-0000000000a2'),
-  ('f2000000-0000-0000-0000-0000000000a4', 'f1000000-0000-0000-0000-0000000000a4', 'c0000000-0000-0000-0000-0000000000a3', '{"text":"school-a authorization submission"}'::jsonb, NULL, 100, NULL),
-  ('f2000000-0000-0000-0000-0000000000b1', 'f1000000-0000-0000-0000-0000000000b1', 'c0000000-0000-0000-0000-0000000000b3', '{"text":"school-b authorization submission"}'::jsonb, NULL, 100, NULL)
+INSERT INTO submissions (
+  id, custom_assignment_id, student_id, content, grade, grade_scale, graded_by, submitted_at
+) VALUES
+  ('f2000000-0000-0000-0000-0000000000a1', 'f1000000-0000-0000-0000-0000000000a1', 'c0000000-0000-0000-0000-0000000000a3', '{"text":"synthetic"}'::jsonb, 18.00, 20, 'c0000000-0000-0000-0000-0000000000a2', NOW() - INTERVAL '2 days'),
+  ('f2000000-0000-0000-0000-0000000000a4', 'f1000000-0000-0000-0000-0000000000a4', 'c0000000-0000-0000-0000-0000000000a3', '{"text":"school-a authorization submission"}'::jsonb, NULL, 100, NULL, NOW() - INTERVAL '1 day'),
+  ('f2000000-0000-0000-0000-0000000000b1', 'f1000000-0000-0000-0000-0000000000b1', 'c0000000-0000-0000-0000-0000000000b3', '{"text":"school-b authorization submission"}'::jsonb, NULL, 100, NULL, NOW() - INTERVAL '1 day')
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO knowledge_assets (id, school_id, title, status, created_by, published_at) VALUES
@@ -148,5 +152,71 @@ INSERT INTO knowledge_ocr_texts (
   repeat('a', 64)
 )
 ON CONFLICT (asset_id) DO NOTHING;
+
+-- The deterministic fixture must itself obey the application state model. Keep
+-- these assertions beside the seed so an invalid baseline fails before a
+-- browser journey can disguise it as a product regression.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM custom_assignments
+    WHERE status IN ('Submitted'::custom_status, 'Graded'::custom_status)
+      AND submitted_at IS NULL
+  ) THEN
+    RAISE EXCEPTION 'E2E invariant: Submitted/Graded custom assignments require submitted_at';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM custom_assignments
+    WHERE status = 'Graded'::custom_status
+      AND (graded_at IS NULL OR graded_at < submitted_at)
+  ) THEN
+    RAISE EXCEPTION 'E2E invariant: Graded custom assignments require coherent graded_at';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM submissions s
+    JOIN custom_assignments ca ON ca.id = s.custom_assignment_id
+    WHERE ca.status IN ('Submitted'::custom_status, 'Graded'::custom_status)
+      AND s.submitted_at IS NULL
+  ) THEN
+    RAISE EXCEPTION 'E2E invariant: persisted Submitted/Graded work requires submission submitted_at';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM custom_assignments ca
+    LEFT JOIN submissions s ON s.custom_assignment_id = ca.id
+    WHERE ca.id IN (
+      'f1000000-0000-0000-0000-0000000000a2'::uuid,
+      'f1000000-0000-0000-0000-0000000000a3'::uuid
+    )
+      AND (ca.status <> 'Assigned'::custom_status OR ca.submitted_at IS NOT NULL OR ca.graded_at IS NOT NULL OR s.id IS NOT NULL)
+  ) THEN
+    RAISE EXCEPTION 'E2E invariant: desktop/mobile submission journeys must start Assigned with no submission';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM enrollments
+    WHERE class_section_id = 'e0000000-0000-0000-0000-0000000000a2'::uuid
+  ) THEN
+    RAISE EXCEPTION 'E2E invariant: guided-publish class must start empty';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM users
+    WHERE email IN (
+      'e2e-pr1-student@example.test',
+      'e2e-pr1-teacher@example.test',
+      'e2e-pr1-parent@example.test'
+    )
+  ) THEN
+    RAISE EXCEPTION 'E2E invariant: browser-created e2e-pr1 accounts leaked into fresh baseline';
+  END IF;
+END
+$$;
 
 COMMIT;
