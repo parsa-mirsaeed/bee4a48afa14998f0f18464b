@@ -11,6 +11,7 @@ mod date_presentation;
 pub mod grading;
 pub mod locale;
 mod parent_translations;
+mod platform_admin_translations;
 pub mod provider;
 mod student_translations;
 mod teacher_assignments_translations;
@@ -26,6 +27,12 @@ pub use date_presentation::{
 pub use grading::*;
 pub use locale::*;
 pub(crate) use parent_translations::{format_parent_class_count, parent_translation};
+pub(crate) use platform_admin_translations::{
+    platform_admin_actor_label, platform_admin_audit_action_label,
+    platform_admin_language_label, platform_admin_lifecycle_guidance,
+    platform_admin_status_label, platform_admin_target_type_label,
+    platform_admin_translation,
+};
 pub use provider::*;
 pub(crate) use student_translations::student_translation;
 pub(crate) use teacher_assignments_translations::teacher_assignments_translation;
