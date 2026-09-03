@@ -16,6 +16,10 @@ const KNOWLEDGE_SOURCE_BUCKET: &str = "edutalent-knowledge-sources";
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AdminKnowledgeReviewAssetDto {
     pub asset: KnowledgeAssetDto,
+    /// Safe product identity for the owning school. The UUID remains available
+    /// through `asset.school_id` for technical diagnostics, but is not the
+    /// primary Platform Admin label.
+    pub school_name: String,
     /// True when the canonical source has complete governed metadata and can be
     /// attempted through the protected review endpoint. Storage/object health
     /// is verified only by that endpoint and failures remain bounded product UI.
@@ -70,6 +74,31 @@ pub async fn list_admin_knowledge_assets_for_review(
         }
 
         let asset_ids = assets.iter().map(|asset| asset.id).collect::<Vec<_>>();
+        let school_ids = assets
+            .iter()
+            .map(|asset| asset.school_id)
+            .collect::<Vec<_>>();
+        let school_rows = sqlx::query("SELECT id, name FROM schools WHERE id = ANY($1)")
+            .bind(&school_ids)
+            .fetch_all(&*pool)
+            .await
+            .map_err(|error| {
+                tracing::error!(%error, "platform knowledge school identity list failed");
+                ServerFnError::new("Unable to load school identity")
+            })?;
+        let mut school_by_id = HashMap::<Uuid, String>::new();
+        for row in school_rows {
+            let school_id: Uuid = row.try_get("id").map_err(|error| {
+                tracing::error!(%error, "platform knowledge school ID decode failed");
+                ServerFnError::new("Unable to load school identity")
+            })?;
+            let school_name: String = row.try_get("name").map_err(|error| {
+                tracing::error!(%error, "platform knowledge school name decode failed");
+                ServerFnError::new("Unable to load school identity")
+            })?;
+            school_by_id.insert(school_id, school_name);
+        }
+
         let source_rows = sqlx::query(
             r#"
             SELECT
@@ -152,6 +181,10 @@ pub async fn list_admin_knowledge_assets_for_review(
         Ok(assets
             .into_iter()
             .map(|asset| {
+                let school_name = school_by_id
+                    .get(&asset.school_id)
+                    .cloned()
+                    .unwrap_or_else(|| "Unknown school".to_string());
                 let source = source_by_asset.remove(&asset.id);
                 let source_review_available = source.as_ref().is_some_and(|source| {
                     source.mime_type == "application/pdf"
@@ -170,6 +203,7 @@ pub async fn list_admin_knowledge_assets_for_review(
                 let has_verified_ocr = ocr_asset_ids.contains(&asset.id);
                 AdminKnowledgeReviewAssetDto {
                     asset: asset.into(),
+                    school_name,
                     source_review_available,
                     original_filename: source
                         .as_ref()
@@ -269,5 +303,13 @@ mod tests {
         assert!(!is_sha256(
             "za7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
         ));
+    }
+
+    #[test]
+    fn admin_review_read_model_carries_school_display_identity() {
+        let source = include_str!("admin_knowledge_review_functions.rs");
+        let production = source.split("#[cfg(test)]").next().unwrap_or(source);
+        assert!(production.contains("pub school_name: String"));
+        assert!(production.contains("SELECT id, name FROM schools"));
     }
 }
