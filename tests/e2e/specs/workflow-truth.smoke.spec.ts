@@ -197,9 +197,10 @@ test('manager provisions Student Teacher Parent and guided publish persists @smo
   await expect(studentCard).toContainText('Pending');
   await studentCard.getByRole('button', { name: 'Start assignment', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Open my submission', exact: true }).click();
-  await expect(page.getByRole('dialog')).toContainText('My submission');
-  await page.getByRole('dialog').locator('textarea').fill(STUDENT_SUBMISSION);
-  await page.getByRole('dialog').getByRole('button', { name: 'Submit work', exact: true }).click();
+  const workDialog = page.getByRole('dialog');
+  await expect(workDialog).toContainText('My submission');
+  await workDialog.getByLabel('My submission', { exact: true }).fill(STUDENT_SUBMISSION);
+  await workDialog.getByRole('button', { name: 'Submit work', exact: true }).click();
   await expect(studentCard).toContainText('Submitted');
   await endSession(page);
 
@@ -208,7 +209,7 @@ test('manager provisions Student Teacher Parent and guided publish persists @smo
   await expect(studentCard).toContainText('Submitted');
   await studentCard.getByRole('button', { name: 'View submission', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Open my submission', exact: true }).click();
-  await expect(page.getByRole('dialog').locator('textarea')).toHaveValue(STUDENT_SUBMISSION);
+  await expect(page.getByRole('dialog').getByLabel('My submission', { exact: true })).toHaveValue(STUDENT_SUBMISSION);
   await endSession(page);
 
   // A newly-created Teacher can authenticate with the one-time credential and
@@ -261,7 +262,7 @@ test('knowledge storage unavailable state recovers and real PDF upload persists 
   await expect(page.getByText(/Knowledge storage is temporarily unavailable/i)).toBeVisible();
   await expect(page.getByLabel('PDF file *')).toBeDisabled();
 
-  const ready = await request.post('http://127.0.0.1:9100/__e2e/storage-mode', {
+  const ready = await page.context().request.post('http://127.0.0.1:9100/__e2e/storage-mode', {
     data: { mode: 'ready' },
   });
   expect(ready.ok()).toBeTruthy();
