@@ -85,7 +85,7 @@ pub fn PlatformAdminDashboard(section: String) -> Element {
     } else {
         rsx! {
             div { class: "flex min-h-screen items-center justify-center", role: "status",
-                "{admin_t("platform_admin.loading", locale)}"
+                {admin_t("platform_admin.loading", locale)}
             }
         }
     }
@@ -137,18 +137,18 @@ fn PlatformKnowledgeReviewSection() -> Element {
                         p {
                             class: "rounded-lg bg-blue-50 px-4 py-3 text-sm text-blue-800 dark:bg-blue-900/20 dark:text-blue-200",
                             role: "status",
-                            "{admin_t(message_key, locale)}"
+                            {admin_t(message_key, locale)}
                         }
                     }
                     match &*assets.read() {
                         None => rsx! {
-                            p { class: "text-gray-500", role: "status", "{admin_t("platform_admin.review.loading", locale)}" }
+                            p { class: "text-gray-500", role: "status", {admin_t("platform_admin.review.loading", locale)} }
                         },
                         Some(Err(_)) => rsx! {
-                            p { class: "text-red-600", role: "alert", "{admin_t("platform_admin.review.load_error", locale)}" }
+                            p { class: "text-red-600", role: "alert", {admin_t("platform_admin.review.load_error", locale)} }
                         },
                         Some(Ok(items)) if items.is_empty() => rsx! {
-                            div { class: "et-ui-card p-8 text-center text-gray-500", "{admin_t("platform_admin.review.empty", locale)}" }
+                            div { class: "et-ui-card p-8 text-center text-gray-500", {admin_t("platform_admin.review.empty", locale)} }
                         },
                         Some(Ok(items)) => rsx! {
                             div { class: "grid grid-cols-1 gap-4 xl:grid-cols-2",
@@ -382,30 +382,30 @@ fn OcrEditorDialog(
                 provider,
             ),
             form { class: "space-y-4", onsubmit: submit,
-                p { class: "text-sm text-gray-500", "{admin_t("platform_admin.ocr.helper", locale)}" }
+                p { class: "text-sm text-gray-500", {admin_t("platform_admin.ocr.helper", locale)} }
                 if editor.loading {
                     p {
                         class: "rounded-lg bg-blue-50 px-3 py-2 text-sm text-blue-800 dark:bg-blue-900/20 dark:text-blue-200",
                         role: "status",
-                        "{admin_t("platform_admin.ocr.loading", locale)}"
+                        {admin_t("platform_admin.ocr.loading", locale)}
                     }
                 } else {
                     if let Some(error_key) = editor.error {
                         p {
                             class: "rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800 dark:bg-red-900/20 dark:text-red-200",
                             role: "alert",
-                            "{admin_t(error_key, locale)}"
+                            {admin_t(error_key, locale)}
                         }
                     }
                     if let Some(source_file_id) = editor.source_file_id.as_ref() {
                         div { class: "rounded-lg bg-gray-50 p-3 text-xs text-gray-600 dark:bg-gray-900/40 dark:text-gray-300",
                             p {
-                                span { class: "font-medium", "{admin_t("platform_admin.ocr.source_revision", locale)}: " }
+                                span { class: "font-medium", {format!("{}: ", admin_t("platform_admin.ocr.source_revision", locale))} }
                                 code { class: "break-all", dir: "ltr", "{source_file_id}" }
                             }
                             if let Some(source_sha256) = editor.source_sha256.as_ref() {
                                 p {
-                                    span { class: "font-medium", "{admin_t("platform_admin.ocr.source_hash", locale)}: " }
+                                    span { class: "font-medium", {format!("{}: ", admin_t("platform_admin.ocr.source_hash", locale))} }
                                     code { class: "break-all", dir: "ltr", "{source_sha256}" }
                                 }
                             }
@@ -414,24 +414,24 @@ fn OcrEditorDialog(
                     if let Some(revision) = editor.revision.as_ref() {
                         div { class: "rounded-lg bg-gray-50 p-3 text-xs text-gray-600 dark:bg-gray-900/40 dark:text-gray-300",
                             p {
-                                span { class: "font-medium", "{admin_t("platform_admin.ocr.current_revision", locale)}: " }
+                                span { class: "font-medium", {format!("{}: ", admin_t("platform_admin.ocr.current_revision", locale))} }
                                 code { class: "break-all", dir: "ltr", "{revision}" }
                             }
                             if let Some(verified_at) = editor.verified_at.as_ref() {
                                 p {
-                                    span { class: "font-medium", "{admin_t("platform_admin.ocr.verified_at", locale)}: " }
-                                    "{format_product_datetime_text(verified_at, locale)}"
+                                    span { class: "font-medium", {format!("{}: ", admin_t("platform_admin.ocr.verified_at", locale))} }
+                                    {format_product_datetime_text(verified_at, locale)}
                                 }
                             }
                             if let Some(verified_by) = editor.verified_by.as_ref() {
                                 p {
-                                    span { class: "font-medium", "{admin_t("platform_admin.ocr.verified_by", locale)}: " }
+                                    span { class: "font-medium", {format!("{}: ", admin_t("platform_admin.ocr.verified_by", locale))} }
                                     code { class: "break-all", dir: "ltr", "{verified_by}" }
                                 }
                             }
                             if let Some(text_sha256) = editor.text_sha256.as_ref() {
                                 p {
-                                    span { class: "font-medium", "{admin_t("platform_admin.ocr.text_hash", locale)}: " }
+                                    span { class: "font-medium", {format!("{}: ", admin_t("platform_admin.ocr.text_hash", locale))} }
                                     code { class: "break-all", dir: "ltr", "{text_sha256}" }
                                 }
                             }
@@ -441,7 +441,7 @@ fn OcrEditorDialog(
                         label {
                             r#for: "ocr-provider",
                             class: "mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300",
-                            "{admin_t("platform_admin.ocr.provider", locale)}"
+                            {admin_t("platform_admin.ocr.provider", locale)}
                         }
                         input {
                             id: "ocr-provider",
@@ -456,7 +456,7 @@ fn OcrEditorDialog(
                         label {
                             r#for: "verified-ocr-text",
                             class: "mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300",
-                            "{admin_t("platform_admin.ocr.text", locale)}"
+                            {admin_t("platform_admin.ocr.text", locale)}
                         }
                         textarea {
                             id: "verified-ocr-text",
@@ -481,7 +481,7 @@ fn OcrEditorDialog(
                                     ocr_text,
                                     provider,
                                 ),
-                                "{admin_t("platform_admin.ocr.reload", locale)}"
+                                {admin_t("platform_admin.ocr.reload", locale)}
                             }
                         }
                         button {
@@ -495,18 +495,18 @@ fn OcrEditorDialog(
                                 ocr_text,
                                 provider,
                             ),
-                            "{admin_t("platform_admin.ocr.cancel", locale)}"
+                            {admin_t("platform_admin.ocr.cancel", locale)}
                         }
                         button {
                             class: "rounded-lg bg-primary px-4 py-2 font-medium text-white disabled:opacity-50",
                             r#type: "submit",
                             disabled: busy(),
                             if busy() {
-                                "{admin_t("platform_admin.ocr.saving", locale)}"
+                                {admin_t("platform_admin.ocr.saving", locale)}
                             } else if is_update {
-                                "{admin_t("platform_admin.ocr.save_changes", locale)}"
+                                {admin_t("platform_admin.ocr.save_changes", locale)}
                             } else {
-                                "{admin_t("platform_admin.ocr.save", locale)}"
+                                {admin_t("platform_admin.ocr.save", locale)}
                             }
                         }
                     }
@@ -664,11 +664,11 @@ fn render_review_card(
                 div { class: "min-w-0",
                     h3 { class: "font-semibold text-gray-900 dark:text-white", "{asset.title}" }
                     p { class: "mt-1 text-sm text-gray-600 dark:text-gray-300",
-                        span { class: "font-medium", "{admin_t("platform_admin.metadata.school", locale)}: " }
+                        span { class: "font-medium", {format!("{}: ", admin_t("platform_admin.metadata.school", locale))} }
                         span { dir: "auto", "{item.school_name}" }
                     }
                     p { class: "mt-0.5 text-xs text-gray-500",
-                        "{admin_t("platform_admin.metadata.school_reference", locale)}: {school_reference}"
+                        {format!("{}: {}", admin_t("platform_admin.metadata.school_reference", locale), school_reference)}
                     }
                 }
                 StatusBadge { status: asset.status.clone(), locale }
@@ -700,12 +700,12 @@ fn render_review_card(
             }
             if let Some(reason) = asset.failure_reason.as_ref() {
                 details { class: "rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-300",
-                    summary { class: "cursor-pointer font-medium", "{platform_admin_status_label("failed", locale)}" }
+                    summary { class: "cursor-pointer font-medium", {platform_admin_status_label("failed", locale)} }
                     p { class: "mt-2", dir: "auto", "{reason}" }
                 }
             }
             div { class: "rounded-lg bg-gray-50 p-3 text-sm dark:bg-gray-900/40",
-                p { class: "font-medium text-gray-800 dark:text-gray-200", "{admin_t("platform_admin.source.title", locale)}" }
+                p { class: "font-medium text-gray-800 dark:text-gray-200", {admin_t("platform_admin.source.title", locale)} }
                 p { class: "mt-1 text-xs text-gray-500", dir: "auto", "{source_description}" }
                 if item.source_review_available {
                     a {
@@ -713,11 +713,11 @@ fn render_review_card(
                         href: source_href,
                         target: "_blank",
                         rel: "noopener noreferrer",
-                        "{admin_t("platform_admin.source.review", locale)}",
+                        {admin_t("platform_admin.source.review", locale)},
                         span { class: "material-icons-outlined text-base", aria_hidden: "true", "open_in_new" }
                     }
                 } else {
-                    p { class: "mt-2 text-xs text-amber-700 dark:text-amber-300", "{admin_t("platform_admin.source.unavailable", locale)}" }
+                    p { class: "mt-2 text-xs text-amber-700 dark:text-amber-300", {admin_t("platform_admin.source.unavailable", locale)} }
                 }
             }
             div { class: "flex flex-wrap gap-2",
@@ -742,9 +742,9 @@ fn render_review_card(
                             }
                         },
                         if item.has_verified_ocr {
-                            "{admin_t("platform_admin.action.update_ocr", locale)}"
+                            {admin_t("platform_admin.action.update_ocr", locale)}
                         } else {
-                            "{admin_t("platform_admin.action.attach_ocr", locale)}"
+                            {admin_t("platform_admin.action.attach_ocr", locale)}
                         }
                     }
                 }
@@ -771,9 +771,9 @@ fn render_review_card(
                                     });
                                 },
                                 if status == "failed" {
-                                    "{admin_t("platform_admin.action.retry_embedding", locale)}"
+                                    {admin_t("platform_admin.action.retry_embedding", locale)}
                                 } else {
-                                    "{admin_t("platform_admin.action.queue_embedding", locale)}"
+                                    {admin_t("platform_admin.action.queue_embedding", locale)}
                                 }
                             }
                         }
@@ -801,7 +801,7 @@ fn render_review_card(
                                         busy.set(false);
                                     });
                                 },
-                                "{admin_t("platform_admin.action.publish", locale)}"
+                                {admin_t("platform_admin.action.publish", locale)}
                             }
                         }
                     }
@@ -835,9 +835,9 @@ fn render_review_card(
                                     }
                                 },
                                 if status == "published" {
-                                    "{admin_t("platform_admin.action.withdraw_archive", locale)}"
+                                    {admin_t("platform_admin.action.withdraw_archive", locale)}
                                 } else {
-                                    "{admin_t("platform_admin.action.archive", locale)}"
+                                    {admin_t("platform_admin.action.archive", locale)}
                                 }
                             }
                         }
@@ -886,13 +886,13 @@ fn PlatformKnowledgeAuditSection() -> Element {
             children: rsx! {
                 match &*logs.read() {
                     None => rsx! {
-                        p { class: "text-gray-500", role: "status", "{admin_t("platform_admin.audit.loading", locale)}" }
+                        p { class: "text-gray-500", role: "status", {admin_t("platform_admin.audit.loading", locale)} }
                     },
                     Some(Err(_)) => rsx! {
-                        p { class: "text-red-600", role: "alert", "{admin_t("platform_admin.audit.load_error", locale)}" }
+                        p { class: "text-red-600", role: "alert", {admin_t("platform_admin.audit.load_error", locale)} }
                     },
                     Some(Ok(items)) if items.is_empty() => rsx! {
-                        div { class: "et-ui-card p-8 text-center text-gray-500", "{admin_t("platform_admin.audit.empty", locale)}" }
+                        div { class: "et-ui-card p-8 text-center text-gray-500", {admin_t("platform_admin.audit.empty", locale)} }
                     },
                     Some(Ok(items)) => {
                         let asset_guard = assets.read();
@@ -905,11 +905,11 @@ fn PlatformKnowledgeAuditSection() -> Element {
                                 table { class: "min-w-full text-sm",
                                     thead { class: "border-b border-gray-200 dark:border-gray-700",
                                         tr {
-                                            th { class: "px-4 py-3 text-start", scope: "col", "{admin_t("platform_admin.audit.time", locale)}" }
-                                            th { class: "px-4 py-3 text-start", scope: "col", "{admin_t("platform_admin.audit.actor", locale)}" }
-                                            th { class: "px-4 py-3 text-start", scope: "col", "{admin_t("platform_admin.audit.action", locale)}" }
-                                            th { class: "px-4 py-3 text-start", scope: "col", "{admin_t("platform_admin.audit.target", locale)}" }
-                                            th { class: "px-4 py-3 text-start", scope: "col", "{admin_t("platform_admin.audit.details", locale)}" }
+                                            th { class: "px-4 py-3 text-start", scope: "col", {admin_t("platform_admin.audit.time", locale)} }
+                                            th { class: "px-4 py-3 text-start", scope: "col", {admin_t("platform_admin.audit.actor", locale)} }
+                                            th { class: "px-4 py-3 text-start", scope: "col", {admin_t("platform_admin.audit.action", locale)} }
+                                            th { class: "px-4 py-3 text-start", scope: "col", {admin_t("platform_admin.audit.target", locale)} }
+                                            th { class: "px-4 py-3 text-start", scope: "col", {admin_t("platform_admin.audit.details", locale)} }
                                         }
                                     }
                                     tbody {
@@ -935,7 +935,7 @@ fn PlatformKnowledgeAuditSection() -> Element {
                                                                 r#type: "button",
                                                                 class: "font-medium text-primary hover:underline",
                                                                 onclick: move |_| selected_audit.set(Some(detail_log.clone())),
-                                                                "{admin_t("platform_admin.audit.view_details", locale)}"
+                                                                {admin_t("platform_admin.audit.view_details", locale)}
                                                             }
                                                         }
                                                     }
@@ -1051,7 +1051,7 @@ fn AuditDetailDialog(
                     }
                 }
                 div { class: "rounded-lg border border-gray-200 p-3 dark:border-gray-700",
-                    h3 { class: "font-semibold text-gray-900 dark:text-white", "{admin_t("platform_admin.audit.structured_details", locale)}" }
+                    h3 { class: "font-semibold text-gray-900 dark:text-white", {admin_t("platform_admin.audit.structured_details", locale)} }
                     if let Some(object) = log.details.as_object() {
                         if object.is_empty() {
                             p { class: "mt-2 text-gray-500", "{none}" }
