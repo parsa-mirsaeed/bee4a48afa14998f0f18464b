@@ -36,15 +36,33 @@ jobs:
   validate:
     name: Validate appliance definitions
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
           show-progress: false
 
       - name: Validate scripts, lock files, workflow isolation, and tamper detection
-        run: bash scripts/appliance/validate.sh
+        shell: bash
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+
+          umasks=(0022)
+          if [[ -n "${PR_BASE_SHA}" ]] && \
+             git diff --name-only "${PR_BASE_SHA}" "${PR_HEAD_SHA}" -- | \
+               grep -Fxq 'scripts/appliance/validate.sh'; then
+            umasks+=(0002 0077)
+          fi
+
+          for mask in "${umasks[@]}"; do
+            echo "=== appliance validation with caller umask ${mask} ==="
+            (umask "${mask}"; bash scripts/appliance/validate.sh)
+          done
 
   build-offline:
     permissions:
