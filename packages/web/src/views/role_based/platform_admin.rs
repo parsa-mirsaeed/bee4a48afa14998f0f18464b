@@ -1146,11 +1146,9 @@ fn audit_target_label(
     assets: Option<&[AdminKnowledgeReviewAssetDto]>,
     locale: Locale,
 ) -> String {
-    if let Some(asset) = assets.and_then(|items| {
-        items
-            .iter()
-            .find(|item| item.asset.id == log.target_id)
-    }) {
+    if let Some(asset) =
+        assets.and_then(|items| items.iter().find(|item| item.asset.id == log.target_id))
+    {
         return asset.asset.title.clone();
     }
     format!(
@@ -1168,11 +1166,9 @@ fn audit_school_label(
     let Some(school_id) = log.school_id.as_deref() else {
         return admin_t("platform_admin.audit.none", locale);
     };
-    if let Some(asset) = assets.and_then(|items| {
-        items
-            .iter()
-            .find(|item| item.asset.school_id == school_id)
-    }) {
+    if let Some(asset) =
+        assets.and_then(|items| items.iter().find(|item| item.asset.school_id == school_id))
+    {
         return asset.school_name.clone();
     }
     format!(
