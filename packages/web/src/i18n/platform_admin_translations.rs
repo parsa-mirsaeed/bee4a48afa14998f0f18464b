@@ -477,26 +477,44 @@ mod tests {
     #[test]
     fn platform_admin_core_keys_have_en_fa_parity() {
         for key in KEYS {
-            assert!(platform_admin_translation(key, Locale::En).is_some(), "missing EN {key}");
-            assert!(platform_admin_translation(key, Locale::Fa).is_some(), "missing FA {key}");
+            assert!(
+                platform_admin_translation(key, Locale::En).is_some(),
+                "missing EN {key}"
+            );
+            assert!(
+                platform_admin_translation(key, Locale::Fa).is_some(),
+                "missing FA {key}"
+            );
         }
     }
 
     #[test]
     fn lifecycle_statuses_and_audit_codes_never_render_raw_primary_codes() {
-        assert_eq!(platform_admin_status_label("ocr_ready", Locale::En), "OCR verified");
-        assert_eq!(platform_admin_status_label("ocr_ready", Locale::Fa), "OCR تأییدشده");
+        assert_eq!(
+            platform_admin_status_label("ocr_ready", Locale::En),
+            "OCR verified"
+        );
+        assert_eq!(
+            platform_admin_status_label("ocr_ready", Locale::Fa),
+            "OCR تأییدشده"
+        );
         assert_ne!(
             platform_admin_audit_action_label("knowledge_asset.ocr_verified", Locale::En),
             "knowledge_asset.ocr_verified"
         );
-        assert_eq!(platform_admin_actor_label("PlatformAdmin", Locale::Fa), "مدیر سامانه");
+        assert_eq!(
+            platform_admin_actor_label("PlatformAdmin", Locale::Fa),
+            "مدیر سامانه"
+        );
     }
 
     #[test]
     fn language_codes_are_localized_without_mutating_unknown_source_data() {
         assert_eq!(platform_admin_language_label("fa", Locale::En), "Persian");
         assert_eq!(platform_admin_language_label("fa", Locale::Fa), "فارسی");
-        assert_eq!(platform_admin_language_label("school-defined", Locale::Fa), "school-defined");
+        assert_eq!(
+            platform_admin_language_label("school-defined", Locale::Fa),
+            "school-defined"
+        );
     }
 }
