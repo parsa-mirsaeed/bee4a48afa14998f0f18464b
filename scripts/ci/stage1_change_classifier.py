@@ -121,7 +121,7 @@ WEB_ASSET_RE = re.compile(
 )
 WEB_LOGIC_RE = re.compile(r"^packages/(?:web|ui)/(?:src/|Cargo\.toml)")
 BROWSER_HARNESS_RE = re.compile(
-    r"^(?:tests/e2e/|scripts/ci/(?:run_browser_e2e|run_browser_smoke|run_browser_final|verify_browser_harness)\.sh)"
+    r"^(?:tests/e2e/|scripts/ci/(?:run_browser_e2e|run_browser_smoke|run_browser_final|reset_browser_fixture_db|verify_browser_harness)\.sh)"
 )
 BROWSER_BEHAVIOR_RE = re.compile(
     r"^packages/web/src/.*(?:login|routing|navigation|sidebar|header|form|modal|dialog|drawer|popover|auth|session).*"

@@ -71,8 +71,13 @@ test('Persian grade dates and numbers are isolated LTR inside the RTL document @
     .getByText('E2E Assignment A1', { exact: true })
     .locator('xpath=ancestor::div[contains(@class,"rounded-lg")][1]');
   const isolatedValues = seededGradeRow.locator('bdi[dir="ltr"]');
-  await expect(isolatedValues).toHaveCount(3);
-  for (let index = 0; index < 3; index += 1) {
+  // The rendered row has two numeric/date values requiring directional
+  // isolation: the scaled score and its date. The letter-grade badge is not a
+  // numeric/date field and therefore is intentionally outside these <bdi>s.
+  await expect(isolatedValues).toHaveCount(2);
+  await expect(isolatedValues.filter({ hasText: '18/20' })).toHaveCount(1);
+  await expect(isolatedValues.filter({ hasText: /\d{4}\/\d{2}\/\d{2}/ })).toHaveCount(1);
+  for (let index = 0; index < 2; index += 1) {
     await expect(isolatedValues.nth(index)).toHaveCSS('direction', 'ltr');
   }
 });
