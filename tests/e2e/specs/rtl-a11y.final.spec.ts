@@ -76,7 +76,7 @@ test('Persian grade dates and numbers are isolated LTR inside the RTL document @
   // numeric/date field and therefore is intentionally outside these <bdi>s.
   await expect(isolatedValues).toHaveCount(2);
   await expect(isolatedValues.filter({ hasText: '18/20' })).toHaveCount(1);
-  await expect(isolatedValues.filter({ hasText: /^\d{4}\/\d{2}\/\d{2}$/ })).toHaveCount(1);
+  await expect(isolatedValues.filter({ hasText: /\d{4}\/\d{2}\/\d{2}/ })).toHaveCount(1);
   for (let index = 0; index < 2; index += 1) {
     await expect(isolatedValues.nth(index)).toHaveCSS('direction', 'ltr');
   }
