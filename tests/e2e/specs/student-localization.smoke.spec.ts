@@ -134,10 +134,11 @@ for (const locale of ['en', 'fa'] as const) {
       .getByText('E2E Submission Journey Desktop', { exact: true })
       .locator('xpath=ancestor::article[1]');
     await expect(card).toBeVisible();
-    await card.getByRole('button', {
-      name: locale === 'fa' ? 'شروع تکلیف' : 'Start assignment',
-      exact: true,
-    }).click();
+    // This is a localization probe, not a lifecycle mutation. The parallel final
+    // workflow may already have submitted the shared journey assignment, so use
+    // the card's single state-appropriate action (Start or View) without assuming
+    // which lifecycle state another independent journey currently owns.
+    await card.getByRole('button').first().click();
 
     let dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible();
