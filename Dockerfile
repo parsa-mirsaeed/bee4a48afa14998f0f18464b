@@ -40,6 +40,7 @@ RUN cargo chef cook --release --recipe-path recipe.json --package web --features
 # so its compile-only PostgreSQL instance uses a dedicated non-default port.
 FROM build-deps AS gateway-builder
 COPY packages/api/ packages/api/
+COPY vendor/dioxus-fullstack/ vendor/dioxus-fullstack/
 COPY migrations/ migrations/
 COPY scripts/ci/apply_migrations.sh scripts/ci/apply_migrations.sh
 RUN set -eux; \
