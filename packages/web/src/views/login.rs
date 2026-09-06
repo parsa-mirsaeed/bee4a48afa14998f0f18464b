@@ -13,11 +13,15 @@ pub fn LoginPage() -> Element {
     let mut password_error = use_signal(|| None::<String>);
     let mut form_error = use_signal(|| None::<String>);
     let mut is_loading = use_signal(|| false);
+    // SSR fields must not accept input before their controlled-value handlers
+    // are mounted, or hydration can replace browser-entered credentials.
+    let mut client_ready = use_signal(|| false);
     let mut show_forgot_dialog = use_signal(|| false);
     let nav = use_navigator();
     let locale = use_locale();
 
     let is_authenticated = AuthHooks::use_is_authenticated();
+    use_effect(move || client_ready.set(true));
     use_effect(move || {
         if is_authenticated {
             nav.replace(Route::DashboardRoute {});
@@ -72,9 +76,10 @@ pub fn LoginPage() -> Element {
                         action: "/api/auth/login",
                         method: "POST",
                         novalidate: true,
+                        "aria-busy": (!client_ready() || is_loading()).to_string(),
                         onsubmit: move |event| {
                             event.prevent_default();
-                            if is_loading() {
+                            if !client_ready() || is_loading() {
                                 return;
                             }
 
@@ -157,7 +162,7 @@ pub fn LoginPage() -> Element {
                             autocomplete: "email".to_string(),
                             placeholder: "you@example.com".to_string(),
                             required: true,
-                            disabled: is_loading(),
+                            disabled: !client_ready() || is_loading(),
                             error: email_error(),
                             on_change: move |value| {
                                 email.set(value);
@@ -175,7 +180,7 @@ pub fn LoginPage() -> Element {
                                 reveal_label: locale.t("auth.reveal_password"),
                                 hide_label: locale.t("auth.hide_password"),
                                 required: true,
-                                disabled: is_loading(),
+                                disabled: !client_ready() || is_loading(),
                                 error: password_error(),
                                 on_change: move |value| {
                                     password.set(value);
@@ -186,7 +191,7 @@ pub fn LoginPage() -> Element {
                             button {
                                 class: "et-auth-help",
                                 r#type: "button",
-                                disabled: is_loading(),
+                                disabled: !client_ready() || is_loading(),
                                 onclick: move |_| show_forgot_dialog.set(true),
                                 "{t_forgot_password}"
                             }
@@ -204,7 +209,7 @@ pub fn LoginPage() -> Element {
                             button_type: "submit".to_string(),
                             size: ButtonSize::Lg,
                             pending: is_loading(),
-                            disabled: is_loading(),
+                            disabled: !client_ready() || is_loading(),
                             icon: "arrow_forward".to_string(),
                         }
                     }
