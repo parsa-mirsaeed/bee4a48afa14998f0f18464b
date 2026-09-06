@@ -77,8 +77,33 @@ if [[ -z "${server_bin}" || ! -x "${server_bin}" ]]; then
   ls -la "${bundle_dir}" >&2 || true
   exit 1
 fi
-"${server_bin}" &
+# Migrations/build-time SQL checks use the disposable database administrator.
+# The browser application must use the production NOBYPASSRLS role; otherwise
+# cross-school reads can appear authorized while PostgreSQL silently skips RLS.
+set +x
+browser_app_user="edutalent_browser_ci"
+browser_app_password="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+DATABASE_ADMIN_URL="${DATABASE_URL}" \
+DATABASE_APP_USER="${browser_app_user}" \
+DATABASE_APP_PASSWORD="${browser_app_password}" \
+    bash scripts/ci/configure_database_role.sh >/dev/null
+browser_runtime_url="$(python3 - "${DATABASE_URL}" "${browser_app_user}" "${browser_app_password}" <<'PYURL'
+import sys
+from urllib.parse import quote, urlsplit, urlunsplit
+parts = urlsplit(sys.argv[1])
+host = parts.hostname or "localhost"
+if ":" in host:
+    host = f"[{host}]"
+port = f":{parts.port}" if parts.port else ""
+netloc = f"{quote(sys.argv[2], safe='')}:{quote(sys.argv[3], safe='')}@{host}{port}"
+print(urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment)))
+PYURL
+)"
+test "$(psql "${browser_runtime_url}" -v ON_ERROR_STOP=1 -Atqc 'SELECT NOT rolsuper AND NOT rolbypassrls FROM pg_roles WHERE rolname=current_user')" = "t"
+DATABASE_URL="${browser_runtime_url}" "${server_bin}" &
 SERVER_PID=$!
+unset browser_runtime_url browser_app_password
+set -x
 
 ready=false
 for _ in $(seq 1 90); do

@@ -28,7 +28,12 @@ function api(page:Page):Requests {
 const root='/api/submissions/attachments';
 const student='e2e-attachment-student@example.test';
 async function login(request: Requests,email=student) {
-  expect((await request.post('/api/auth/login',{data:{email,password:'e2e-password'}})).ok()).toBeTruthy();
+  const response=await request.post('/api/auth/login',{data:{email,password:'e2e-password'}});
+  expect(response.ok()).toBeTruthy();
+  const {user}=await response.json();
+  const identity=await request.post('/api/auth/whoami',{data:{}});
+  expect(identity.ok()).toBeTruthy();
+  expect((await identity.json()).id,`session must switch to ${email}`).toBe(user.id);
 }
 function pdf():Buffer {
   let text='%PDF-1.4\n';const offsets=[0];

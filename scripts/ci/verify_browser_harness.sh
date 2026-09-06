@@ -27,6 +27,9 @@ grep -q 'SUPABASE_JWT_ISSUER="http://127.0.0.1:9100/auth/v1"' scripts/ci/run_bro
 
 grep -q 'dx bundle --web --release --package web' scripts/ci/run_browser_e2e.sh
 grep -q 'target/dx/web/release/web' scripts/ci/run_browser_e2e.sh
+grep -q 'bash scripts/ci/configure_database_role.sh' scripts/ci/run_browser_e2e.sh
+grep -q 'NOT rolsuper AND NOT rolbypassrls' scripts/ci/run_browser_e2e.sh
+grep -Fq 'DATABASE_URL="${browser_runtime_url}" "${server_bin}"' scripts/ci/run_browser_e2e.sh
 grep -q 'current_database.*!=.*edutalent_ci' scripts/ci/reset_browser_fixture_db.sh
 grep -q 'E2E_ALLOW_FIXTURE_RESET' scripts/ci/reset_browser_fixture_db.sh
 grep -q 'standalone ci/e2e/test marker' scripts/ci/reset_browser_fixture_db.sh

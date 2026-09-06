@@ -61,9 +61,19 @@ DROP POLICY IF EXISTS submission_attachment_student_update ON public.submission_
 CREATE POLICY submission_attachment_student_update ON public.submission_attachments FOR UPDATE
 USING (public.owns_submission_assignment(custom_assignment_id,student_id,school_id))
 WITH CHECK (public.owns_submission_assignment(custom_assignment_id,student_id,school_id));
-DROP POLICY IF EXISTS submission_attachment_teacher_read ON public.submission_attachments;
-CREATE POLICY submission_attachment_teacher_read ON public.submission_attachments FOR SELECT USING (
-    status='submitted' AND school_id=public.get_school_id() AND public.get_role()='Teacher' AND EXISTS (
+-- Keep the Teacher authorization plan separate from every Student list/update
+-- plan. SECURITY INVOKER retains RLS on every joined relation; the early role
+-- check avoids planning/evaluating unrelated Teacher joins for other actors.
+CREATE OR REPLACE FUNCTION public.can_read_submission_original(
+    p_assignment UUID, p_student UUID, p_school UUID, p_submission UUID
+) RETURNS BOOLEAN LANGUAGE plpgsql STABLE SECURITY INVOKER
+SET search_path=pg_catalog,public AS $$
+BEGIN
+    IF public.get_role() IS DISTINCT FROM 'Teacher'
+       OR p_school IS DISTINCT FROM public.get_school_id() THEN
+        RETURN FALSE;
+    END IF;
+    RETURN EXISTS (
         SELECT 1 FROM public.custom_assignments ca
         JOIN public.assignments a ON a.id=ca.assignment_id
         JOIN public.class_sections cs ON cs.id=a.class_section_id
@@ -72,12 +82,18 @@ CREATE POLICY submission_attachment_teacher_read ON public.submission_attachment
         JOIN public.roles r ON r.id=u.role_id
         JOIN public.students s ON s.id=ca.student_id
         JOIN public.enrollments e ON e.student_id=s.id AND e.class_section_id=cs.id
-        JOIN public.submissions sub ON sub.id=submission_attachments.submission_id
+        JOIN public.submissions sub ON sub.id=p_submission
             AND sub.custom_assignment_id=ca.id AND sub.student_id=s.id
-        WHERE ca.id=submission_attachments.custom_assignment_id AND s.id=submission_attachments.student_id
+        WHERE ca.id=p_assignment AND s.id=p_student
           AND u.id=public.get_user_id() AND u.is_active AND r.name::text='Teacher'
-          AND u.school_id=submission_attachments.school_id AND cs.school_id=u.school_id
+          AND u.school_id=p_school AND cs.school_id=u.school_id
           AND s.school_id=u.school_id AND a.status='Published'::public.assignment_status
+    );
+END $$;
+DROP POLICY IF EXISTS submission_attachment_teacher_read ON public.submission_attachments;
+CREATE POLICY submission_attachment_teacher_read ON public.submission_attachments FOR SELECT USING (
+    status='submitted' AND public.can_read_submission_original(
+        custom_assignment_id,student_id,school_id,submission_id
     )
 );
 

@@ -266,8 +266,10 @@ async fn submit_work(
     .await
     .map_err(map_database_error)?;
 
-    sqlx::query("UPDATE submissions SET revision=gen_random_uuid(),last_submit_request=$2,last_submit_fingerprint=$3 WHERE id=$1")
-            .bind(submission_id).bind(request_id).bind(fingerprint).execute(&mut *transaction).await.map_err(map_database_error)?;
+    // PostgreSQL stores microsecond precision. Return its authoritative timestamp
+    // so a successful retry has exactly the same response as the first finalize.
+    let submitted_at = sqlx::query_scalar::<_, chrono::DateTime<Utc>>("UPDATE submissions SET revision=gen_random_uuid(),last_submit_request=$2,last_submit_fingerprint=$3 WHERE id=$1 RETURNING submitted_at")
+            .bind(submission_id).bind(request_id).bind(fingerprint).fetch_one(&mut *transaction).await.map_err(map_database_error)?;
     sqlx::query("UPDATE submission_attachments SET status='submitted',submission_id=$2,finalized_at=NOW() WHERE custom_assignment_id=$1 AND status='ready'")
             .bind(custom_assignment_id).bind(submission_id).execute(&mut *transaction).await.map_err(map_database_error)?;
 
@@ -276,7 +278,7 @@ async fn submit_work(
     Ok(SubmissionResponse {
         id: submission_id.to_string(),
         status: "submitted".to_string(),
-        submitted_at: Some(now.to_rfc3339()),
+        submitted_at: Some(submitted_at.to_rfc3339()),
         message: "Assignment submitted successfully".to_string(),
     })
 }
