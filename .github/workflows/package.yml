@@ -187,8 +187,15 @@ jobs:
           set -euo pipefail
           bundle="dist/edutalent-${PACKAGE_VERSION}"
           (cd "$bundle" && sha256sum --check SHA256SUMS)
-          gzip -dc "$bundle/edutalent-image.tar.gz" | docker load
           image="edutalent:${PACKAGE_VERSION}"
+          # The build left this tag in the daemon. Remove it so an archive with
+          # a missing/wrong tag cannot accidentally test the local build.
+          docker image rm "$image"
+          if docker image inspect "$image" >/dev/null 2>&1; then
+            echo "Packaged image tag was not cleared" >&2
+            exit 1
+          fi
+          gzip -dc "$bundle/edutalent-image.tar.gz" | docker load
           image_id="$(docker image inspect "$image" --format '{{.Id}}')"
 
           # A local Auth fixture supplies configuration without contacting a
