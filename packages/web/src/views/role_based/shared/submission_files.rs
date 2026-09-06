@@ -93,6 +93,7 @@ pub fn SubmissionFiles(
                 }
                 // Refresh even after failure: a lost response may have committed
                 // the intent or verified bytes. The same token remains retryable.
+                loaded.set(false);
                 epoch.set(epoch() + 1);
             }
             busy.set(false);
@@ -117,7 +118,7 @@ pub fn SubmissionFiles(
                     }
                     if editable && file.status!=AttachmentStatus::Submitted {
                         button { class:"et-ui-button et-ui-button--md et-ui-button--secondary",disabled:busy(),
-                            onclick:move |_|{busy.set(true);spawn(async move{if remove_submission_attachment(file.id).await.is_err(){error.set(true);}epoch.set(epoch()+1);busy.set(false);});},
+                            onclick:move |_|{busy.set(true);spawn(async move{if remove_submission_attachment(file.id).await.is_err(){error.set(true);}loaded.set(false);epoch.set(epoch()+1);busy.set(false);});},
                             "{locale.t(\"submission.files.remove\")}"
                         }
                     }
@@ -132,7 +133,7 @@ pub fn SubmissionFiles(
                             let file=file.clone();busy.set(true);
                             spawn(async move{
                                 let removed=match file.reserved_id{Some(id)=>remove_submission_attachment(id).await.is_ok(),None=>true};
-                                if removed{pending.with_mut(|files|files.retain(|p|p.request_id!=file.request_id));epoch.set(epoch()+1);}else{error.set(true);}
+                                if removed{pending.with_mut(|files|files.retain(|p|p.request_id!=file.request_id));loaded.set(false);epoch.set(epoch()+1);}else{error.set(true);}
                                 busy.set(false);
                             });
                         },
@@ -170,7 +171,7 @@ pub fn SubmissionFiles(
                     }
                 }
                 if !pending().is_empty() {
-                    button {class:"et-ui-button et-ui-button--md et-ui-button--secondary",disabled:busy(),onclick:upload,"{locale.t(\"submission.files.upload_retry\")}"}
+                    button {class:"et-ui-button et-ui-button--md et-ui-button--secondary",disabled:busy() || !loaded(),onclick:upload,"{locale.t(\"submission.files.upload_retry\")}"}
                     p {role:"status", "{locale.t(\"submission.files.upload_before_submit\")}"}
                 }
             }

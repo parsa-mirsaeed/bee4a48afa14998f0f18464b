@@ -113,7 +113,8 @@ fn discover_endpoints(source: &str, file_name: &str) -> Vec<String> {
                 .strip_prefix('"')
                 .expect("server method path must be a literal");
             let end = value.find('"').expect("terminated server method path");
-            let endpoint = value[..end]
+            let path = value[..end].split('?').next().expect("server method path");
+            let endpoint = path
                 .strip_prefix("/api/")
                 .expect("server method path must use /api/");
             assert!(
@@ -132,7 +133,7 @@ fn discover_endpoints(source: &str, file_name: &str) -> Vec<String> {
 
 #[test]
 fn method_macros_are_inventoried_alongside_legacy_server_macros() {
-    let source = r#"#[get("/api/files/list")] async fn list() {} #[post("/api/files/create")] async fn create() {}"#;
+    let source = r#"#[get("/api/files/list?assignment_id")] async fn list(assignment_id: Uuid) {} #[post("/api/files/create")] async fn create() {}"#;
     assert_eq!(
         discover_endpoints(source, "fixture.rs"),
         vec!["files/list", "files/create"]

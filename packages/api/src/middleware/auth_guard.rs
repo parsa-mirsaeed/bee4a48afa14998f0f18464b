@@ -26,6 +26,7 @@ static REFRESH_RATE_LIMITER: Lazy<AuthRateLimiter> = Lazy::new(AuthRateLimiter::
 const LOGIN_PATH: &str = "/api/auth/login";
 const LOGOUT_PATH: &str = "/api/auth/logout";
 const STUDENT_SUBMISSION_PATH: &str = "/api/submissions/submit";
+const STUDENT_FINALIZE_PATH: &str = "/api/submissions/finalize";
 const TEACHER_GRADE_PATH: &str = "/api/teacher/submissions/grade";
 const MAX_SERVER_ERROR_BODY_BYTES: usize = 64 * 1024;
 
@@ -199,22 +200,27 @@ fn refresh_response_records_failure(status: u16) -> bool {
 fn is_scoped_object_denial(path: &str, message: &str) -> bool {
     matches!(
         (path, message),
-        (STUDENT_SUBMISSION_PATH, "Assignment not found")
-            | (
-                TEACHER_GRADE_PATH,
-                "Submission not found or not owned by you"
-            )
+        (
+            STUDENT_SUBMISSION_PATH | STUDENT_FINALIZE_PATH,
+            "Assignment not found"
+        ) | (
+            TEACHER_GRADE_PATH,
+            "Submission not found or not owned by you"
+        )
     )
 }
 
 /// Dioxus' generic `ServerFnError::new` transport defaults to HTTP 500. These
-/// two object-scoped mutation paths intentionally collapse cross-tenant targets
+/// object-scoped mutation paths intentionally collapse cross-tenant targets
 /// into not-found responses. Preserve transaction rollback on the original 500,
 /// then normalize only the exact known denial payloads to HTTP 404. Unrelated
 /// application and database failures remain 500 and therefore stay visible.
 async fn normalize_scoped_object_denial(path: &str, response: Response) -> Response {
     if response.status() != StatusCode::INTERNAL_SERVER_ERROR
-        || !matches!(path, STUDENT_SUBMISSION_PATH | TEACHER_GRADE_PATH)
+        || !matches!(
+            path,
+            STUDENT_SUBMISSION_PATH | STUDENT_FINALIZE_PATH | TEACHER_GRADE_PATH
+        )
     {
         return response;
     }
@@ -377,6 +383,14 @@ mod tests {
         assert!(is_scoped_object_denial(
             STUDENT_SUBMISSION_PATH,
             "Assignment not found"
+        ));
+        assert!(is_scoped_object_denial(
+            STUDENT_FINALIZE_PATH,
+            "Assignment not found"
+        ));
+        assert!(!is_scoped_object_denial(
+            STUDENT_FINALIZE_PATH,
+            "attachment_conflict"
         ));
         assert!(is_scoped_object_denial(
             TEACHER_GRADE_PATH,

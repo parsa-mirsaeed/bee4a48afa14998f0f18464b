@@ -6,7 +6,7 @@ import { enforceOfflineAllowlist, assertNoUnexpectedOrigins } from '../fixtures/
 import { watchConsole, assertNoConsoleErrors, allowHttpResponse } from '../fixtures/console-guard';
 
 const root='/api/submissions/attachments';
-const student='e2e-student-a@example.test';
+const student='e2e-attachment-student@example.test';
 async function login(request: APIRequestContext,email=student) {
   expect((await request.post('/api/auth/login',{data:{email,password:'e2e-password'}})).ok()).toBeTruthy();
 }
@@ -32,7 +32,7 @@ function identity(project:string,caseId:number) {
   return {title:`E2E Attachment ${suffix}`,id:`f1600000-0000-0000-0000-${suffix.padStart(12,'0')}`};
 }
 async function list(request:APIRequestContext,assignment_id:string) {
-  const result=await request.get(`${root}/list`,{params:{assignment_id}});expect(result.ok()).toBeTruthy();return result.json();
+  const result=await request.get(`${root}/list`,{params:{assignment_id}});expect(result.ok(),`${result.status()}: ${(await result.text()).slice(0,1000)}`).toBeTruthy();return result.json();
 }
 async function reserve(request:APIRequestContext,assignment_id:string,file=originals.pdf,request_id=randomUUID()) {
   return request.post(`${root}/reserve`,{data:{input:{assignment_id,request_id,filename:file.name,media_type:file.mimeType,byte_size:file.buffer.length,sha256:createHash('sha256').update(file.buffer).digest('hex')}}});
@@ -67,7 +67,19 @@ for(const scenario of cases) {
         await expect(upload).toBeEnabled();
       } finally {await page.context().request.post('http://127.0.0.1:9100/__e2e/storage-mode',{data:{mode:'ready'}});}
     }
-    await upload.click();
+    let releaseList!:()=>void;
+    let listReached!:()=>void;
+    const held=new Promise<void>(resolve=>{releaseList=resolve;});
+    const reached=new Promise<void>(resolve=>{listReached=resolve;});
+    await page.route('**/api/submissions/attachments/list*',async route=>{listReached();await held;await route.continue();});
+    try {
+      await upload.click();
+      await reached;
+      await expect(upload).toHaveCount(0);
+      await expect(submit).toBeDisabled();
+    } finally {releaseList();}
+    await expect(picker).toBeEnabled();
+    await page.unroute('**/api/submissions/attachments/list*');
     await expect.poll(async()=> (await list(page.context().request,identityForTest.id)).filter((f:any)=>f.status==='ready').length).toBe(scenario.files.length);
     await expect(upload).toHaveCount(0);
     const axe=await new AxeBuilder({page}).include('[role="dialog"]').withTags(['wcag2a','wcag2aa','wcag21aa']).analyze();
@@ -84,7 +96,7 @@ for(const scenario of cases) {
       expect(downloaded.headers()['cache-control']).toContain('no-store');
       expect(await downloaded.body()).toEqual(source.buffer);
     }
-    await login(page.context().request,'e2e-teacher-a@example.test');
+    await login(page.context().request,'e2e-attachment-teacher@example.test');
     const teacherFiles=await list(page.context().request,identityForTest.id);expect(teacherFiles).toHaveLength(files.length);
     expect((await page.context().request.get(`${root}/download`,{params:{id:files[0].id}})).ok()).toBeTruthy();
     await page.goto('/dashboard/submissions');
@@ -105,8 +117,8 @@ for(const scenario of cases) {
 
 test('upload retries, limits and incomplete finalization stay truthful @smoke @final @student @workflow-truth',async({page},info)=>{
   await login(page.context().request);const request=page.context().request;const {id}=identity(info.project.name,90);
-  const token=randomUUID();let result=await reserve(request,id,originals.pdf,token);expect(result.ok()).toBeTruthy();const attachment=await result.json();
-  result=await reserve(request,id,originals.pdf,token);expect(result.ok()).toBeTruthy();expect((await result.json()).id).toBe(attachment.id);
+  const token=randomUUID();let result=await reserve(request,id,originals.pdf,token);expect(result.ok(),`${result.status()}: ${(await result.text()).slice(0,1000)}`).toBeTruthy();const attachment=await result.json();
+  result=await reserve(request,id,originals.pdf,token);expect(result.ok(),`${result.status()}: ${(await result.text()).slice(0,1000)}`).toBeTruthy();expect((await result.json()).id).toBe(attachment.id);
   expect(await list(request,id)).toHaveLength(1);
   let finalized=await request.post('/api/submissions/finalize',{data:{assignment_id:id,content:'preserved answer',request_id:randomUUID(),expected_revision:null,attachment_ids:[attachment.id]}});
   expect(finalized.ok()).toBeFalsy();
@@ -123,7 +135,7 @@ test('upload retries, limits and incomplete finalization stay truthful @smoke @f
   finalized=await request.post('/api/submissions/finalize',{data});expect(finalized.ok()).toBeTruthy();expect(await finalized.json()).toEqual(first);
   expect((await request.post('/api/submissions/finalize',{data:{...data,content:'stale overwrite',request_id:randomUUID()}})).ok()).toBeFalsy();
   expect((await request.post(`${root}/remove`,{data:{attachment_id:attachment.id}})).ok()).toBeFalsy();
-  const bad={...originals.png,name:'pretend.pdf',mimeType:'application/pdf'};result=await reserve(request,id,bad);expect(result.ok()).toBeTruthy();const badId=(await result.json()).id;
+  const bad={...originals.png,name:'pretend.pdf',mimeType:'application/pdf'};result=await reserve(request,id,bad);expect(result.ok(),`${result.status()}: ${(await result.text()).slice(0,1000)}`).toBeTruthy();const badId=(await result.json()).id;
   expect((await request.post(`${root}/upload?id=${badId}`,{data:bad.buffer,headers:{'content-type':'application/pdf'}})).status()).toBe(415);
   expect((await request.post(`${root}/remove`,{data:{attachment_id:badId}})).ok()).toBeTruthy();
   expect((await reserve(request,id,{...originals.pdf,name:'work.svg',mimeType:'image/svg+xml'})).ok()).toBeFalsy();

@@ -52,7 +52,7 @@ pub async fn reserve_submission_attachment(
     }
 }
 
-#[get("/api/submissions/attachments/list")]
+#[get("/api/submissions/attachments/list?assignment_id")]
 pub async fn list_submission_attachments(
     assignment_id: Uuid,
 ) -> Result<Vec<SubmissionAttachment>, ServerFnError> {
