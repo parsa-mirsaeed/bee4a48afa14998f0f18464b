@@ -35,6 +35,17 @@ class ClassifierTests(unittest.TestCase):
         )
         self.assertTrue(result["safe_to_control_ci"])
 
+    def test_release_verifier_regressions_have_explicit_release_ownership(self):
+        result = self.assert_categories(
+            ["scripts/ci/test_verify_release_docs.py"],
+            required=("release",),
+            forbidden=("unknown", "api_logic", "web_logic", "database"),
+            rust=False,
+            needs_postgres=False,
+            needs_browser=False,
+        )
+        self.assertTrue(result["safe_to_control_ci"])
+
     def test_css_only(self):
         self.assert_categories(
             ["packages/web/assets/main.css"],

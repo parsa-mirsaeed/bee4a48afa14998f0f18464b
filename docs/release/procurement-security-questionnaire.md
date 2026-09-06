@@ -13,14 +13,14 @@ Use these answers as technical inputs and update them for the exact contracted r
 | AI | Optional. Only internal AI Gateway may use approved provider egress. Core service degrades safely when AI unavailable. Local/offline profile supported. |
 | AI credentials | Gateway-only; not sent to browser/application UI. |
 | Encryption in transit | Operator-supplied TLS at gateway; production preflight validates key/cert/hostname/validity. |
-| Encryption at rest | Required target-host control; actual disk/storage encryption is human target-host evidence in PR #16, not claimed by CI. |
+| Encryption at rest | Required target-host control; actual disk/storage encryption is human target-host evidence in PR #2, not claimed by CI. |
 | Backups | Encrypted full backups + WAL/PITR + verified restore; verified off-appliance copy helpers and separate passphrase requirement. |
 | DR | PostgreSQL PITR and Qdrant recovery/reindex procedures; actual school RPO/RTO measured during target-host acceptance. |
 | Logging/monitoring | Local operational monitoring/alerts and retained evidence; no requirement for internet telemetry. |
 | Secure development | Authorization manifest, targeted/full CI, dependency/config scans, signed release evidence and threat/ADR documentation. |
 | SBOM/provenance | Air-gapped/release process produces SBOM/signature/provenance evidence for applicable artifacts. |
 | Vulnerability response | Defined in `security-organization.md`; external disclosure channel and contractual targets finalized before production signature. |
-| Penetration testing | Required external/human evidence is consolidated in PR #16; do not mark complete until signed. |
+| Penetration testing | Required external/human evidence is consolidated in PR #2; do not mark complete until signed. |
 | Data location | Core data intended on customer/self-hosted host + approved backup location; optional connected AI adds selected provider processing. |
 | Retention/DSR | Draft procedure in `privacy-governance-draft.md`; school-specific/legal approval required. |
 | Availability | Single-node/not HA. Availability measurement and SLA, if any, are defined only in signed service schedule after target-host evidence. |

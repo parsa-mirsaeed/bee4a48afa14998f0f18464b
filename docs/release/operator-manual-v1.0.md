@@ -83,4 +83,4 @@ Follow `security-organization.md` and the production threat/runbook material. Pr
 6. Handle backups/WAL according to retention and cryptographic-erasure policy; do not promise instantaneous erasure from retained recovery media unless contractually designed and proven.
 7. Record completion evidence and exceptions.
 
-Human target-host/operator acceptance is recorded separately in PR #16; this manual does not self-approve an installation.
+Human target-host/operator acceptance is recorded separately in PR #2; this manual does not self-approve an installation.

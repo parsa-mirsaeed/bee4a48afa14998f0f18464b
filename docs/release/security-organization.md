@@ -12,7 +12,7 @@ Production support applies only to release versions explicitly listed in the sig
 
 ## Severity and remediation SLA schedule
 
-Severity is defined now; contractual time targets are explicit approval fields rather than hidden assumptions. Complete the final SLA in PR #16 / the signed support schedule. Until then, the incident process still starts immediately for suspected Critical impact.
+Severity is defined now; contractual time targets are explicit approval fields rather than hidden assumptions. Complete the final SLA in PR #2 / the signed support schedule. Until then, the incident process still starts immediately for suspected Critical impact.
 
 | Severity | Example | Required handling | Contract remediation target |
 | --- | --- | --- | --- |
@@ -59,4 +59,4 @@ Every residual production risk records: description, affected release/school, se
 
 ## Penetration-test remediation
 
-Independent penetration testing and human authorization review are tracked in PR #16. Each finding receives severity, owner and remediation reference. Remediated material findings require retest. Any residual finding requires explicit owner/date/rationale before final production classification.
+Independent penetration testing and human authorization review are tracked in PR #2. Each finding receives severity, owner and remediation reference. Remediated material findings require retest. Any residual finding requires explicit owner/date/rationale before final production classification.

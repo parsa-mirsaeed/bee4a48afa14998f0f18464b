@@ -1,6 +1,6 @@
 # Privacy and governance package — draft for qualified review
 
-**Draft only. Not legal advice and not approved customer terms.** Qualified privacy/legal review and final approval are tracked in PR #16 against the frozen release candidate and actual school deployment/provider choices.
+**Draft only. Not legal advice and not approved customer terms.** Qualified privacy/legal review and final approval are tracked in PR #2 against the frozen release candidate and actual school deployment/provider choices.
 
 ## Role allocation working model
 
@@ -83,7 +83,7 @@ Define authorized export format/scope and verification, then revoke access, comp
 
 ## Required approval
 
-PR #16 must record the qualified privacy/legal reviewer, exact document/release revision, required corrections, provider-term re-verification and final disposition before this material is used as signed compliance/contract language.
+PR #2 must record the qualified privacy/legal reviewer, exact document/release revision, required corrections, provider-term re-verification and final disposition before this material is used as signed compliance/contract language.
 
 ## Connected-AI provider review register
 
@@ -96,4 +96,4 @@ The current controlled-AI architecture permits these optional external providers
 | Customer-selected target-host/backup operator | hosting/storage/operations where supplied by a third party | Deployment-dependent | Record legal entity, location, access, security terms, subprocessor role and transfer basis. |
 | Customer-selected support/communications provider | support/incident communications if used | No | Record only when production support actually uses one; minimize school/personal data. |
 
-A fully offline/local AI deployment must not be described as sending AI request content to OpenAI or DeepSeek. A connected deployment must not rely on this repository as evidence of then-current provider retention, training or international-transfer terms; PR #16 records qualified re-verification before signature.
+A fully offline/local AI deployment must not be described as sending AI request content to OpenAI or DeepSeek. A connected deployment must not rely on this repository as evidence of then-current provider retention, training or international-transfer terms; PR #2 records qualified re-verification before signature.

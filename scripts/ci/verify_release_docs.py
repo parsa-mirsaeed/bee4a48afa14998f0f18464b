@@ -148,13 +148,13 @@ def verify_required_language() -> None:
         "DPIA",
         "AI notice",
         "End-of-contract",
-        "PR #16",
+        "PR #2",
     ):
         if phrase.lower() not in privacy.lower():
             fail(f"privacy draft missing required concept: {phrase}")
 
     terms = read(RELEASE / "customer-terms-draft.md")
-    for phrase in ("not an executable contract", "Proprietary deployment/use grant", "RPO", "RTO", "PR #16"):
+    for phrase in ("not an executable contract", "Proprietary deployment/use grant", "RPO", "RTO", "PR #2"):
         if phrase.lower() not in terms.lower():
             fail(f"customer terms draft missing required concept: {phrase}")
 

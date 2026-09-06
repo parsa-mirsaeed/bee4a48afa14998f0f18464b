@@ -4,8 +4,9 @@ Plan item: **PR-15 — P0 final exact-head production acceptance**.
 
 ## Frozen candidate basis
 
-- Preceding engineering baseline on `main`: `88c4131bc7e9e818d8b940de2afa419e339e39cc` (merged PR-14).
-- Candidate branch: `agent/pr-15-final-release-acceptance`.
+- Historical frozen baseline before the acceptance fixes: `a70f22b5e46be1d07fe29205e844b64363314b49`. This is historical context, not proof of the current candidate.
+- Current implementation base: the exact `main` base SHA recorded on the candidate pull request; use the authoritative repository `parsa-mirsaeed/bee4a48afa14998f0f18464b`.
+- Candidate branch: resolved from the current pull-request event; no retired branch is authoritative.
 - Exact candidate head SHA: resolved from the pull-request event and written by the Final Release Acceptance workflow; do not substitute an older run or merge-preview SHA.
 - Candidate scope: final release evidence/orchestration only; no product feature is being added by PR-15.
 
@@ -19,7 +20,7 @@ The automated release gate verifies at runtime that:
 - there is no open issue carrying a P0/release-blocker label in the repository issue set inspected by the gate;
 - this PR has no unresolved review thread;
 - the release documentation truth gate passes on the exact head;
-- the manual/external acceptance dependency remains explicitly represented by PR #16 rather than being inferred from CI.
+- the manual/external acceptance dependency remains explicitly represented by PR #2 rather than being inferred from CI.
 
 The merged PR-14 feature matrix is the contracted-scope source. Disabled/excluded product domains remain absent from the promised release scope unless a later engineering/release revision explicitly changes them.
 
@@ -59,7 +60,7 @@ For workflow-dispatch stages, an already successful complete run may be reused o
 
 ## Manual/external evidence intentionally separated
 
-Per the repository owner's explicit sequencing instruction, all human/external production verifications are consolidated in **PR #16 — Manual/external production acceptance evidence**. They remain required before production/legal acceptance and include:
+Per the repository owner's explicit sequencing instruction, all human/external production verifications are consolidated in **PR #2 — Manual/external production acceptance evidence**. They remain required before production/legal acceptance and include:
 
 - independent authorization/security review;
 - clean target-host replacement install/restore/PITR/Qdrant qualification;
@@ -70,7 +71,7 @@ Per the repository owner's explicit sequencing instruction, all human/external p
 - operator acceptance and incident rehearsal;
 - residual-risk ownership/sign-off.
 
-Moving those checks to PR #16 means **deferred, not passed**.
+Moving those checks to PR #2 means **deferred, not passed**.
 
 ## Release decision boundary
 

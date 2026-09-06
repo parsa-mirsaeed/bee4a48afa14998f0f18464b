@@ -37,7 +37,7 @@ No document in this package expands product authority beyond the code/manifests 
 
 Repository CI verifies internal consistency, relative links, disabled-feature truthfulness, endpoint evidence references, and common secret/PII patterns. CI does **not** provide legal advice, privacy approval, an independent penetration test, contractual acceptance, target-host qualification, or human accessibility acceptance.
 
-All human/external approvals are consolidated in PR #16 and `docs/security/manual-external-production-acceptance.md`. This package must not be signed as customer terms until those qualified reviews are complete against the frozen release candidate.
+All human/external approvals are consolidated in PR #2, which owns the pending manual/external evidence record. This package must not be signed as customer terms until those qualified reviews are complete against the frozen release candidate.
 
 ## Product/architecture position
 

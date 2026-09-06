@@ -1,6 +1,6 @@
 # Customer terms inputs — draft for counsel/business approval
 
-**This is not legal advice and is not an executable contract.** Counsel/business approval is required in PR #16.
+**This is not legal advice and is not an executable contract.** Counsel/business approval is required in PR #2.
 
 The final agreement/order should address at least the following without contradicting the exact release/feature schedule.
 
@@ -50,7 +50,7 @@ Define export format/timing/scope, access revocation, return/deletion, backup ex
 
 ## Acceptance procedure
 
-Define installation/qualification evidence, acceptance tests/timeframe, defect process and deemed/formal acceptance rules. The release gate must refer to exact artifact/SHA and applicable PR #16 manual/external evidence.
+Define installation/qualification evidence, acceptance tests/timeframe, defect process and deemed/formal acceptance rules. The release gate must refer to exact artifact/SHA and applicable PR #2 manual/external evidence.
 
 ## Warranty / limitation inputs
 

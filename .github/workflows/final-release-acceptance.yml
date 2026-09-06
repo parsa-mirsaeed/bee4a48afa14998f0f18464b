@@ -52,7 +52,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$HEAD_SHA"
-          grep -Fq 'PR #16' docs/release/release-candidate-acceptance.md
+          grep -Fq 'PR #2' docs/release/release-candidate-acceptance.md
           grep -Fq 'ready for final validation' docs/release/release-candidate-acceptance.md
           bash -n scripts/release/final-release-run-utils.sh
           source scripts/release/final-release-run-utils.sh
@@ -394,7 +394,7 @@ jobs:
               "package_run_id": ${PACKAGE_RUN_ID},
               "air_gapped_appliance": "success"
             },
-            "manual_external_gate": "PR #16 required; not inferred from CI",
+            "manual_external_gate": "PR #2 required; not inferred from CI",
             "automated_release_classification": "ready for final validation",
             "ready_for_contracted_production": false
           }

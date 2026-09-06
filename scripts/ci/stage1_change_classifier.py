@@ -100,7 +100,7 @@ APPLIANCE_RE = re.compile(
 )
 RELEASE_RE = re.compile(
     r"^(?:\.github/workflows/(?:mirror-final-proof|final-release-acceptance|air-gapped-release)\.yml|"
-    r"docs/(?:release|acceptance)/|scripts/(?:release|ci/verify_release).*)"
+    r"docs/(?:release|acceptance)/|scripts/(?:release|ci/(?:test_)?verify_release).*)"
 )
 
 DEPENDENCY_BASENAMES = {

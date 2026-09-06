@@ -226,7 +226,7 @@ unresolved = [node for node in threads["nodes"] if not node["isResolved"]]
 assert not unresolved, f"unresolved review threads: {len(unresolved)}"
 PY
 
-  if ! retry_gh gh api "/repos/${REPOSITORY}/pulls/16" >"$manual_file"; then
+  if ! retry_gh gh api "/repos/${REPOSITORY}/pulls/2" >"$manual_file"; then
     return 1
   fi
   python3 - "$manual_file" <<'PY'
@@ -234,8 +234,8 @@ import json
 import sys
 
 pr = json.load(open(sys.argv[1], encoding="utf-8"))
-assert pr["number"] == 16
+assert pr["number"] == 2
 assert "Manual/external production acceptance" in pr["title"]
-print(f"Manual/external acceptance PR #16 state={pr['state']} merged_at={pr['merged_at']}")
+print(f"Manual/external acceptance PR #2 state={pr['state']} merged_at={pr['merged_at']}")
 PY
 }

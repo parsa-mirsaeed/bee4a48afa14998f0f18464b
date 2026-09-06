@@ -1,6 +1,6 @@
 # Contract feature and exclusion schedule — template
 
-**Draft commercial schedule. Requires business/legal approval in PR #16.**
+**Draft commercial schedule. Requires business/legal approval in PR #2.**
 
 ## Release identity
 
@@ -50,4 +50,4 @@ Reference the completed `support-service-definition.md` schedule for support hou
 
 ## Acceptance
 
-Acceptance requires the exact release automated gates plus the applicable manual/external evidence in PR #16. Any unresolved material finding/risk must identify owner, rationale and review/expiry date.
+Acceptance requires the exact release automated gates plus the applicable manual/external evidence in PR #2. Any unresolved material finding/risk must identify owner, rationale and review/expiry date.
