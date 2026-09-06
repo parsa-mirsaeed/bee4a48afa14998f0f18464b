@@ -179,6 +179,77 @@ jobs:
           docker compose --env-file .env -f compose.release.yaml run --rm migrate 2>&1 | tee -a package-migrations.log
           docker compose --env-file .env -f compose.release.yaml run --rm migrate 2>&1 | tee -a package-migrations.log
 
+      - name: Verify archive identity and packaged health
+        shell: bash
+        env:
+          PACKAGE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          bundle="dist/edutalent-${PACKAGE_VERSION}"
+          (cd "$bundle" && sha256sum --check SHA256SUMS)
+          gzip -dc "$bundle/edutalent-image.tar.gz" | docker load
+          image="edutalent:${PACKAGE_VERSION}"
+          image_id="$(docker image inspect "$image" --format '{{.Id}}')"
+
+          # A local Auth fixture supplies configuration without contacting a
+          # production tenant. This proves packaged startup, not external Auth
+          # or Storage qualification (which remains manual/external evidence).
+          node tests/e2e/fixtures/mock-idp.mjs > package-auth-fixture.log 2>&1 &
+          fixture_pid=$!
+          container=""
+          cleanup() {
+            if [[ -n "$container" ]]; then
+              docker logs "$container" > package-runtime.log 2>&1 || true
+              docker rm -f "$container" >/dev/null || true
+            fi
+            kill "$fixture_pid" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+          container="$(docker run --detach --network host --read-only --tmpfs /tmp \
+            --env-file .env \
+            -e DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/edutalent \
+            -e SUPABASE_URL=http://127.0.0.1:9100 \
+            -e SUPABASE_PROJECT_REF=e2e-local \
+            -e SUPABASE_JWT_ISSUER=http://127.0.0.1:9100/auth/v1 \
+            -e SUPABASE_PUBLISHABLE_KEY=e2e-publishable \
+            -e SUPABASE_SECRET_KEY=e2e-server-only \
+            -e PORT=8080 -e RUN_MIGRATIONS=false \
+            "$image" server)"
+          test "$(docker inspect "$container" --format '{{.Image}}')" = "$image_id"
+          healthy=false
+          for attempt in $(seq 1 90); do
+            if curl --fail --silent http://127.0.0.1:8080/healthz > package-healthz.txt; then
+              healthy=true
+              break
+            fi
+            test "$(docker inspect "$container" --format '{{.State.Running}}')" = true
+            sleep 1
+          done
+          test "$healthy" = true
+          test "$(cat package-healthz.txt)" = ok
+          curl --fail --silent http://127.0.0.1:8080/readyz > package-readyz.txt
+          test "$(cat package-readyz.txt)" = ready
+          export PACKAGE_IMAGE_ID="$image_id"
+          python3 - <<'PYCODE'
+          import hashlib, json, os
+          from pathlib import Path
+          version = os.environ["PACKAGE_VERSION"]
+          archive = Path(f"dist/edutalent-{version}.tar.gz")
+          evidence = {
+              "head_sha": os.environ["GITHUB_SHA"],
+              "version": version,
+              "image_id": os.environ["PACKAGE_IMAGE_ID"],
+              "archive_sha256": hashlib.file_digest(archive.open("rb"), "sha256").hexdigest(),
+              "image_archive_checksums": "passed",
+              "loaded_image_identity": "passed",
+              "healthz": Path("package-healthz.txt").read_text(),
+              "readyz": Path("package-readyz.txt").read_text(),
+              "external_auth_storage_qualified": False,
+          }
+          Path("package-runtime-evidence.json").write_text(json.dumps(evidence, indent=2) + "\n")
+          print(json.dumps(evidence, indent=2))
+          PYCODE
+
       - name: Upload packaging diagnostics
         if: always()
         uses: actions/upload-artifact@v6
@@ -187,6 +258,11 @@ jobs:
           path: |
             package-build.log
             package-migrations.log
+            package-runtime.log
+            package-auth-fixture.log
+            package-healthz.txt
+            package-readyz.txt
+            package-runtime-evidence.json
           if-no-files-found: warn
           retention-days: 7
 
