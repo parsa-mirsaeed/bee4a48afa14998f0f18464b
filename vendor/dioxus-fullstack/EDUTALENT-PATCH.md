@@ -4,7 +4,8 @@ Upstream: DioxusLabs/dioxus, dioxus-fullstack 0.7.2 (MIT OR Apache-2.0).
 Source archive: https://static.crates.io/crates/dioxus-fullstack/dioxus-fullstack-0.7.2.crate
 SHA-256: `54150804265defdb21a6f2d8914a45316a1e7fb70ab22c30cf836e8fe2f8081b`
 
-The published crate is retained verbatim except for `src/magic.rs`: the
+The published crate is retained verbatim except for `src/magic.rs` and a
+rustfmt-required newline in the empty `src/payloads/redirect.rs`. In `magic.rs`, the
 `RequestDecodeResult` response-body read propagates `RequestError` with `?`
 instead of panicking with `unwrap()`. This changes no authorization, response
 schema, successful decoding, or server error handling. See EduTalent issue #61.

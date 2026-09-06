@@ -20,7 +20,9 @@ async fn decode_response(body: &'static str, declared_length: usize) -> bool {
         socket.shutdown().await.unwrap();
     });
     let request = ClientRequest {
-        url: format!("http://{address}/transport-regression").parse().unwrap(),
+        url: format!("http://{address}/transport-regression")
+            .parse()
+            .unwrap(),
         method: dioxus::fullstack::http::Method::GET,
         headers: Default::default(),
         extensions: Default::default(),
