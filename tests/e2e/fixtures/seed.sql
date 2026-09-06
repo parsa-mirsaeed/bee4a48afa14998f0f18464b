@@ -149,4 +149,25 @@ INSERT INTO knowledge_ocr_texts (
 )
 ON CONFLICT (asset_id) DO NOTHING;
 
+-- Dedicated read-only accessibility fixture: never submitted by other journeys.
+INSERT INTO assignments (
+  id, teacher_id, class_section_id, subject_id, title, body, due_at, status, published_at
+) VALUES (
+  'f0000000-0000-0000-0000-0000000000a6',
+  'c0000000-0000-0000-0000-0000000000a2',
+  'e0000000-0000-0000-0000-0000000000a1',
+  'd0000000-0000-0000-0000-0000000000a1',
+  'E2E Accessibility Pending', 'Read-only editor accessibility acceptance',
+  NOW() + INTERVAL '12 days', 'Published', NOW()
+) ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO custom_assignments (
+  id, assignment_id, student_id, due_at, status, assigned_at
+) VALUES (
+  'f1000000-0000-0000-0000-0000000000a6',
+  'f0000000-0000-0000-0000-0000000000a6',
+  'c0000000-0000-0000-0000-0000000000a3',
+  NOW() + INTERVAL '12 days', 'Assigned', NOW()
+) ON CONFLICT (id) DO NOTHING;
+
 COMMIT;

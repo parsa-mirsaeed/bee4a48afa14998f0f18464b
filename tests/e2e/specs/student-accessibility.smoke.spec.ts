@@ -5,7 +5,8 @@ import { watchConsole, assertNoConsoleErrors } from '../fixtures/console-guard';
 
 const PASSWORD = 'e2e-password';
 const STUDENT = 'e2e-student-a@example.test';
-const PENDING_ASSIGNMENT = 'E2E Submission Journey Desktop';
+// Reserved for read-only accessibility probes; lifecycle journeys never submit it.
+const PENDING_ASSIGNMENT = 'E2E Accessibility Pending';
 
 async function openAssignments(page: Page, locale: 'en' | 'fa'): Promise<void> {
   await page.addInitScript((selectedLocale) => {
@@ -67,7 +68,7 @@ for (const scenario of [
     work: 'ارسال من',
   },
 ]) {
-  test(`student assignment filters and submission editor are accessible in ${scenario.locale} @smoke @final @student @accessibility @rtl`, async ({ page }) => {
+  test(`student assignment filters and submission editor are accessible in ${scenario.locale} @smoke @final @student @accessibility @rtl @workflow-truth`, async ({ page }) => {
     await openAssignments(page, scenario.locale);
 
     const allFilter = page.getByRole('button', { name: scenario.all, exact: true });

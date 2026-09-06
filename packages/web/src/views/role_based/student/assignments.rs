@@ -158,7 +158,7 @@ fn AssignmentFilter(value: &'static str, label: String, filter: Signal<String>) 
     rsx! {
         button {
             class: if active {
-                "rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white"
+                "et-ui-button et-ui-button--md et-ui-button--primary"
             } else {
                 "rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-600 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300"
             },
@@ -206,7 +206,7 @@ fn StudentAssignmentCard(
                 }
             }
             button {
-                class: "mt-4 min-h-[44px] rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white",
+                class: "mt-4 et-ui-button et-ui-button--md et-ui-button--primary",
                 onclick: move |_| on_open.call((id.clone(), presentation_state)),
                 "{action}"
             }
@@ -319,7 +319,7 @@ fn AssignmentDetails(
                 }
             } else {
                 button {
-                    class: "rounded-lg bg-primary px-4 py-2 font-semibold text-white",
+                    class: "et-ui-button et-ui-button--md et-ui-button--primary",
                     onclick: move |_| on_work.call(()),
                     "{locale.t(\"student.assignments.open_submission\")}"
                 }
@@ -422,7 +422,7 @@ fn AssignmentWorkModal(
                             "{locale.t(\"common.cancel\")}"
                         }
                         button {
-                            class: "rounded-lg bg-primary px-4 py-2 font-semibold text-white disabled:opacity-50",
+                            class: "et-ui-button et-ui-button--md et-ui-button--primary",
                             disabled: busy(),
                             onclick: submit,
                             if busy() {
@@ -504,6 +504,7 @@ mod tests {
         assert!(implementation.contains("\"aria-pressed\""));
         assert!(implementation.contains("r#for: \"student-assignment-work\""));
         assert!(implementation.contains("id: \"student-assignment-work\""));
-        assert!(!implementation.contains("\"aria-label\": \"{locale.t(\\\"student.assignments.work_title\\\")}\""));
+        assert!(!implementation
+            .contains("\"aria-label\": \"{locale.t(\\\"student.assignments.work_title\\\")}\""));
     }
 }
