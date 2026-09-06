@@ -29,6 +29,7 @@ fn admin_t(key: &'static str, locale: Locale) -> String {
 #[derive(Clone)]
 struct OcrEditorState {
     asset_id: String,
+    load_id: String,
     title: String,
     revision: Option<String>,
     original_text: String,
@@ -46,10 +47,11 @@ impl OcrEditorState {
     fn loading(asset_id: String, title: String) -> Self {
         Self {
             asset_id,
+            load_id: uuid::Uuid::new_v4().to_string(),
             title,
             revision: None,
             original_text: String::new(),
-            original_provider: String::new(),
+            original_provider: "manual-verified".to_string(),
             verified_at: None,
             verified_by: None,
             text_sha256: None,
@@ -61,7 +63,7 @@ impl OcrEditorState {
     }
 
     fn is_dirty(&self, text: &str, provider: &str) -> bool {
-        self.original_text != text || self.original_provider != provider
+        !self.loading && (self.original_text != text || self.original_provider != provider)
     }
 }
 
@@ -212,7 +214,9 @@ fn open_ocr_editor(
     mut ocr_text: Signal<String>,
     mut provider: Signal<String>,
 ) {
-    selected_ocr_asset.set(Some(OcrEditorState::loading(asset_id.clone(), title)));
+    let loading = OcrEditorState::loading(asset_id.clone(), title);
+    let load_id = loading.load_id.clone();
+    selected_ocr_asset.set(Some(loading));
     ocr_text.set(String::new());
     provider.set("manual-verified".to_string());
     spawn(async move {
@@ -221,7 +225,7 @@ fn open_ocr_editor(
         let Some(current) = selected_ocr_asset() else {
             return;
         };
-        if current.asset_id != asset_id {
+        if current.asset_id != asset_id || current.load_id != load_id {
             return;
         }
         let source = match source {
@@ -241,6 +245,7 @@ fn open_ocr_editor(
                 provider.set(ocr.ocr_provider.clone());
                 selected_ocr_asset.set(Some(OcrEditorState {
                     asset_id,
+                    load_id,
                     title: current.title,
                     revision: Some(ocr.revision),
                     original_text: ocr.raw_text,
@@ -1184,6 +1189,18 @@ fn audit_school_label(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn loading_and_unchanged_ocr_are_not_unsaved_edits() {
+        let mut editor = OcrEditorState::loading("asset".into(), "Title".into());
+        assert!(!editor.is_dirty("", "manual-verified"));
+        editor.loading = false;
+        assert!(!editor.is_dirty("", "manual-verified"));
+        assert!(editor.is_dirty("New text", "manual-verified"));
+        assert!(editor.is_dirty("", "changed-provider"));
+        let reopened = OcrEditorState::loading("asset".into(), "Title".into());
+        assert_ne!(editor.load_id, reopened.load_id);
+    }
 
     #[test]
     fn file_size_labels_are_human_readable() {
