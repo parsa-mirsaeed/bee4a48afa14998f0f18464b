@@ -45,7 +45,7 @@ async fn private_originals_enforce_actor_school_state_and_cleanup_boundaries() {
         INSERT INTO class_sections(id,school_id,subject_id,name,term) VALUES('{class}','{school}','{subject}','Attachment class','Test');
         INSERT INTO teaching_assignments(class_section_id,teacher_id) VALUES('{class}','{teacher}');
         INSERT INTO enrollments(class_section_id,student_id) VALUES('{class}','{student}');
-        INSERT INTO assignments(id,teacher_id,class_section_id,title,body,status,due_at) VALUES('{assignment}','{teacher}','{class}','Attachment work','Work','Published',NOW()+INTERVAL '1 day');
+        INSERT INTO assignments(id,teacher_id,class_section_id,subject_id,title,body,status,due_at) VALUES('{assignment}','{teacher}','{class}','{subject}','Attachment work','Work','Published',NOW()+INTERVAL '1 day');
         INSERT INTO custom_assignments(id,assignment_id,student_id,status,due_at) VALUES('{custom}','{assignment}','{student}','Assigned',NOW()+INTERVAL '1 day');
         SET LOCAL ROLE {role};
         SET LOCAL app.user_id='{student_user}'; SET LOCAL app.user_role='Student'; SET LOCAL app.school_id='{school}';
