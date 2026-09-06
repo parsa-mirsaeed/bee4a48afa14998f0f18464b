@@ -193,7 +193,7 @@ jobs:
           source scripts/release/final-release-run-utils.sh
           run_id="$(reuse_or_dispatch 'Production Operations' production-operations.yml production-operations-run.json \
             'Validate operations definitions and regressions' \
-            'Scan dependencies and production configuration' \
+            'Audit dependencies and production configuration' \
             'Prove PostgreSQL PITR, Qdrant recovery, and migration rollback' \
             'Prove backup, alerts, load, restart, and fail-closed configuration' \
             'Production operations gate')"

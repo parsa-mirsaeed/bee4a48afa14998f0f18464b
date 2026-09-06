@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import textwrap
 import tempfile
@@ -17,6 +18,24 @@ spec.loader.exec_module(module)
 
 
 class ReleaseDocsVerifierTests(unittest.TestCase):
+    def test_final_release_requires_existing_dispatched_job_names(self):
+        workflows = MODULE_PATH.parents[2] / ".github/workflows"
+        orchestration = (workflows / "final-release-acceptance.yml").read_text()
+        calls = re.findall(
+            r"reuse_or_dispatch '[^']+' ([\w-]+\.yml) [\w-]+\.json (.*?)\)\"",
+            orchestration, re.S,
+        )
+        self.assertEqual(len(calls), 4)
+        for filename, arguments in calls:
+            with self.subTest(workflow=filename):
+                declared = set(re.findall(
+                    r"^    name: (.+)$", (workflows / filename).read_text(), re.M
+                ))
+                required = re.findall(r"'([^']+)'", arguments)
+                self.assertTrue(required)
+                self.assertTrue(set(required) <= declared,
+                                f"Missing job names in {filename}: {set(required) - declared}")
+
     def test_final_dispatch_reuses_same_head_and_database_for_two_browser_passes(self):
         workflow = (MODULE_PATH.parents[2] / ".github/workflows/full-validation.yml").read_text()
         block = workflow.split("          passes=1\n", 1)[1].split(
