@@ -107,7 +107,18 @@ for (const scenario of [
     await expect(childCard.getByRole('button', { name: scenario.assignments, exact: true })).toBeVisible();
     await expectFinishedParentChrome(body);
 
+    const gradeResponsePromise = page.waitForResponse((response) =>
+      new URL(response.url()).pathname === '/api/parent/scoped/child/grades',
+    );
     await childCard.getByRole('button', { name: scenario.viewGrades, exact: true }).click();
+    const gradeResponse = await gradeResponsePromise;
+    expect(gradeResponse.ok()).toBeTruthy();
+    const gradeRows = await gradeResponse.json();
+    expect(Array.isArray(gradeRows)).toBeTruthy();
+    const persistedGrade = gradeRows.find((row: { assignment_title: string }) =>
+      row.assignment_title === 'E2E Assignment A1',
+    );
+    expect(persistedGrade).toMatchObject({ grade: 'A-', points: '18/20' });
     let dialog = page.getByRole('dialog');
     await expect(dialog).toContainText('E2E Assignment A1');
     await expect(dialog).toContainText('E2E Class A1');
@@ -121,7 +132,32 @@ for (const scenario of [
     await page.keyboard.press('Escape');
     await expect(dialog).toHaveCount(0);
 
+    const assignmentResponsePromise = page.waitForResponse((response) =>
+      new URL(response.url()).pathname === '/api/parent/scoped/child/assignments',
+    );
     await childCard.getByRole('button', { name: scenario.assignments, exact: true }).click();
+    const assignmentResponse = await assignmentResponsePromise;
+    expect(assignmentResponse.ok()).toBeTruthy();
+    const assignmentRows = await assignmentResponse.json();
+    expect(Array.isArray(assignmentRows)).toBeTruthy();
+    const persistedAssignment = assignmentRows.find((row: { title: string }) =>
+      row.title === 'E2E Assignment A1',
+    );
+    // The assignments API carries a grade even though this card currently only
+    // renders status. Both authorized reads must describe the same persisted result.
+    expect(persistedAssignment).toMatchObject({ status: 'Graded', grade: persistedGrade.grade });
+    const request = assignmentResponse.request();
+    const originalBody = request.postData();
+    expect(originalBody).toContain('c0000000-0000-0000-0000-0000000000a3');
+    const denied = await page.context().request.post(request.url(), {
+      headers: { 'content-type': request.headers()['content-type'] },
+      data: originalBody!.replace(
+        'c0000000-0000-0000-0000-0000000000a3',
+        'c0000000-0000-0000-0000-0000000000b3',
+      ),
+    });
+    expect(denied.ok(), 'Parent A must not read School B child assignments').toBeFalsy();
+    expect(await denied.text()).not.toContain('E2E Authorization Submission B');
     dialog = page.getByRole('dialog');
     await expect(dialog).toContainText('E2E Assignment A1');
     await expect(dialog).toContainText('E2E Class A1');

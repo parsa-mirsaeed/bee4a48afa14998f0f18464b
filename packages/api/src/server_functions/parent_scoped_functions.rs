@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "server")]
 use crate::server_functions::dashboard_functions::{ChildAssignmentInfo, ChildGradeInfo};
 #[cfg(feature = "server")]
-use crate::server_functions::grade_presentation::{percentage_to_letter_grade, present_grade};
+use crate::server_functions::grade_presentation::present_grade;
 #[cfg(feature = "server")]
 use sqlx::Row;
 #[cfg(feature = "server")]
@@ -178,7 +178,8 @@ pub async fn get_child_assignments_for_parent_scoped(
                     WHEN ca.due_at < NOW() THEN 'Overdue'
                     ELSE 'Pending'
                 END AS presentation_status,
-                CAST(s.grade AS DOUBLE PRECISION) AS grade
+                CAST(s.grade AS DOUBLE PRECISION) AS grade,
+                COALESCE(s.grade_scale, 100::SMALLINT) AS grade_scale
             FROM custom_assignments ca
             JOIN assignments a ON ca.assignment_id = a.id
             JOIN class_sections cs ON a.class_section_id = cs.id
@@ -199,6 +200,11 @@ pub async fn get_child_assignments_for_parent_scoped(
         rows.into_iter()
             .map(|row| {
                 let grade = row.try_get::<Option<f64>, _>("grade")?;
+                let grade_scale = row.try_get::<i16, _>("grade_scale")?;
+                let grade = grade
+                    .map(|value| present_grade(value, grade_scale))
+                    .transpose()?
+                    .map(|presentation| presentation.letter_grade);
                 Ok(ChildAssignmentInfo {
                     id: row.try_get::<Uuid, _>("id")?.to_string(),
                     title: row.try_get("title")?,
@@ -207,10 +213,10 @@ pub async fn get_child_assignments_for_parent_scoped(
                         .try_get::<chrono::DateTime<chrono::Utc>, _>("due_at")?
                         .to_rfc3339(),
                     status: row.try_get("presentation_status")?,
-                    grade: grade.map(|value| percentage_to_letter_grade(value).to_owned()),
+                    grade,
                 })
             })
-            .collect::<Result<Vec<_>, sqlx::Error>>()
+            .collect::<Result<Vec<_>, Box<dyn std::error::Error + Send + Sync>>>()
             .map_err(|error| {
                 tracing::error!(%error, "parent child assignment decode failed");
                 ServerFnError::new("parent.assignments_unavailable")
