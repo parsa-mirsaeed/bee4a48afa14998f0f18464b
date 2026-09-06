@@ -169,6 +169,11 @@ const server = http.createServer((req, res) => {
     // Test-control endpoint is exposed only by this local fixture process. It
     // lets Playwright exercise truthful retryable-storage states without a
     // production-only flag or network fault injection in application code.
+    if (url.pathname === '/__e2e/submission-objects') {
+      json(res, 200, [...OBJECTS.keys()].filter(key => key.startsWith('edutalent-submission-originals/')));
+      return;
+    }
+
     if (url.pathname === '/__e2e/storage-mode') {
       if (req.method === 'POST') {
         const payload = parseBody(body);
@@ -216,10 +221,22 @@ const server = http.createServer((req, res) => {
       return;
     }
 
-    const objectPrefix = `/storage/v1/object/${KNOWLEDGE_BUCKET}/`;
-    if (req.method === 'POST' && url.pathname.startsWith(objectPrefix)) {
+    const bucketId = url.pathname.split('/')[4];
+    const supportedBucket = [KNOWLEDGE_BUCKET, 'edutalent-submission-originals'].includes(bucketId);
+    const objectPrefix = `/storage/v1/object/${bucketId}/`;
+    if (req.method === 'GET' && supportedBucket && url.pathname.startsWith(objectPrefix)) {
       if (storageUnavailable(res)) return;
-      if (!BUCKETS.has(KNOWLEDGE_BUCKET)) {
+      const key = `${bucketId}/${decodeURIComponent(url.pathname.slice(objectPrefix.length))}`;
+      const bytes = OBJECTS.get(key);
+      if (!bytes) { json(res, 404, { error: 'not_found' }); return; }
+      res.statusCode = 200;
+      res.setHeader('content-type', 'application/octet-stream');
+      res.end(bytes);
+      return;
+    }
+    if (req.method === 'POST' && supportedBucket && url.pathname.startsWith(objectPrefix)) {
+      if (storageUnavailable(res)) return;
+      if (!BUCKETS.has(bucketId)) {
         json(res, 404, { error: 'bucket_not_found' });
         return;
       }
@@ -228,7 +245,7 @@ const server = http.createServer((req, res) => {
         json(res, 400, { error: 'invalid_object_key' });
         return;
       }
-      const storageKey = `${KNOWLEDGE_BUCKET}/${objectKey}`;
+      const storageKey = `${bucketId}/${objectKey}`;
       if (OBJECTS.has(storageKey) && req.headers['x-upsert'] !== 'true') {
         json(res, 409, { error: 'already_exists' });
         return;
@@ -238,11 +255,11 @@ const server = http.createServer((req, res) => {
       return;
     }
 
-    if (req.method === 'DELETE' && url.pathname === `/storage/v1/object/${KNOWLEDGE_BUCKET}`) {
+    if (req.method === 'DELETE' && supportedBucket && url.pathname === `/storage/v1/object/${bucketId}`) {
       if (storageUnavailable(res)) return;
       const payload = parseBody(body);
       for (const prefix of payload?.prefixes ?? []) {
-        OBJECTS.delete(`${KNOWLEDGE_BUCKET}/${prefix}`);
+        OBJECTS.delete(`${bucketId}/${prefix}`);
       }
       json(res, 200, { deleted: payload?.prefixes ?? [] });
       return;

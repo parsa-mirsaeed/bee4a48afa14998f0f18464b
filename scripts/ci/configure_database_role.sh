@@ -123,6 +123,14 @@ ORDER BY type_entry.oid
 SELECT format('GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO %I', :'app_role')
 \gexec
 
+-- Private bounded attachment cleanup entry point; never grant private table access.
+SELECT format('GRANT USAGE ON SCHEMA edutalent_internal TO %I', :'app_role')
+WHERE EXISTS (SELECT FROM pg_namespace WHERE nspname='edutalent_internal')
+\gexec
+SELECT format('GRANT EXECUTE ON FUNCTION edutalent_internal.claim_submission_attachment_cleanup() TO %I', :'app_role')
+WHERE to_regprocedure('edutalent_internal.claim_submission_attachment_cleanup()') IS NOT NULL
+\gexec
+
 -- Pool-scoped context setup is retired. Runtime code sets transaction-local
 -- values only after beginning a pinned AuthorizedTx.
 SELECT format(

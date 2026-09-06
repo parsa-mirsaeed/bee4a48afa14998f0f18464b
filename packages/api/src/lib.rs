@@ -58,3 +58,6 @@ mod session_lifecycle_integration_tests;
 
 #[cfg(all(test, feature = "server"))]
 mod transport_response_tests;
+
+#[cfg(all(test, feature = "server"))]
+mod submission_attachment_security_tests;

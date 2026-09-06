@@ -109,8 +109,8 @@ test('student cannot submit a School B assignment by tampering its object ID @sm
   let tamperObserved = false;
   let denialStatus: number | undefined;
   let denialBody = '';
-  allowExpectedAuthorizationDenial('/api/submissions/submit');
-  await page.route('**/api/submissions/submit', async (route) => {
+  allowExpectedAuthorizationDenial('/api/submissions/finalize');
+  await page.route('**/api/submissions/finalize', async (route) => {
     const original = route.request().postData();
     expect(original, 'submission request must contain a custom-assignment identifier').toBeTruthy();
     expect(original).toContain(SCHOOL_A_CUSTOM_ASSIGNMENT);

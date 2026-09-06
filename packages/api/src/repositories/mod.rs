@@ -67,3 +67,5 @@ pub use teaching_assignment_repository::*;
 pub use traits::*;
 pub use user_preferences_repository::*;
 pub use user_repository::*;
+
+pub mod submission_attachment_repository;

@@ -202,11 +202,7 @@ fn SubmissionCard(
     let sub_for_click = submission.clone();
 
     // Truncate content for preview
-    let preview = if submission.content.len() > 200 {
-        format!("{}...", &submission.content[..200])
-    } else {
-        submission.content.clone()
-    };
+    let preview = submission_preview(&submission.content);
 
     let locale = use_locale();
     let submitted_at = format_product_datetime_text(&submission.submitted_at, locale.current());
@@ -402,6 +398,9 @@ fn GradeSubmissionModal(
                         }
                     }
 
+                    if let Ok(id)=uuid::Uuid::parse_str(&submission.custom_assignment_id) {
+                        crate::views::role_based::shared::submission_files::SubmittedOriginals {assignment_id:id}
+                    }
                     // Submission content
                     div {
                         class: "space-y-2",
@@ -481,5 +480,26 @@ fn GradeSubmissionModal(
                 }
             }
         }
+    }
+}
+
+fn submission_preview(content: &str) -> String {
+    let mut chars = content.chars();
+    let mut preview: String = chars.by_ref().take(200).collect();
+    if chars.next().is_some() {
+        preview.push_str("...");
+    }
+    preview
+}
+
+#[cfg(test)]
+mod attachment_preview_tests {
+    #[test]
+    fn persian_submission_preview_never_splits_utf8() {
+        let text = "پاسخ دانش‌آموز ".repeat(30);
+        let preview = super::submission_preview(&text);
+        assert_eq!(preview.chars().count(), 203);
+        assert!(preview.ends_with("..."));
+        assert_eq!(super::submission_preview("پاسخ کوتاه"), "پاسخ کوتاه");
     }
 }

@@ -144,3 +144,9 @@ server|parent/scoped/children|ParentOnly|Parent|session_school|parent_children|r
 server|parent/scoped/child/grades|ParentOnly|Parent|session_school|parent_child|read|bounded_list|required|parent_scoped_functions::get_child_grades_for_parent_scoped|-
 server|parent/scoped/child/assignments|ParentOnly|Parent|session_school|parent_child|read|bounded_list|required|parent_scoped_functions::get_child_assignments_for_parent_scoped|-
 server|teacher/scoped/knowledge-assets/toggle|TeacherOnly|Teacher|session_school|teacher_context_asset|write|standard|required|knowledge_selection_functions::toggle_teacher_knowledge_asset_scoped|-
+server|submissions/attachments/reserve|StudentOnly|Student|session_school|student_assignment|write|bounded_payload|required|submission_attachment_functions::reserve_submission_attachment|-
+server|submissions/attachments/list|StudentTeacher|Student;Teacher|session_school|submission_originals|read|bounded_list|none|submission_attachment_functions::list_submission_attachments|-
+server|submissions/attachments/remove|StudentOnly|Student|session_school|student_assignment|write|bounded_payload|required|submission_attachment_functions::remove_submission_attachment|-
+route|/api/submissions/attachments/upload|StudentOnly|Student|session_school|student_assignment|write|large_payload|required|handlers::submission_attachments|-
+route|/api/submissions/attachments/download|StudentTeacher|Student;Teacher|session_school|submission_originals|read|large_payload|required|handlers::submission_attachments|-
+server|submissions/finalize|StudentOnly|Student|session_school|student_assignment|write|large_payload|required|submission_functions::finalize_student_submission|-
