@@ -63,13 +63,22 @@ for (const scenario of [
 
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible();
-    await expect(dialog).toBeInViewport();
+    await expect(dialog).toBeInViewport({ ratio: 1 });
     await expect(dialog).toBeFocused();
 
     const editor = dialog.getByLabel(scenario.verifiedText, { exact: true });
     await expect(editor).toBeVisible();
-    await expect(editor).toBeInViewport();
+    await expect(editor).toBeInViewport({ ratio: 1 });
     await expect(editor).toHaveValue('E2E preverified OCR text');
+
+    for (const element of [dialog, editor, dialog.getByRole('button', { name: scenario.cancel, exact: true })]) {
+      const box = await element.boundingBox();
+      expect(box).not.toBeNull();
+      expect(box!.x).toBeGreaterThanOrEqual(0);
+      expect(box!.y).toBeGreaterThanOrEqual(0);
+      expect(box!.x + box!.width).toBeLessThanOrEqual(TABLET_VIEWPORT.width);
+      expect(box!.y + box!.height).toBeLessThanOrEqual(TABLET_VIEWPORT.height);
+    }
 
     const horizontalOverflow = await page.evaluate(() =>
       document.documentElement.scrollWidth > document.documentElement.clientWidth,
@@ -77,6 +86,13 @@ for (const scenario of [
     expect(horizontalOverflow, 'tablet viewport must not introduce page-level horizontal overflow').toBeFalsy();
 
     await dialog.getByRole('button', { name: scenario.cancel, exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(trigger).toBeFocused();
+
+    // Reopening must capture a fresh return target and preserve Escape parity.
+    await trigger.click();
+    await expect(dialog).toBeFocused();
+    await page.keyboard.press('Escape');
     await expect(dialog).toHaveCount(0);
     await expect(trigger).toBeFocused();
   });
