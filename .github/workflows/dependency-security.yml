@@ -3,6 +3,7 @@ name: Dependency Security
 on:
   pull_request:
     paths:
+      - vendor/dioxus-fullstack/**
       - Cargo.lock
       - Cargo.toml
       - packages/**/Cargo.toml
@@ -12,6 +13,7 @@ on:
     branches:
       - main
     paths:
+      - vendor/dioxus-fullstack/**
       - Cargo.lock
       - Cargo.toml
       - packages/**/Cargo.toml

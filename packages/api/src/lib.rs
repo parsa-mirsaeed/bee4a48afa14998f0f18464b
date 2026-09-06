@@ -55,3 +55,6 @@ mod rls_transaction_inventory_tests;
 mod server_function_inventory_tests;
 #[cfg(all(test, feature = "server"))]
 mod session_lifecycle_integration_tests;
+
+#[cfg(all(test, feature = "server"))]
+mod transport_response_tests;
