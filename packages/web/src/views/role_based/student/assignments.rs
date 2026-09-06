@@ -158,10 +158,11 @@ fn AssignmentFilter(value: &'static str, label: String, filter: Signal<String>) 
     rsx! {
         button {
             class: if active {
-                "rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white"
+                "et-ui-button et-ui-button--md et-ui-button--primary"
             } else {
                 "rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-600 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300"
             },
+            "aria-pressed": if active { "true" } else { "false" },
             onclick: move |_| filter.set(value.to_string()),
             "{label}"
         }
@@ -205,7 +206,7 @@ fn StudentAssignmentCard(
                 }
             }
             button {
-                class: "mt-4 min-h-[44px] rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white",
+                class: "mt-4 et-ui-button et-ui-button--md et-ui-button--primary",
                 onclick: move |_| on_open.call((id.clone(), presentation_state)),
                 "{action}"
             }
@@ -318,7 +319,7 @@ fn AssignmentDetails(
                 }
             } else {
                 button {
-                    class: "rounded-lg bg-primary px-4 py-2 font-semibold text-white",
+                    class: "et-ui-button et-ui-button--md et-ui-button--primary",
                     onclick: move |_| on_work.call(()),
                     "{locale.t(\"student.assignments.open_submission\")}"
                 }
@@ -399,12 +400,19 @@ fn AssignmentWorkModal(
                     if let Some(message) = error() {
                         div { class: "rounded-lg bg-red-50 p-3 text-sm text-red-800 dark:bg-red-900/20 dark:text-red-200", role: "alert", "{message}" }
                     }
-                    textarea {
-                        class: "min-h-64 w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 dark:border-gray-700 dark:bg-gray-900",
-                        value: "{content}",
-                        "aria-label": "{locale.t(\"student.assignments.work_title\")}",
-                        oninput: move |event| content.set(event.value()),
-                        disabled: busy(),
+                    div {
+                        label {
+                            r#for: "student-assignment-work",
+                            class: "mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300",
+                            "{locale.t(\"student.assignments.work_title\")}"
+                        }
+                        textarea {
+                            id: "student-assignment-work",
+                            class: "min-h-64 w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 dark:border-gray-700 dark:bg-gray-900",
+                            value: "{content}",
+                            oninput: move |event| content.set(event.value()),
+                            disabled: busy(),
+                        }
                     }
                     div { class: "flex justify-end gap-3",
                         button {
@@ -414,7 +422,7 @@ fn AssignmentWorkModal(
                             "{locale.t(\"common.cancel\")}"
                         }
                         button {
-                            class: "rounded-lg bg-primary px-4 py-2 font-semibold text-white disabled:opacity-50",
+                            class: "et-ui-button et-ui-button--md et-ui-button--primary",
                             disabled: busy(),
                             onclick: submit,
                             if busy() {
@@ -487,5 +495,16 @@ mod tests {
         assert!(implementation.contains("get_submission_for_assignment"));
         assert!(!implementation.contains("Status: {item.status}"));
         assert!(!implementation.contains("{e}"));
+    }
+
+    #[test]
+    fn assignment_filters_and_submission_editor_expose_accessibility_semantics() {
+        let source = include_str!("assignments.rs");
+        let implementation = source.split("#[cfg(test)]").next().unwrap_or(source);
+        assert!(implementation.contains("\"aria-pressed\""));
+        assert!(implementation.contains("r#for: \"student-assignment-work\""));
+        assert!(implementation.contains("id: \"student-assignment-work\""));
+        assert!(!implementation
+            .contains("\"aria-label\": \"{locale.t(\\\"student.assignments.work_title\\\")}\""));
     }
 }
