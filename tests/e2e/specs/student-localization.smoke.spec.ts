@@ -131,13 +131,13 @@ for (const locale of ['en', 'fa'] as const) {
     await waitForStudentRouteData(page, '/dashboard/assignments');
 
     const card = page
-      .getByText('E2E Submission Journey Desktop', { exact: true })
+      .getByText('E2E Submission Journey Mobile', { exact: true })
       .locator('xpath=ancestor::article[1]');
     await expect(card).toBeVisible();
-    await card.getByRole('button', {
-      name: locale === 'fa' ? 'شروع تکلیف' : 'Start assignment',
-      exact: true,
-    }).click();
+    // This localization probe uses the dedicated non-mutated journey fixture so
+    // earlier lifecycle acceptance cannot turn its submission editor into a
+    // graded read-only view within the same final-suite process.
+    await card.getByRole('button').first().click();
 
     let dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible();

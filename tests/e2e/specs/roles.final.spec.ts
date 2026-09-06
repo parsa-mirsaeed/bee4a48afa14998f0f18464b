@@ -153,8 +153,21 @@ test('student sees only persisted enrollment and assignment state @final @workfl
   await signInEnglish(page, 'e2e-student-a@example.test');
 
   await expect(page.getByText('E2E Class A1', { exact: true }).first()).toBeVisible();
-  await expect(page.getByText('E2E Assignment A1', { exact: true }).first()).toBeVisible();
+  // The baseline A1 custom assignment is deliberately Graded. A coherent
+  // fixture therefore keeps it out of Upcoming Assignments and exposes it in
+  // the persisted Grades view instead of pretending it is still pending.
+  await expect(page.getByText('E2E Assignment A1', { exact: true })).toHaveCount(0);
   await expect(page.getByText('E2E Class B1', { exact: true })).toHaveCount(0);
+
+  await navigateWithIcon(page, 'grade');
+  const classCard = page
+    .getByText('E2E Class A1', { exact: true })
+    .locator('xpath=ancestor::div[contains(@class,"et-ui-card")][1]');
+  await classCard.getByRole('button', { name: 'View Details', exact: true }).click();
+  const gradesDialog = page.getByRole('dialog');
+  await expect(gradesDialog.getByText('E2E Assignment A1', { exact: true })).toBeVisible();
+  await expect(gradesDialog).toContainText('18/20');
+  await expect(gradesDialog.getByText('E2E Class B1', { exact: true })).toHaveCount(0);
 });
 
 test('student submission is graded by the authorized teacher and appears in persisted grades @final @workflows', async ({ page }, testInfo) => {

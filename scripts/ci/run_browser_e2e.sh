@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # PR-12 browser evidence on an exact head (shared entry point).
 #
-# Applies migrations, loads the synthetic fixture, starts the local mock IdP,
-# bundles the real release-mode Dioxus application, starts that server, waits
-# for readiness, then runs the tagged Playwright selection. Never contacts a
-# live external service. Fails closed. E2E_GREP selects the tag tier.
+# Resets the dedicated E2E database, applies migrations, loads the synthetic
+# fixture, starts the local mock IdP, bundles the real release-mode Dioxus
+# application, starts that server, waits for readiness, then runs the tagged
+# Playwright selection. Never contacts a live external service. Fails closed.
+# E2E_GREP selects the tag tier.
 set -euxo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -18,6 +19,7 @@ export E2E_ALLOWED_ORIGINS="${E2E_ALLOWED_ORIGINS:-${E2E_BASE_URL},http://127.0.
 export DATABASE_URL="${DATABASE_URL:-postgresql://postgres:postgres@127.0.0.1:5432/edutalent_ci}"
 
 bash scripts/ci/verify_browser_harness.sh
+bash scripts/ci/reset_browser_fixture_db.sh
 bash scripts/ci/apply_migrations.sh
 psql "${DATABASE_URL}" -v ON_ERROR_STOP=1 -f tests/e2e/fixtures/seed.sql
 
