@@ -31,7 +31,7 @@ The correct sequence is:
 
 PR #24 should be completed/merged before PR-3. Its **knowledge lifecycle behavior** is a good backend/UI behavioral baseline; PR-3 should restyle/localize it rather than reimplementing its state machine.
 
-This plan does **not** replace the human/external production acceptance in PR #16.
+This plan does **not** replace the human/external production acceptance in PR #2.
 
 ---
 
@@ -1906,7 +1906,7 @@ The redesign is complete only when:
 - keyboard/automated WCAG checks are green;
 - no canonical old glass/inline UI remains;
 - product truthfulness tests prevent regressions;
-- PR #16 remains responsible for legitimate human/external production acceptance.
+- PR #2 remains responsible for legitimate human/external production acceptance.
 
 ---
 
@@ -1929,7 +1929,7 @@ When this file is given to another implementation chat/agent:
 13. Run only §24.4/24.5 gates.
 14. Merge PR-3 when exact-head green.
 15. Re-run a final targeted browser role matrix on merged `main`.
-16. Do not mark PR #16/human production acceptance complete without genuine external evidence.
+16. Do not mark PR #2/human production acceptance complete without genuine external evidence.
 
 ---
 

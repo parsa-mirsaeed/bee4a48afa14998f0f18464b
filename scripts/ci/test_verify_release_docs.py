@@ -18,6 +18,18 @@ spec.loader.exec_module(module)
 
 
 class ReleaseDocsVerifierTests(unittest.TestCase):
+    def test_manual_acceptance_reference_is_consistent_in_governing_documents(self):
+        root = MODULE_PATH.parents[2]
+        governing = [
+            root / "docs/security/production-threat-model.md",
+            root / "EduTalent-Full-UI-UX-Redesign-and-Workflow-Hardening-Plan.md",
+        ]
+        for path in governing:
+            self.assertIn("PR #2", path.read_text(), str(path))
+        for path in [*governing, *(root / "docs/release").glob("*.md")]:
+            with self.subTest(document=path.name):
+                self.assertNotRegex(path.read_text(), r"\bPR\s*#16\b")
+
     def test_final_release_requires_existing_dispatched_job_names(self):
         workflows = MODULE_PATH.parents[2] / ".github/workflows"
         orchestration = (workflows / "final-release-acceptance.yml").read_text()
