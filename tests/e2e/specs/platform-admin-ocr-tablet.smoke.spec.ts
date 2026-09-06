@@ -43,12 +43,14 @@ for (const scenario of [
     updateOcr: 'Update verified OCR',
     verifiedText: 'Verified source text',
     cancel: 'Cancel',
+    details: 'Verification details',
   },
   {
     locale: 'fa' as const,
     updateOcr: 'به‌روزرسانی OCR تأییدشده',
     verifiedText: 'متن تأییدشده منبع',
     cancel: 'انصراف',
+    details: 'جزئیات تأیید',
   },
 ]) {
   test(`platform admin OCR editor stays usable at 1024x768 in ${scenario.locale} @smoke @platform-admin @i18n @workflow-truth @tablet`, async ({ page }) => {
@@ -84,6 +86,13 @@ for (const scenario of [
       document.documentElement.scrollWidth > document.documentElement.clientWidth,
     );
     expect(horizontalOverflow, 'tablet viewport must not introduce page-level horizontal overflow').toBeFalsy();
+
+    const details = dialog.locator('details');
+    await details.locator('summary').filter({ hasText: scenario.details }).click();
+    await expect(details.locator('code').first()).toBeVisible();
+    await expect(details.locator('code')).toHaveCount(5);
+    await details.locator('summary').click();
+    await expect(editor).toHaveValue('E2E preverified OCR text');
 
     await dialog.getByRole('button', { name: scenario.cancel, exact: true }).click();
     await expect(dialog).toHaveCount(0);

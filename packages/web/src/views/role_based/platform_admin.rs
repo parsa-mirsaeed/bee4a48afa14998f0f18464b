@@ -397,46 +397,6 @@ fn OcrEditorDialog(
                             {admin_t(error_key, locale)}
                         }
                     }
-                    if let Some(source_file_id) = editor.source_file_id.as_ref() {
-                        div { class: "rounded-lg bg-gray-50 p-3 text-xs text-gray-600 dark:bg-gray-900/40 dark:text-gray-300",
-                            p {
-                                span { class: "font-medium", {format!("{}: ", admin_t("platform_admin.ocr.source_revision", locale))} }
-                                code { class: "break-all", dir: "ltr", "{source_file_id}" }
-                            }
-                            if let Some(source_sha256) = editor.source_sha256.as_ref() {
-                                p {
-                                    span { class: "font-medium", {format!("{}: ", admin_t("platform_admin.ocr.source_hash", locale))} }
-                                    code { class: "break-all", dir: "ltr", "{source_sha256}" }
-                                }
-                            }
-                        }
-                    }
-                    if let Some(revision) = editor.revision.as_ref() {
-                        div { class: "rounded-lg bg-gray-50 p-3 text-xs text-gray-600 dark:bg-gray-900/40 dark:text-gray-300",
-                            p {
-                                span { class: "font-medium", {format!("{}: ", admin_t("platform_admin.ocr.current_revision", locale))} }
-                                code { class: "break-all", dir: "ltr", "{revision}" }
-                            }
-                            if let Some(verified_at) = editor.verified_at.as_ref() {
-                                p {
-                                    span { class: "font-medium", {format!("{}: ", admin_t("platform_admin.ocr.verified_at", locale))} }
-                                    {format_product_datetime_text(verified_at, locale)}
-                                }
-                            }
-                            if let Some(verified_by) = editor.verified_by.as_ref() {
-                                p {
-                                    span { class: "font-medium", {format!("{}: ", admin_t("platform_admin.ocr.verified_by", locale))} }
-                                    code { class: "break-all", dir: "ltr", "{verified_by}" }
-                                }
-                            }
-                            if let Some(text_sha256) = editor.text_sha256.as_ref() {
-                                p {
-                                    span { class: "font-medium", {format!("{}: ", admin_t("platform_admin.ocr.text_hash", locale))} }
-                                    code { class: "break-all", dir: "ltr", "{text_sha256}" }
-                                }
-                            }
-                        }
-                    }
                     div {
                         label {
                             r#for: "ocr-provider",
@@ -461,7 +421,7 @@ fn OcrEditorDialog(
                         textarea {
                             id: "verified-ocr-text",
                             class: "w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-white",
-                            rows: "12",
+                            rows: "6",
                             value: "{ocr_text}",
                             oninput: move |event| ocr_text.set(event.value()),
                             placeholder: admin_t("platform_admin.ocr.placeholder", locale),
@@ -507,6 +467,49 @@ fn OcrEditorDialog(
                                 {admin_t("platform_admin.ocr.save_changes", locale)}
                             } else {
                                 {admin_t("platform_admin.ocr.save", locale)}
+                            }
+                        }
+                    }
+                    details { class: "rounded-lg border border-gray-200 p-3 text-sm dark:border-gray-700",
+                        summary { class: "cursor-pointer font-medium", {admin_t("platform_admin.ocr.verification_details", locale)} }
+                        if let Some(source_file_id) = editor.source_file_id.as_ref() {
+                            div { class: "rounded-lg bg-gray-50 p-3 text-xs text-gray-600 dark:bg-gray-900/40 dark:text-gray-300",
+                                p {
+                                    span { class: "font-medium", {format!("{}: ", admin_t("platform_admin.ocr.source_revision", locale))} }
+                                    code { class: "break-all", dir: "ltr", "{source_file_id}" }
+                                }
+                                if let Some(source_sha256) = editor.source_sha256.as_ref() {
+                                    p {
+                                        span { class: "font-medium", {format!("{}: ", admin_t("platform_admin.ocr.source_hash", locale))} }
+                                        code { class: "break-all", dir: "ltr", "{source_sha256}" }
+                                    }
+                                }
+                            }
+                        }
+                        if let Some(revision) = editor.revision.as_ref() {
+                            div { class: "rounded-lg bg-gray-50 p-3 text-xs text-gray-600 dark:bg-gray-900/40 dark:text-gray-300",
+                                p {
+                                    span { class: "font-medium", {format!("{}: ", admin_t("platform_admin.ocr.current_revision", locale))} }
+                                    code { class: "break-all", dir: "ltr", "{revision}" }
+                                }
+                                if let Some(verified_at) = editor.verified_at.as_ref() {
+                                    p {
+                                        span { class: "font-medium", {format!("{}: ", admin_t("platform_admin.ocr.verified_at", locale))} }
+                                        {format_product_datetime_text(verified_at, locale)}
+                                    }
+                                }
+                                if let Some(verified_by) = editor.verified_by.as_ref() {
+                                    p {
+                                        span { class: "font-medium", {format!("{}: ", admin_t("platform_admin.ocr.verified_by", locale))} }
+                                        code { class: "break-all", dir: "ltr", "{verified_by}" }
+                                    }
+                                }
+                                if let Some(text_sha256) = editor.text_sha256.as_ref() {
+                                    p {
+                                        span { class: "font-medium", {format!("{}: ", admin_t("platform_admin.ocr.text_hash", locale))} }
+                                        code { class: "break-all", dir: "ltr", "{text_sha256}" }
+                                    }
+                                }
                             }
                         }
                     }
