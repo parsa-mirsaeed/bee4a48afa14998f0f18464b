@@ -45,9 +45,11 @@ async fn decode_response(body: &'static str, declared_length: usize) -> bool {
     assert_eq!(response.status().as_u16(), 200);
     type Decoder = ServerFnDecoder<Result<serde_json::Value, ServerFnError>>;
     let decoder = Decoder::new();
+    let decoder_ref = &decoder;
+    let decoder_refs = &decoder_ref;
     let decoding =
         <&&Decoder as RequestDecodeResult<serde_json::Value, ClientResponse>>::decode_client_response(
-            &&&decoder,
+            &decoder_refs,
             Ok(response),
         );
     let result = tokio::time::timeout(Duration::from_secs(5), decoding)
