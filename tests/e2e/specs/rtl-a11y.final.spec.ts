@@ -55,7 +55,7 @@ test('Farsi and English document direction are coherent @final @rtl', async ({ p
   await expect.poll(() => page.evaluate(() => document.documentElement.dir)).toBe('ltr');
 });
 
-test('Persian grade dates and numbers are isolated LTR inside the RTL document @final @rtl', async ({ page }) => {
+test('Persian grades preserve LTR tokens and localized dates inside the RTL document @final @rtl', async ({ page }) => {
   await signIn(page, 'e2e-student-a@example.test');
   await expect.poll(() => page.evaluate(() => document.documentElement.dir)).toBe('rtl');
 
@@ -71,12 +71,13 @@ test('Persian grade dates and numbers are isolated LTR inside the RTL document @
     .getByText('E2E Assignment A1', { exact: true })
     .locator('xpath=ancestor::div[contains(@class,"rounded-lg")][1]');
   const isolatedValues = seededGradeRow.locator('bdi[dir="ltr"]');
-  // The rendered row has two numeric/date values requiring directional
-  // isolation: the scaled score and its date. The letter-grade badge is not a
-  // numeric/date field and therefore is intentionally outside these <bdi>s.
+  // Both academic tokens need isolation, including the trailing minus in A-.
+  // The optional grade date is presented separately by the locale formatter.
   await expect(isolatedValues).toHaveCount(2);
-  await expect(isolatedValues.filter({ hasText: '18/20' })).toHaveCount(1);
-  await expect(isolatedValues.filter({ hasText: /\d{4}\/\d{2}\/\d{2}/ })).toHaveCount(1);
+  await expect(isolatedValues.filter({ hasText: /^18\/20$/ })).toHaveCount(1);
+  await expect(isolatedValues.filter({ hasText: /^A-$/ })).toHaveCount(1);
+  await expect(seededGradeRow.getByText(/^\d{4}\/\d{2}\/\d{2}$/)).toBeVisible();
+  await expect(seededGradeRow).not.toContainText(/\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b/);
   for (let index = 0; index < 2; index += 1) {
     await expect(isolatedValues.nth(index)).toHaveCSS('direction', 'ltr');
   }
