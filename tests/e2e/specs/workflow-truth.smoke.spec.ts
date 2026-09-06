@@ -215,7 +215,7 @@ test('manager provisions Student Teacher Parent and guided publish persists @smo
   // sees the persisted class assignment as an available assignment-form class.
   await signIn(page, CREATED_TEACHER_EMAIL, teacherPassword);
   await actionWithIcon(page, 'assignment').click();
-  await page.getByRole('button', { name: 'Create assignment', exact: true }).click();
+  await page.getByRole('button', { name: 'Create assignment', exact: true }).first().click();
   await expect(page.getByRole('dialog')).toBeVisible();
   await expect(page.getByRole('dialog').locator('select').first().locator('option', { hasText: 'E2E Class A1' })).toHaveCount(1);
   await endSession(page);
@@ -237,7 +237,6 @@ test('manager settings tabs are sequentially keyboard reachable @smoke @workflow
   const securityTab = roleTabs.nth(1);
   const generalTab = roleTabs.nth(2);
   const notificationTab = roleTabs.nth(3);
-
   for (const tab of [profileTab, securityTab, generalTab, notificationTab]) {
     await expect(tab).toHaveAttribute('tabindex', '0');
   }

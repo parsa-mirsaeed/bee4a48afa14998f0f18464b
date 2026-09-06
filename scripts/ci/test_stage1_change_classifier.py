@@ -271,6 +271,18 @@ class ClassifierTests(unittest.TestCase):
             needs_browser=False,
         )
 
+    def test_browser_reset_helper_is_owned_by_browser_harness(self):
+        result = self.assert_categories(
+            ["scripts/ci/reset_browser_fixture_db.sh"],
+            required=("web_browser_behavior",),
+            forbidden=("unknown",),
+            rust=True,
+            web=True,
+            needs_postgres=False,
+            needs_browser=True,
+        )
+        self.assertTrue(result["safe_to_control_ci"])
+
     def test_unknown_executable_fails_closed(self):
         result = self.assert_categories(
             ["tools/new_unclassified_gate.py"],
