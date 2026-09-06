@@ -4,6 +4,7 @@ import importlib.util
 import json
 import os
 import subprocess
+import textwrap
 import tempfile
 import unittest
 from pathlib import Path
@@ -16,6 +17,28 @@ spec.loader.exec_module(module)
 
 
 class ReleaseDocsVerifierTests(unittest.TestCase):
+    def test_final_dispatch_reuses_same_head_and_database_for_two_browser_passes(self):
+        workflow = (MODULE_PATH.parents[2] / ".github/workflows/full-validation.yml").read_text()
+        block = workflow.split("          passes=1\n", 1)[1].split(
+            "\n      - name: Upload final browser evidence", 1
+        )[0]
+        script = "set -euo pipefail\n" + textwrap.dedent("          passes=1\n" + block)
+        for event, expected_passes in [("workflow_dispatch", 2), ("pull_request", 1)]:
+            with self.subTest(event=event), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                runner = root / "scripts/ci/run_browser_final.sh"
+                runner.parent.mkdir(parents=True)
+                runner.write_text('printf "%s|%s\\n" "$E2E_HEAD_SHA" "$DATABASE_URL" >> calls\n')
+                result = subprocess.run(
+                    ["bash", "-c", script], cwd=root, capture_output=True, text=True,
+                    env={**os.environ, "GITHUB_EVENT_NAME": event,
+                         "PR_BASE_SHA": "", "PR_HEAD_SHA": "frozen-head",
+                         "E2E_HEAD_SHA": "frozen-head", "DATABASE_URL": "dedicated-test-db"},
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual((root / "calls").read_text().splitlines(),
+                                 ["frozen-head|dedicated-test-db"] * expected_passes)
+
     def run_manual_acceptance_entry(self, number: int, title: str):
         with tempfile.TemporaryDirectory() as tmp:
             fixture = Path(tmp) / "manual-fixture.json"

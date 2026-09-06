@@ -250,7 +250,11 @@ jobs:
           set -euo pipefail
 
           passes=1
-          if [[ -n "${PR_BASE_SHA}" ]] && \
+          # Final-release orchestration dispatches this workflow on its frozen
+          # head. Exercise reset against the same database twice on that head.
+          if [[ "${GITHUB_EVENT_NAME}" == workflow_dispatch ]]; then
+            passes=2
+          elif [[ -n "${PR_BASE_SHA}" ]] && \
              git diff --name-only "${PR_BASE_SHA}" "${PR_HEAD_SHA}" -- | \
                grep -Fxq 'scripts/ci/reset_browser_fixture_db.sh'; then
             passes=2
