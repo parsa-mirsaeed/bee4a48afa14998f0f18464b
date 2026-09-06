@@ -127,7 +127,9 @@ pub fn Dialog(
     let mut was_open = use_signal(|| false);
     let close_label = close_label.unwrap_or_else(|| "Close".to_string());
 
-    use_effect(move || {
+    // `open` is a plain prop: explicitly track it so content-owned Cancel and
+    // asynchronous success paths run the same focus restoration as Escape.
+    use_effect(use_reactive((&open,), move |(open,)| {
         let previously_open = was_open();
         if previously_open && !open {
             restore_active_element(return_focus_id);
@@ -135,7 +137,7 @@ pub fn Dialog(
         if previously_open != open {
             was_open.set(open);
         }
-    });
+    }));
 
     rsx! {
         if open {
