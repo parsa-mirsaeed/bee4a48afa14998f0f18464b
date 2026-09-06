@@ -15,6 +15,7 @@
   --et-color-border: #dfe3eb;
   --et-color-border-strong: #c8ced9;
   --et-color-primary: #5b4ee5;
+  --et-color-on-primary: #ffffff;
   --et-color-primary-hover: #493ccf;
   --et-color-primary-soft: #efedff;
   --et-color-danger: #b42318;
@@ -71,6 +72,7 @@
   --et-color-border: #303642;
   --et-color-border-strong: #414956;
   --et-color-primary: #9a90ff;
+  --et-color-on-primary: #171923;
   --et-color-primary-hover: #b0a8ff;
   --et-color-primary-soft: #282443;
   --et-color-danger: #ff8b83;
@@ -278,7 +280,7 @@ body {
 .et-ui-button--sm { min-block-size: 34px; padding-inline: 0.75rem; font-size: var(--et-font-xs); }
 .et-ui-button--md { padding-inline: 1rem; font-size: var(--et-font-sm); }
 .et-ui-button--lg { min-block-size: 48px; padding-inline: 1.25rem; font-size: var(--et-font-md); }
-.et-ui-button--primary { background: var(--et-color-primary); color: #fff; }
+.et-ui-button--primary { background: var(--et-color-primary); color: var(--et-color-on-primary); }
 .et-ui-button--primary:not(:disabled):hover { background: var(--et-color-primary-hover); }
 .et-ui-button--secondary { background: var(--et-color-surface); border-color: var(--et-color-border-strong); color: var(--et-color-text); }
 .et-ui-button--secondary:not(:disabled):hover { background: var(--et-color-surface-subtle); }
