@@ -180,6 +180,17 @@ def classify(files: Iterable[str]) -> dict:
             _mark(categories, "workflow_policy")
             matched = True
 
+        # The pinned fullstack patch is shared executable dependency code. A
+        # source-only edit still requires the complete consumer/build union.
+        if path.startswith("vendor/dioxus-fullstack/") and (
+            _looks_executable_or_config(path) or basename == "Cargo.toml.orig"
+        ):
+            for category in ("dependencies", "api_logic", "web_logic", "web_browser_behavior", "packaging"):
+                _mark(categories, category)
+            cargo_dependency_changed = True
+            cargo_workspace_changed = True
+            matched = True
+
         if WEB_ASSET_RE.match(path):
             _mark(categories, "web_assets")
             matched = True

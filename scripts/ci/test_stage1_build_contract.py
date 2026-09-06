@@ -58,6 +58,20 @@ class Stage1BuildBoundaryTests(unittest.TestCase):
         self.assertIn("COPY . .", self.web_builder)
         self.assertIn("dx bundle --web --release --package web", self.web_builder)
 
+    def test_gateway_build_uses_real_patched_dependency_after_chef_stubs(self):
+        source_copy = "COPY vendor/dioxus-fullstack/ vendor/dioxus-fullstack/"
+        gateway_build = "cargo build --release --package api"
+        self.assertIn(source_copy, self.build_deps)
+        self.assertLess(
+            self.build_deps.index(source_copy),
+            self.build_deps.index("cargo chef cook"),
+        )
+        self.assertIn(source_copy, self.gateway_builder)
+        self.assertLess(
+            self.gateway_builder.index(source_copy),
+            self.gateway_builder.index(gateway_build),
+        )
+
     def test_sqlx_compile_schema_boundary_is_explicit_and_minimal(self):
         self.assertIn("postgresql postgresql-client", self.build_deps)
         self.assertNotIn("COPY . .", self.build_deps)

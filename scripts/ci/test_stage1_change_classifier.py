@@ -154,6 +154,20 @@ class ClassifierTests(unittest.TestCase):
             needs_postgres=True,
         )
 
+    def test_vendored_fullstack_source_requires_all_consumer_proof(self):
+        self.assert_categories(
+            ["vendor/dioxus-fullstack/src/magic.rs"],
+            required=("dependencies", "api_logic", "web_logic", "web_browser_behavior", "packaging"),
+            forbidden=("unknown",),
+            rust=True,
+            web=True,
+            needs_postgres=True,
+            needs_browser=True,
+            needs_workspace_compile=True,
+            needs_dependency_audit=True,
+            needs_package_definition=True,
+        )
+
     def test_root_cargo_lock_keeps_workspace_db_backed_until_compile_coupling_is_removed(self):
         self.assert_categories(
             ["Cargo.lock"],

@@ -90,3 +90,7 @@ codegen-units = 1
 panic = "abort"
 debug = false           # No debug info - fixes wasm-opt DWARF errors
 split-debuginfo = "off" # Avoid DWARF issues with wasm-opt
+
+# Temporary transport-error fix; see vendor/dioxus-fullstack/EDUTALENT-PATCH.md.
+[patch.crates-io]
+dioxus-fullstack = { path = "vendor/dioxus-fullstack" }
