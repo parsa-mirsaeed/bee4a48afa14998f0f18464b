@@ -1,13 +1,33 @@
-import { test, expect, type APIRequestContext } from '@playwright/test';
+import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { createHash, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { enforceOfflineAllowlist, assertNoUnexpectedOrigins } from '../fixtures/network-policy';
 import { watchConsole, assertNoConsoleErrors, allowHttpResponse } from '../fixtures/console-guard';
 
+type Requests=Pick<APIRequestContext,'get'|'post'>;
+// Chromium treats the loopback application as a secure context. Playwright's
+// standalone HTTP client does not send Secure cookies over that same HTTP URL.
+// Copy the actual HttpOnly session cookies only to the configured application
+// origin; all authorization/session validation still runs in the real server.
+function api(page:Page):Requests {
+  const client=page.context().request;
+  const origin=new URL(process.env.E2E_BASE_URL??'http://127.0.0.1:8080');
+  const call=async(method:'get'|'post',url:string,options:any={})=>{
+    const target=new URL(url,origin);
+    const headers={...options.headers};
+    if(target.origin===origin.origin&&origin.protocol==='http:'&&['127.0.0.1','localhost'].includes(origin.hostname)){
+      headers.cookie=(await page.context().cookies()).filter(cookie=>
+        cookie.domain===origin.hostname&&target.pathname.startsWith(cookie.path)
+      ).map(cookie=>`${cookie.name}=${cookie.value}`).join('; ');
+    }
+    return client[method](url,{...options,headers,maxRedirects:0});
+  };
+  return {get:(url,options)=>call('get',url,options),post:(url,options)=>call('post',url,options)};
+}
 const root='/api/submissions/attachments';
 const student='e2e-attachment-student@example.test';
-async function login(request: APIRequestContext,email=student) {
+async function login(request: Requests,email=student) {
   expect((await request.post('/api/auth/login',{data:{email,password:'e2e-password'}})).ok()).toBeTruthy();
 }
 function pdf():Buffer {
@@ -31,10 +51,10 @@ function identity(project:string,caseId:number) {
   const suffix=`${project.includes('mobile')?2:1}${String(caseId).padStart(2,'0')}`;
   return {title:`E2E Attachment ${suffix}`,id:`f1600000-0000-0000-0000-${suffix.padStart(12,'0')}`};
 }
-async function list(request:APIRequestContext,assignment_id:string) {
+async function list(request:Requests,assignment_id:string) {
   const result=await request.get(`${root}/list`,{params:{assignment_id}});expect(result.ok(),`${result.status()}: ${(await result.text()).slice(0,1000)}`).toBeTruthy();return result.json();
 }
-async function reserve(request:APIRequestContext,assignment_id:string,file=originals.pdf,request_id=randomUUID()) {
+async function reserve(request:Requests,assignment_id:string,file=originals.pdf,request_id=randomUUID()) {
   return request.post(`${root}/reserve`,{data:{input:{assignment_id,request_id,filename:file.name,media_type:file.mimeType,byte_size:file.buffer.length,sha256:createHash('sha256').update(file.buffer).digest('hex')}}});
 }
 
@@ -44,7 +64,7 @@ for(const scenario of cases) {
   test(`private originals complete ${scenario.id} ${scenario.locale} @smoke @final @student @workflow-truth @accessibility`,async({page},info)=>{
     const identityForTest=identity(info.project.name,scenario.id);const fa=scenario.locale==='fa';
     await page.addInitScript(locale=>localStorage.setItem('edutalent_locale',locale),scenario.locale);
-    await login(page.context().request);await page.goto('/dashboard/assignments');
+    await login(api(page));await page.goto('/dashboard/assignments');
     const card=page.getByText(identityForTest.title,{exact:true}).locator('xpath=ancestor::article[1]');
     await card.getByRole('button',{name:fa?'شروع تکلیف':'Start assignment',exact:true}).click();
     await page.getByRole('dialog').getByRole('button',{name:fa?'باز کردن ارسال من':'Open my submission',exact:true}).click();
@@ -59,13 +79,13 @@ for(const scenario of cases) {
     if(scenario.id===4) {
       allowHttpResponse(`${root}/upload`,503);
       try {
-        expect((await page.context().request.post('http://127.0.0.1:9100/__e2e/storage-mode',{data:{mode:'unavailable'}})).ok()).toBeTruthy();
+        expect((await api(page).post('http://127.0.0.1:9100/__e2e/storage-mode',{data:{mode:'unavailable'}})).ok()).toBeTruthy();
         await upload.click();
         await expect(dialog.getByRole('alert')).toContainText('متن شما حفظ شده است');
         await expect(text).toHaveValue(scenario.text);
         await expect(submit).toBeDisabled();
         await expect(upload).toBeEnabled();
-      } finally {await page.context().request.post('http://127.0.0.1:9100/__e2e/storage-mode',{data:{mode:'ready'}});}
+      } finally {await api(page).post('http://127.0.0.1:9100/__e2e/storage-mode',{data:{mode:'ready'}});}
     }
     let releaseList!:()=>void;
     let listReached!:()=>void;
@@ -80,25 +100,25 @@ for(const scenario of cases) {
     } finally {releaseList();}
     await expect(picker).toBeEnabled();
     await page.unroute('**/api/submissions/attachments/list*');
-    await expect.poll(async()=> (await list(page.context().request,identityForTest.id)).filter((f:any)=>f.status==='ready').length).toBe(scenario.files.length);
+    await expect.poll(async()=> (await list(api(page),identityForTest.id)).filter((f:any)=>f.status==='ready').length).toBe(scenario.files.length);
     await expect(upload).toHaveCount(0);
     const axe=await new AxeBuilder({page}).include('[role="dialog"]').withTags(['wcag2a','wcag2aa','wcag21aa']).analyze();
     expect(axe.violations.filter(v=>v.impact==='serious'||v.impact==='critical')).toEqual([]);
     // Both locales expose the same file count and original bytes after finalize.
     const finalResponse=page.waitForResponse(r=>r.url().includes('/api/submissions/finalize'));
     await submit.click();expect((await finalResponse).ok()).toBeTruthy();await expect(dialog).toHaveCount(0);
-    const files=await list(page.context().request,identityForTest.id);expect(files).toHaveLength(scenario.files.length);
+    const files=await list(api(page),identityForTest.id);expect(files).toHaveLength(scenario.files.length);
     expect(files.every((f:any)=>f.status==='submitted')).toBeTruthy();
     for(const file of files) {
       const source=scenario.files.find(f=>f.name===file.filename)!;
-      const downloaded=await page.context().request.get(`${root}/download`,{params:{id:file.id}});
+      const downloaded=await api(page).get(`${root}/download`,{params:{id:file.id}});
       expect(downloaded.ok()).toBeTruthy();expect(downloaded.headers()['content-disposition']).toMatch(/^attachment;/);
       expect(downloaded.headers()['cache-control']).toContain('no-store');
       expect(await downloaded.body()).toEqual(source.buffer);
     }
-    await login(page.context().request,'e2e-attachment-teacher@example.test');
-    const teacherFiles=await list(page.context().request,identityForTest.id);expect(teacherFiles).toHaveLength(files.length);
-    expect((await page.context().request.get(`${root}/download`,{params:{id:files[0].id}})).ok()).toBeTruthy();
+    await login(api(page),'e2e-attachment-teacher@example.test');
+    const teacherFiles=await list(api(page),identityForTest.id);expect(teacherFiles).toHaveLength(files.length);
+    expect((await api(page).get(`${root}/download`,{params:{id:files[0].id}})).ok()).toBeTruthy();
     await page.goto('/dashboard/submissions');
     // The original control is also rendered in the real Teacher grading dialog.
     const teacherCard=page.getByText(identityForTest.title,{exact:true}).locator('xpath=ancestor::div[contains(@class,"rounded-xl")][1]');
@@ -109,14 +129,14 @@ for(const scenario of cases) {
     const download=await downloadEvent;const path=await download.path();expect(path).not.toBeNull();
     expect(createHash('sha256').update(await readFile(path!)).digest('hex')).toBe(files[0].sha256);
     for(const email of ['e2e-student-b@example.test','e2e-teacher-b@example.test','e2e-parent-a@example.test','e2e-manager-a@example.test','e2e-admin@example.test']) {
-      await login(page.context().request,email);
-      expect((await page.context().request.get(`${root}/download`,{params:{id:files[0].id}})).status()).toBe(403);
+      await login(api(page),email);
+      expect((await api(page).get(`${root}/download`,{params:{id:files[0].id}})).status()).toBe(403);
     }
   });
 }
 
 test('upload retries, limits and incomplete finalization stay truthful @smoke @final @student @workflow-truth',async({page},info)=>{
-  await login(page.context().request);const request=page.context().request;const {id}=identity(info.project.name,90);
+  await login(api(page));const request=api(page);const {id}=identity(info.project.name,90);
   const token=randomUUID();let result=await reserve(request,id,originals.pdf,token);expect(result.ok(),`${result.status()}: ${(await result.text()).slice(0,1000)}`).toBeTruthy();const attachment=await result.json();
   result=await reserve(request,id,originals.pdf,token);expect(result.ok(),`${result.status()}: ${(await result.text()).slice(0,1000)}`).toBeTruthy();expect((await result.json()).id).toBe(attachment.id);
   expect(await list(request,id)).toHaveLength(1);
