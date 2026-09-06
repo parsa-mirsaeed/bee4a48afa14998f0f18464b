@@ -31,6 +31,7 @@ RUN apt-get update \
     && apt-get install --yes --no-install-recommends postgresql postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=planner /workspace/recipe.json recipe.json
+COPY vendor/dioxus-fullstack/ vendor/dioxus-fullstack/
 RUN cargo chef cook --release --recipe-path recipe.json --package web --features server
 RUN cargo chef cook --release --recipe-path recipe.json --package web --features web --target wasm32-unknown-unknown
 

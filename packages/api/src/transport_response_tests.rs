@@ -1,6 +1,8 @@
 //! Exercise the actual fullstack decoder against complete and truncated bodies.
 
-use dioxus::fullstack::{ClientRequest, RequestDecodeResult, ServerFnDecoder, ServerFnError};
+use dioxus::fullstack::{
+    ClientRequest, ClientResponse, RequestDecodeResult, ServerFnDecoder, ServerFnError,
+};
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -41,13 +43,16 @@ async fn decode_response(body: &'static str, declared_length: usize) -> bool {
         .expect("local request completes")
         .expect("headers arrive successfully");
     assert_eq!(response.status().as_u16(), 200);
-    let decoder = ServerFnDecoder::<Result<serde_json::Value, ServerFnError>>::new();
-    let result = tokio::time::timeout(
-        Duration::from_secs(5),
-        (&&decoder).decode_client_response(Ok(response)),
-    )
-    .await
-    .expect("body read completes");
+    type Decoder = ServerFnDecoder<Result<serde_json::Value, ServerFnError>>;
+    let decoder = Decoder::new();
+    let decoding =
+        <&&Decoder as RequestDecodeResult<serde_json::Value, ClientResponse>>::decode_client_response(
+            &&&decoder,
+            Ok(response),
+        );
+    let result = tokio::time::timeout(Duration::from_secs(5), decoding)
+        .await
+        .expect("body read completes");
     server.await.unwrap();
     match result {
         Ok(Ok(value)) => {

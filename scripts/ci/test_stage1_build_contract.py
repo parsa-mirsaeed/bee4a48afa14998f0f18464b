@@ -61,6 +61,11 @@ class Stage1BuildBoundaryTests(unittest.TestCase):
     def test_gateway_build_uses_real_patched_dependency_after_chef_stubs(self):
         source_copy = "COPY vendor/dioxus-fullstack/ vendor/dioxus-fullstack/"
         gateway_build = "cargo build --release --package api"
+        self.assertIn(source_copy, self.build_deps)
+        self.assertLess(
+            self.build_deps.index(source_copy),
+            self.build_deps.index("cargo chef cook"),
+        )
         self.assertIn(source_copy, self.gateway_builder)
         self.assertLess(
             self.gateway_builder.index(source_copy),
