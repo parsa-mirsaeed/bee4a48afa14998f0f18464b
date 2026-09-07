@@ -33,6 +33,7 @@ async fn private_originals_enforce_actor_school_state_and_cleanup_boundaries() {
         GRANT USAGE ON SCHEMA public,edutalent_internal TO {role};
         GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA public TO {role};
         GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO {role};
+        GRANT EXECUTE ON FUNCTION edutalent_internal.lock_student_submission_assignment(uuid) TO {role};
         GRANT EXECUTE ON FUNCTION edutalent_internal.claim_submission_attachment_cleanup() TO {role};
         INSERT INTO schools(id,name) VALUES('{school}','Attachment A'),('{other_school}','Attachment B');
         INSERT INTO users(id,name,email,school_id,role_id,is_active) VALUES
@@ -57,8 +58,34 @@ async fn private_originals_enforce_actor_school_state_and_cleanup_boundaries() {
         .await
         .unwrap();
     assert_eq!(count, 1);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM edutalent_internal.lock_student_submission_assignment($1)",
+        )
+        .bind(custom)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap(),
+        1,
+        "own published assignment must be lockable without widening row mutation rights"
+    );
+    // The Student UPDATE policy exists only so finalize can lock and mark the
+    // exact row. The guard must reject arbitrary assignment-field mutation.
+    tx.execute("SAVEPOINT student_transition_guard;").await.unwrap();
+    assert!(
+        sqlx::query("UPDATE custom_assignments SET due_at=due_at+INTERVAL '1 day' WHERE id=$1")
+            .bind(custom)
+            .execute(&mut *tx)
+            .await
+            .is_err()
+    );
+    tx.execute("ROLLBACK TO student_transition_guard;")
+        .await
+        .unwrap();
+
     // Same school unrelated actor, cross-school actor, Parent, manager, admin:
-    // none may see a pending original or smuggle a tenant-reassigned write.
+    // none may see a pending original, acquire the Student lock, or smuggle a
+    // tenant-reassigned write.
     for (actor, kind, scope) in [
         (outsider, "Student", school),
         (student_user, "Student", other_school),
@@ -75,6 +102,17 @@ async fn private_originals_enforce_actor_school_state_and_cleanup_boundaries() {
                 .unwrap(),
             0,
             "{kind}/{scope} must not see pending originals"
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "SELECT count(*) FROM edutalent_internal.lock_student_submission_assignment($1)",
+            )
+            .bind(custom)
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap(),
+            0,
+            "{kind}/{scope} must not acquire the Student submission lock"
         );
         assert_eq!(
             sqlx::query("UPDATE submission_attachments SET status='removed'")
@@ -101,9 +139,11 @@ async fn private_originals_enforce_actor_school_state_and_cleanup_boundaries() {
             .is_err()
     );
     tx.execute("ROLLBACK TO rejected;").await.unwrap();
-    // Finalization is atomic: attach the verified original and submitted row in
-    // one transaction, then prove Teacher reads and terminal-original guards.
+    // Finalization is atomic: lock the same Student-owned row, attach the
+    // verified original and submitted row, then prove the constrained status
+    // transition succeeds while Teacher read and terminal-original guards hold.
     tx.execute(format!(r#"
+        SELECT 1 FROM custom_assignments WHERE id='{custom}' FOR UPDATE;
         INSERT INTO submissions(id,custom_assignment_id,student_id,content,submitted_at) VALUES('{submission}','{custom}','{student}','{{"text":"work"}}',NOW());
         UPDATE submission_attachments SET status='ready',verified_at=NOW() WHERE id='{attachment}';
         UPDATE submission_attachments SET status='submitted',submission_id='{submission}',finalized_at=NOW() WHERE id='{attachment}';
