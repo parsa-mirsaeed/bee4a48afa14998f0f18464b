@@ -37,11 +37,10 @@ DO $$ BEGIN
 END $$;
 
 -- Students may read custom-assignment state under RLS, but PostgreSQL correctly
--- requires UPDATE privilege/policy for SELECT ... FOR UPDATE. Do not widen the
--- custom_assignments UPDATE policy merely to acquire a lock. These narrowly
--- scoped definer entry points validate the canonical transaction context, lock
--- exactly the student's published assignment as the migration owner, and only
--- expose the fixed Submitted transition needed by submission finalization.
+-- requires UPDATE privilege/policy for SELECT ... FOR UPDATE. Do not grant a
+-- broad mutation path merely to acquire a lock. Reservation uses this narrowly
+-- scoped definer entry point, which validates canonical transaction context and
+-- locks exactly the student's published assignment as the migration owner.
 CREATE SCHEMA IF NOT EXISTS edutalent_internal;
 REVOKE ALL ON SCHEMA edutalent_internal FROM PUBLIC;
 CREATE OR REPLACE FUNCTION edutalent_internal.lock_student_submission_assignment(p_assignment UUID)
@@ -70,44 +69,70 @@ LANGUAGE sql SECURITY DEFINER SET search_path=pg_catalog,public AS $$
 $$;
 REVOKE ALL ON FUNCTION edutalent_internal.lock_student_submission_assignment(UUID) FROM PUBLIC;
 
-CREATE OR REPLACE FUNCTION edutalent_internal.mark_student_assignment_submitted(
-    p_assignment UUID,
-    p_submitted_at TIMESTAMPTZ
-) RETURNS BOOLEAN
-LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public AS $$
-DECLARE
-    changed BOOLEAN;
+-- Submission finalization already locks custom_assignments directly. Permit only
+-- the exact Student-owned, ungraded, Published row needed for that lock/update,
+-- then use a trigger to restrict the actual mutation to status/submitted_at.
+DROP POLICY IF EXISTS custom_assignments_student_submit_update_policy ON public.custom_assignments;
+CREATE POLICY custom_assignments_student_submit_update_policy ON public.custom_assignments
+FOR UPDATE USING (
+    public.get_role()='Student'
+    AND NOT public.get_elevated_operation()
+    AND public.get_school_id() IS NOT NULL
+    AND graded_at IS NULL
+    AND EXISTS (
+        SELECT 1 FROM public.students s
+        WHERE s.id=custom_assignments.student_id
+          AND s.user_id=public.get_user_id()
+          AND s.school_id=public.get_school_id()
+    )
+    AND EXISTS (
+        SELECT 1 FROM public.assignments a
+        JOIN public.class_sections cs ON cs.id=a.class_section_id
+        WHERE a.id=custom_assignments.assignment_id
+          AND a.status='Published'::public.assignment_status
+          AND cs.school_id=public.get_school_id()
+    )
+) WITH CHECK (
+    public.get_role()='Student'
+    AND NOT public.get_elevated_operation()
+    AND public.get_school_id() IS NOT NULL
+    AND graded_at IS NULL
+    AND status='Submitted'::public.custom_status
+    AND submitted_at IS NOT NULL
+    AND EXISTS (
+        SELECT 1 FROM public.students s
+        WHERE s.id=custom_assignments.student_id
+          AND s.user_id=public.get_user_id()
+          AND s.school_id=public.get_school_id()
+    )
+    AND EXISTS (
+        SELECT 1 FROM public.assignments a
+        JOIN public.class_sections cs ON cs.id=a.class_section_id
+        WHERE a.id=custom_assignments.assignment_id
+          AND a.status='Published'::public.assignment_status
+          AND cs.school_id=public.get_school_id()
+    )
+);
+CREATE OR REPLACE FUNCTION public.guard_student_custom_assignment_submission()
+RETURNS TRIGGER LANGUAGE plpgsql SET search_path=pg_catalog,public AS $$
 BEGIN
-    IF public.get_role() IS DISTINCT FROM 'Student'
-       OR public.get_elevated_operation()
-       OR public.get_user_id() IS NULL
-       OR public.get_school_id() IS NULL THEN
-        RETURN FALSE;
+    IF public.get_role()='Student' THEN
+        IF public.get_elevated_operation()
+           OR OLD.graded_at IS NOT NULL
+           OR NEW.status IS DISTINCT FROM 'Submitted'::public.custom_status
+           OR NEW.submitted_at IS NULL
+           OR (to_jsonb(NEW)-'status'-'submitted_at')
+              IS DISTINCT FROM (to_jsonb(OLD)-'status'-'submitted_at') THEN
+            RAISE EXCEPTION 'Student assignment transition is restricted to submission finalization'
+                USING ERRCODE='42501';
+        END IF;
     END IF;
-
-    UPDATE public.custom_assignments ca
-    SET status='Submitted'::public.custom_status, submitted_at=p_submitted_at
-    FROM public.assignments a
-    JOIN public.class_sections cs ON cs.id=a.class_section_id
-    JOIN public.students s ON TRUE
-    JOIN public.users u ON u.id=s.user_id
-    JOIN public.roles r ON r.id=u.role_id
-    JOIN public.enrollments e ON e.student_id=s.id AND e.class_section_id=cs.id
-    WHERE ca.id=p_assignment
-      AND a.id=ca.assignment_id
-      AND s.id=ca.student_id
-      AND ca.graded_at IS NULL
-      AND s.user_id=public.get_user_id()
-      AND u.is_active AND r.name::text='Student'
-      AND s.school_id=public.get_school_id()
-      AND u.school_id=public.get_school_id()
-      AND cs.school_id=public.get_school_id()
-      AND a.status='Published'::public.assignment_status
-    RETURNING TRUE INTO changed;
-
-    RETURN COALESCE(changed,FALSE);
+    RETURN NEW;
 END $$;
-REVOKE ALL ON FUNCTION edutalent_internal.mark_student_assignment_submitted(UUID,TIMESTAMPTZ) FROM PUBLIC;
+DROP TRIGGER IF EXISTS student_custom_assignment_submission_guard ON public.custom_assignments;
+CREATE TRIGGER student_custom_assignment_submission_guard
+BEFORE UPDATE ON public.custom_assignments
+FOR EACH ROW EXECUTE FUNCTION public.guard_student_custom_assignment_submission();
 
 CREATE OR REPLACE FUNCTION public.owns_submission_assignment(p_assignment UUID, p_student UUID, p_school UUID)
 RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY INVOKER SET search_path=pg_catalog,public AS $$
