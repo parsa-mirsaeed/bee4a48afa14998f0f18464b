@@ -36,6 +36,79 @@ DO $$ BEGIN
     IF EXISTS (SELECT FROM pg_roles WHERE rolname='authenticated') THEN REVOKE ALL ON public.submission_attachments FROM authenticated; END IF;
 END $$;
 
+-- Students may read custom-assignment state under RLS, but PostgreSQL correctly
+-- requires UPDATE privilege/policy for SELECT ... FOR UPDATE. Do not widen the
+-- custom_assignments UPDATE policy merely to acquire a lock. These narrowly
+-- scoped definer entry points validate the canonical transaction context, lock
+-- exactly the student's published assignment as the migration owner, and only
+-- expose the fixed Submitted transition needed by submission finalization.
+CREATE SCHEMA IF NOT EXISTS edutalent_internal;
+REVOKE ALL ON SCHEMA edutalent_internal FROM PUBLIC;
+CREATE OR REPLACE FUNCTION edutalent_internal.lock_student_submission_assignment(p_assignment UUID)
+RETURNS TABLE(student_id UUID, school_id UUID, graded_at TIMESTAMPTZ)
+LANGUAGE sql SECURITY DEFINER SET search_path=pg_catalog,public AS $$
+    SELECT ca.student_id, cs.school_id, ca.graded_at
+    FROM public.custom_assignments ca
+    JOIN public.assignments a ON a.id=ca.assignment_id
+    JOIN public.class_sections cs ON cs.id=a.class_section_id
+    JOIN public.students s ON s.id=ca.student_id
+    JOIN public.users u ON u.id=s.user_id
+    JOIN public.roles r ON r.id=u.role_id
+    JOIN public.enrollments e ON e.student_id=s.id AND e.class_section_id=cs.id
+    WHERE ca.id=p_assignment
+      AND public.get_role()='Student'
+      AND NOT public.get_elevated_operation()
+      AND public.get_user_id() IS NOT NULL
+      AND public.get_school_id() IS NOT NULL
+      AND s.user_id=public.get_user_id()
+      AND u.is_active AND r.name::text='Student'
+      AND s.school_id=public.get_school_id()
+      AND u.school_id=public.get_school_id()
+      AND cs.school_id=public.get_school_id()
+      AND a.status='Published'::public.assignment_status
+    FOR UPDATE OF ca
+$$;
+REVOKE ALL ON FUNCTION edutalent_internal.lock_student_submission_assignment(UUID) FROM PUBLIC;
+
+CREATE OR REPLACE FUNCTION edutalent_internal.mark_student_assignment_submitted(
+    p_assignment UUID,
+    p_submitted_at TIMESTAMPTZ
+) RETURNS BOOLEAN
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public AS $$
+DECLARE
+    changed BOOLEAN;
+BEGIN
+    IF public.get_role() IS DISTINCT FROM 'Student'
+       OR public.get_elevated_operation()
+       OR public.get_user_id() IS NULL
+       OR public.get_school_id() IS NULL THEN
+        RETURN FALSE;
+    END IF;
+
+    UPDATE public.custom_assignments ca
+    SET status='Submitted'::public.custom_status, submitted_at=p_submitted_at
+    FROM public.assignments a
+    JOIN public.class_sections cs ON cs.id=a.class_section_id
+    JOIN public.students s ON TRUE
+    JOIN public.users u ON u.id=s.user_id
+    JOIN public.roles r ON r.id=u.role_id
+    JOIN public.enrollments e ON e.student_id=s.id AND e.class_section_id=cs.id
+    WHERE ca.id=p_assignment
+      AND a.id=ca.assignment_id
+      AND s.id=ca.student_id
+      AND ca.graded_at IS NULL
+      AND s.user_id=public.get_user_id()
+      AND u.is_active AND r.name::text='Student'
+      AND s.school_id=public.get_school_id()
+      AND u.school_id=public.get_school_id()
+      AND cs.school_id=public.get_school_id()
+      AND a.status='Published'::public.assignment_status
+    RETURNING TRUE INTO changed;
+
+    RETURN COALESCE(changed,FALSE);
+END $$;
+REVOKE ALL ON FUNCTION edutalent_internal.mark_student_assignment_submitted(UUID,TIMESTAMPTZ) FROM PUBLIC;
+
 CREATE OR REPLACE FUNCTION public.owns_submission_assignment(p_assignment UUID, p_student UUID, p_school UUID)
 RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY INVOKER SET search_path=pg_catalog,public AS $$
     SELECT public.get_role()='Student' AND p_school=public.get_school_id() AND EXISTS (
@@ -121,8 +194,6 @@ FOR EACH ROW EXECUTE FUNCTION public.guard_submission_attachment_original();
 -- The scheduler can only claim an expired/unsubmitted object for deletion. Its
 -- SECURITY DEFINER implementation is in an unexposed schema, with explicit
 -- system-context checks and no caller-controlled object/tenant argument.
-CREATE SCHEMA IF NOT EXISTS edutalent_internal;
-REVOKE ALL ON SCHEMA edutalent_internal FROM PUBLIC;
 CREATE OR REPLACE FUNCTION edutalent_internal.claim_submission_attachment_cleanup()
 RETURNS TABLE(attachment_id UUID, school_id UUID)
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public AS $$
