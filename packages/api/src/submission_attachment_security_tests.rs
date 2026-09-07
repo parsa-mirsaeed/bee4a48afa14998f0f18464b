@@ -71,14 +71,16 @@ async fn private_originals_enforce_actor_school_state_and_cleanup_boundaries() {
     );
     // The Student UPDATE policy exists only so finalize can lock and mark the
     // exact row. The guard must reject arbitrary assignment-field mutation.
-    tx.execute("SAVEPOINT student_transition_guard;").await.unwrap();
-    assert!(
-        sqlx::query("UPDATE custom_assignments SET due_at=due_at+INTERVAL '1 day' WHERE id=$1")
-            .bind(custom)
-            .execute(&mut *tx)
-            .await
-            .is_err()
-    );
+    tx.execute("SAVEPOINT student_transition_guard;")
+        .await
+        .unwrap();
+    assert!(sqlx::query(
+        "UPDATE custom_assignments SET due_at=due_at+INTERVAL '1 day' WHERE id=$1"
+    )
+    .bind(custom)
+    .execute(&mut *tx)
+    .await
+    .is_err());
     tx.execute("ROLLBACK TO student_transition_guard;")
         .await
         .unwrap();
