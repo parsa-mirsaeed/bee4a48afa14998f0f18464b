@@ -123,9 +123,15 @@ ORDER BY type_entry.oid
 SELECT format('GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO %I', :'app_role')
 \gexec
 
--- Private bounded attachment cleanup entry point; never grant private table access.
+-- Private bounded attachment entry points; never grant private table access.
 SELECT format('GRANT USAGE ON SCHEMA edutalent_internal TO %I', :'app_role')
 WHERE EXISTS (SELECT FROM pg_namespace WHERE nspname='edutalent_internal')
+\gexec
+SELECT format('GRANT EXECUTE ON FUNCTION edutalent_internal.lock_student_submission_assignment(uuid) TO %I', :'app_role')
+WHERE to_regprocedure('edutalent_internal.lock_student_submission_assignment(uuid)') IS NOT NULL
+\gexec
+SELECT format('GRANT EXECUTE ON FUNCTION edutalent_internal.mark_student_assignment_submitted(uuid,timestamp with time zone) TO %I', :'app_role')
+WHERE to_regprocedure('edutalent_internal.mark_student_assignment_submitted(uuid,timestamp with time zone)') IS NOT NULL
 \gexec
 SELECT format('GRANT EXECUTE ON FUNCTION edutalent_internal.claim_submission_attachment_cleanup() TO %I', :'app_role')
 WHERE to_regprocedure('edutalent_internal.claim_submission_attachment_cleanup()') IS NOT NULL
