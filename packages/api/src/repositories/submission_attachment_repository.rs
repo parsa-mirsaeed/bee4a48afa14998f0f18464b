@@ -34,8 +34,11 @@ impl AttachmentError {
 }
 pub type Result<T> = std::result::Result<T, AttachmentError>;
 
-// This query also defines the RLS predicate in the migration. Lock the assignment
-// first for every Student mutation, matching submission/grading lock order.
+// Student writes must serialize against submission/grading without granting the
+// Student UPDATE rights on custom_assignments. The bounded database entry point
+// validates the transaction-local actor/school context and locks only the exact
+// published assignment as the migration owner. Read-only authorization remains
+// ordinary RLS-filtered SQL.
 pub async fn authorize_student(
     pool: &AuthorizedPool,
     user: &UserInfo,
@@ -46,27 +49,36 @@ pub async fn authorize_student(
         return Err(AttachmentError::Forbidden);
     }
     let actor = Uuid::parse_str(&user.id).map_err(|_| AttachmentError::Forbidden)?;
-    let row = sqlx::query(
-        r#"
-        SELECT ca.student_id, cs.school_id, ca.graded_at
-        FROM custom_assignments ca
-        JOIN assignments a ON a.id=ca.assignment_id
-        JOIN class_sections cs ON cs.id=a.class_section_id
-        JOIN students s ON s.id=ca.student_id
-        JOIN users u ON u.id=s.user_id
-        JOIN roles r ON r.id=u.role_id
-        JOIN enrollments e ON e.student_id=s.id AND e.class_section_id=cs.id
-        WHERE ca.id=$1 AND u.id=$2 AND u.is_active AND r.name::text='Student'
-          AND s.school_id=u.school_id AND cs.school_id=u.school_id
-          AND a.status='Published'::assignment_status
-        FOR UPDATE OF ca
-    "#,
-    )
-    .bind(assignment)
-    .bind(actor)
-    .fetch_optional(pool)
-    .await?
-    .ok_or(AttachmentError::Forbidden)?;
+    let row = if writable {
+        sqlx::query(
+            "SELECT student_id, school_id, graded_at FROM edutalent_internal.lock_student_submission_assignment($1)",
+        )
+        .bind(assignment)
+        .fetch_optional(pool)
+        .await?
+        .ok_or(AttachmentError::Forbidden)?
+    } else {
+        sqlx::query(
+            r#"
+            SELECT ca.student_id, cs.school_id, ca.graded_at
+            FROM custom_assignments ca
+            JOIN assignments a ON a.id=ca.assignment_id
+            JOIN class_sections cs ON cs.id=a.class_section_id
+            JOIN students s ON s.id=ca.student_id
+            JOIN users u ON u.id=s.user_id
+            JOIN roles r ON r.id=u.role_id
+            JOIN enrollments e ON e.student_id=s.id AND e.class_section_id=cs.id
+            WHERE ca.id=$1 AND u.id=$2 AND u.is_active AND r.name::text='Student'
+              AND s.school_id=u.school_id AND cs.school_id=u.school_id
+              AND a.status='Published'::assignment_status
+            "#,
+        )
+        .bind(assignment)
+        .bind(actor)
+        .fetch_optional(pool)
+        .await?
+        .ok_or(AttachmentError::Forbidden)?
+    };
     if writable
         && row
             .get::<Option<chrono::DateTime<chrono::Utc>>, _>("graded_at")
