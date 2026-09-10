@@ -1,13 +1,32 @@
--- Complete the synthetic Teacher-visible knowledge asset with the exact governed
--- provenance chain required by production RLS.  The base seed intentionally
--- creates deterministic actors/assets; this follow-up runs after all migrations
--- so it cannot accidentally model a pre-hardening published row as trustworthy.
+-- Complete the synthetic Teacher-visible knowledge asset through the exact
+-- governed lifecycle required by production RLS. The base seed contains an old
+-- pre-provenance published placeholder; replace only that deterministic row and
+-- rebuild it through source review -> verified OCR -> embedded provenance ->
+-- publication. This makes browser evidence prove the hardened contract instead
+-- of manufacturing a trusted published state.
 
 BEGIN;
 SET LOCAL app.user_id = 'b0000000-0000-0000-0000-0000000000a0';
 SET LOCAL app.user_role = 'PlatformAdmin';
 SET LOCAL app.school_id = 'a0000000-0000-0000-0000-0000000000a1';
 SET LOCAL app.elevated_operation = 'false';
+
+-- This fixture connection is the disposable PostgreSQL administrator. Remove
+-- only the deterministic pre-provenance placeholder; application identities do
+-- not receive DELETE permission through this path.
+DELETE FROM public.knowledge_assets
+WHERE id = 'f3000000-0000-0000-0000-0000000000a1'::uuid;
+
+INSERT INTO public.knowledge_assets (
+    id, school_id, title, status, created_by, published_at
+) VALUES (
+    'f3000000-0000-0000-0000-0000000000a1',
+    'a0000000-0000-0000-0000-0000000000a1',
+    'E2E Published Asset',
+    'submitted',
+    'b0000000-0000-0000-0000-0000000000a1',
+    NULL
+);
 
 WITH source_bytes AS (
     SELECT convert_to('%PDF-e2e-published-source', 'UTF8') AS bytes
@@ -31,19 +50,12 @@ SELECT
     octet_length(bytes),
     lower(encode(digest(bytes, 'sha256'), 'hex')),
     FALSE
-FROM source_bytes
-ON CONFLICT (id) DO NOTHING;
+FROM source_bytes;
 
 SELECT public.record_knowledge_source_review(
     'f3000000-0000-0000-0000-0000000000a1',
     'f4000000-0000-0000-0000-0000000000a1',
     convert_to('%PDF-e2e-published-source', 'UTF8')
-)
-WHERE NOT EXISTS (
-    SELECT 1
-    FROM public.knowledge_source_reviews
-    WHERE asset_id = 'f3000000-0000-0000-0000-0000000000a1'
-      AND source_file_id = 'f4000000-0000-0000-0000-0000000000a1'
 );
 
 INSERT INTO public.knowledge_ocr_texts (
@@ -61,8 +73,12 @@ VALUES (
     'e2e-reviewed-fixture',
     'b0000000-0000-0000-0000-0000000000a0',
     lower(encode(digest(convert_to('E2E published governed knowledge text', 'UTF8'), 'sha256'), 'hex'))
-)
-ON CONFLICT (asset_id) DO NOTHING;
+);
+
+UPDATE public.knowledge_assets
+SET status = 'ocr_ready',
+    reviewed_by = 'b0000000-0000-0000-0000-0000000000a0'
+WHERE id = 'f3000000-0000-0000-0000-0000000000a1';
 
 INSERT INTO public.knowledge_chunks (
     asset_id,
@@ -83,8 +99,19 @@ VALUES (
     'e2e-fixture-model',
     'e2e-published-governed-f3000000-a1-0',
     '{"fixture":true,"provenance":"governed"}'::jsonb
-)
-ON CONFLICT (asset_id, chunk_index) DO NOTHING;
+);
+
+UPDATE public.knowledge_assets
+SET status = 'embedding_pending'
+WHERE id = 'f3000000-0000-0000-0000-0000000000a1';
+
+UPDATE public.knowledge_assets
+SET status = 'embedded'
+WHERE id = 'f3000000-0000-0000-0000-0000000000a1';
+
+UPDATE public.knowledge_assets
+SET status = 'published'
+WHERE id = 'f3000000-0000-0000-0000-0000000000a1';
 
 DO $verify$
 BEGIN
@@ -92,6 +119,16 @@ BEGIN
         'f3000000-0000-0000-0000-0000000000a1'::uuid
     ) THEN
         RAISE EXCEPTION 'E2E published knowledge fixture lacks current governed provenance';
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM public.knowledge_assets
+        WHERE id = 'f3000000-0000-0000-0000-0000000000a1'::uuid
+          AND status = 'published'::public.knowledge_asset_status
+          AND published_at IS NOT NULL
+    ) THEN
+        RAISE EXCEPTION 'E2E governed knowledge fixture did not reach published state';
     END IF;
 END
 $verify$;
