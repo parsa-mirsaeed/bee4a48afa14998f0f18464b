@@ -2,6 +2,35 @@ use super::Locale;
 
 pub(crate) fn student_translation(key: &'static str, locale: Locale) -> Option<&'static str> {
     match (locale, key) {
+        (Locale::En, "submission.files.title") => Some("Files"),
+        (Locale::Fa, "submission.files.title") => Some("فایل‌ها"),
+        (Locale::En, "submission.files.error") => Some("Unable to upload files. Check the formats and limits, then retry. Your text is preserved."),
+        (Locale::Fa, "submission.files.error") => Some("بارگذاری فایل‌ها ممکن نشد. قالب و محدودیت‌ها را بررسی و دوباره تلاش کنید. متن شما حفظ شده است."),
+        (Locale::En, "submission.files.pending") => Some("Not uploaded"),
+        (Locale::Fa, "submission.files.pending") => Some("بارگذاری نشده"),
+        (Locale::En, "submission.files.ready") => Some("Uploaded; not submitted"),
+        (Locale::Fa, "submission.files.ready") => Some("بارگذاری شده؛ هنوز ارسال نشده"),
+        (Locale::En, "submission.files.submitted") => Some("Submitted original"),
+        (Locale::Fa, "submission.files.submitted") => Some("اصل فایل ارسال‌شده"),
+        (Locale::En, "submission.files.remove") => Some("Remove file"),
+        (Locale::Fa, "submission.files.remove") => Some("حذف فایل"),
+        (Locale::En, "submission.files.limits") => Some("PDF, JPG or PNG. Up to 5 files; 10 MB per file and 25 MB in total."),
+        (Locale::Fa, "submission.files.limits") => Some("PDF، JPG یا PNG. حداکثر ۵ فایل؛ هر فایل ۱۰ مگابایت و مجموع فایل‌ها ۲۵ مگابایت."),
+        (Locale::En, "submission.files.add") => Some("Add files"),
+        (Locale::Fa, "submission.files.add") => Some("افزودن فایل‌ها"),
+        (Locale::En, "submission.files.upload_retry") => Some("Upload / retry files"),
+        (Locale::Fa, "submission.files.upload_retry") => Some("بارگذاری / تلاش مجدد فایل‌ها"),
+        (Locale::En, "submission.files.upload_before_submit") => Some("Upload or remove selected files before submitting your work."),
+        (Locale::Fa, "submission.files.upload_before_submit") => Some("پیش از ارسال تکلیف، فایل‌های انتخاب‌شده را بارگذاری یا حذف کنید."),
+        (Locale::En, "submission.files.working") => Some("Processing files…"),
+        (Locale::Fa, "submission.files.working") => Some("در حال پردازش فایل‌ها…"),
+        (Locale::En, "submission.files.download") => Some("Download original"),
+        (Locale::Fa, "submission.files.download") => Some("دریافت اصل فایل"),
+        (Locale::En, "submission.files.download_error") => Some("This file could not be downloaded. Please retry."),
+        (Locale::Fa, "submission.files.download_error") => Some("دریافت این فایل ممکن نشد. دوباره تلاش کنید."),
+        (Locale::En, "submission.files.discard") => Some("Discard your unsaved text and leave? Uploaded files remain available."),
+        (Locale::Fa, "submission.files.discard") => Some("متن ذخیره‌نشده حذف شود و خارج شوید؟ فایل‌های بارگذاری‌شده باقی می‌مانند."),
+
         (Locale::En, "student.dashboard.intro") => {
             Some("Start with work that needs attention, then review your classes and grades.")
         }
@@ -188,6 +217,20 @@ mod tests {
     use super::*;
 
     const CANONICAL_KEYS: &[&str] = &[
+        "submission.files.add",
+        "submission.files.discard",
+        "submission.files.download",
+        "submission.files.download_error",
+        "submission.files.error",
+        "submission.files.limits",
+        "submission.files.pending",
+        "submission.files.ready",
+        "submission.files.remove",
+        "submission.files.submitted",
+        "submission.files.title",
+        "submission.files.upload_before_submit",
+        "submission.files.upload_retry",
+        "submission.files.working",
         "student.dashboard.intro",
         "student.dashboard.view_all",
         "student.dashboard.loading_assignments",

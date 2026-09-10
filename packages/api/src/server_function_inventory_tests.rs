@@ -103,7 +103,41 @@ fn discover_endpoints(source: &str, file_name: &str) -> Vec<String> {
         endpoints.push(value[..endpoint_end].to_string());
         remaining = &remaining[start + end + 1..];
     }
+    // Dioxus 0.7 HTTP-method macros also declare explicit server endpoints.
+    for attribute in ["#[get(", "#[post("] {
+        let mut remaining = source;
+        while let Some(start) = remaining.find(attribute) {
+            let annotation = &remaining[start + attribute.len()..];
+            let value = annotation
+                .trim_start()
+                .strip_prefix('"')
+                .expect("server method path must be a literal");
+            let end = value.find('"').expect("terminated server method path");
+            let path = value[..end].split('?').next().expect("server method path");
+            let endpoint = path
+                .strip_prefix("/api/")
+                .expect("server method path must use /api/");
+            assert!(
+                !endpoint.is_empty(),
+                "empty server method endpoint in {file_name}"
+            );
+            endpoints.push(endpoint.to_string());
+            remaining = &annotation[annotation
+                .find(']')
+                .expect("terminated server method attribute")
+                + 1..];
+        }
+    }
     endpoints
+}
+
+#[test]
+fn method_macros_are_inventoried_alongside_legacy_server_macros() {
+    let source = r#"#[get("/api/files/list?assignment_id")] async fn list(assignment_id: Uuid) {} #[post("/api/files/create")] async fn create() {}"#;
+    assert_eq!(
+        discover_endpoints(source, "fixture.rs"),
+        vec!["files/list", "files/create"]
+    );
 }
 
 fn discovered_server_endpoints() -> BTreeMap<String, String> {

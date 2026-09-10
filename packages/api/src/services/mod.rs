@@ -63,3 +63,7 @@ pub use knowledge_vector_store_service::{
 pub use material_vectorization_service::{MaterialVectorizationService, VectorizationStatus};
 #[cfg(feature = "server")]
 pub use vector_store_service::{QdrantService, SearchFilters, SearchResult, VectorStoreError};
+
+pub mod submission_attachment_storage;
+
+pub mod submission_attachment_cleanup;

@@ -1,0 +1,15 @@
+# Private submission originals
+
+Student work accepts text, PDF, JPEG and PNG. The original bytes remain the source of truth. No OCR or AI request runs during upload or submission, including private/offline deployments.
+
+Limits: five files per assignment submission, ten MiB per file, twenty-five MiB total. PNG/JPEG decode uses bounded dimensions and allocation. PDF validation checks the type, header, cross-reference location and complete EOF framing without decompressing untrusted streams in the gateway. Files are not malware-scanned or sanitized. Downloads are forced attachments with no-store, nosniff and sandbox headers; this capability does not claim independent malware/security qualification.
+
+The gateway creates/verifies private Storage bucket `edutalent-submission-originals` at the already configured Supabase origin. Redirects are disabled. Client filenames are display metadata only; object names contain school UUID and a server-generated attachment UUID. Student, Teacher and class/school authorization precedes access, with forced RLS as a second boundary. Parent, School Manager and Platform Admin have no original-file access through this capability.
+
+Each upload first reserves a durable intent in a completed request. A later request verifies extension/MIME/signature, size and SHA-256, stores without upsert, and reads back the object to verify it before marking ready. Retrying an intent reuses the same object and rejects altered metadata. Lost responses cannot create an untracked object.
+
+Final submission locks the custom assignment, checks every selected attachment against the current set and rejects pending uploads. Text, submitted_at and verified-original links commit together. Expected submission revision rejects stale tabs; a repeated finalization token and fingerprint returns the original result. Previously submitted originals are immutable, including when the Student revises text before grading. The legacy text-only endpoint cannot finalize an assignment with attachments.
+
+Unsubmitted intents expire after 24 hours. Explicit removal creates a durable tombstone immediately. The gateway cleanup worker uses a private, bounded queue function to claim expired/removed intents, commits that state, then deletes the private object. Failures retry after five minutes. Successful deletion is rechecked daily, because a timed-out remote PUT could complete after an earlier DELETE. Tombstone metadata is retained to preserve retry identity; no cascade/delete can strand untracked objects. Submitted originals never enter cleanup. School-controlled retention/deletion of submitted academic records remains a separate governed operation; this implementation does not silently erase them.
+
+Validation includes constrained-role PostgreSQL isolation/immutability and queue denials, full byte and metadata validation tests, and authenticated Student/Teacher EN/FA browser journeys with exact original downloads, storage failure, retry/finalize conflicts, quotas and cleanup. Synthetic Storage controls exist only in the browser fixture, never production handlers.

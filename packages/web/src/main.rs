@@ -97,6 +97,11 @@ async fn main() {
         app_state.services.pool.clone(),
     );
 
+    let _attachment_cleanup =
+        api::services::submission_attachment_cleanup::start_submission_attachment_cleanup(
+            app_state.clone(),
+        );
+
     let router = axum::Router::new()
         .route("/healthz", axum::routing::get(|| async { "ok" }))
         .route("/readyz", axum::routing::get(database_readiness))
@@ -113,6 +118,20 @@ async fn main() {
         .route(
             "/api/admin/knowledge-assets/source",
             axum::routing::get(api::handlers::knowledge_source_handler),
+        )
+        .route(
+            "/api/submissions/attachments/upload",
+            post(api::handlers::submission_attachments::upload_submission_attachment).layer(
+                axum::extract::DefaultBodyLimit::max(
+                    api::server_functions::submission_attachment_functions::MAX_ATTACHMENT_BYTES,
+                ),
+            ),
+        )
+        .route(
+            "/api/submissions/attachments/download",
+            axum::routing::get(
+                api::handlers::submission_attachments::download_submission_attachment,
+            ),
         )
         .serve_dioxus_application(ServeConfig::builder(), App)
         .layer(axum::middleware::from_fn(

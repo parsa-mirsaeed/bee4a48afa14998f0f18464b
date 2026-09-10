@@ -6,6 +6,7 @@ use crate::i18n::{
 };
 use crate::views::role_based::components::DashboardSection;
 use crate::views::role_based::shared::common::Modal;
+use crate::views::role_based::shared::submission_files::{SubmissionFiles, SubmittedOriginals};
 use api::server_functions::assignment_functions::{
     get_personalized_assignment, PersonalizedAssignmentResponse,
 };
@@ -13,7 +14,7 @@ use api::server_functions::dashboard_functions::{
     get_student_assignments, StudentAssignmentInfo, StudentAssignmentPresentationState,
 };
 use api::server_functions::submission_functions::{
-    get_submission_for_assignment, submit_student_assignment, StudentSubmission,
+    finalize_student_submission, get_submission_for_assignment, StudentSubmission,
 };
 use dioxus::prelude::*;
 
@@ -298,6 +299,7 @@ fn AssignmentDetails(
             }
             div { class: "max-h-72 overflow-y-auto whitespace-pre-wrap rounded-lg bg-gray-50 p-4 text-sm dark:bg-gray-800", "{item.body}" }
             p { class: "text-sm text-gray-500", "{locale.t(\"student.assignments.due_label\")}: {due_date}" }
+            if let Ok(id) = uuid::Uuid::parse_str(&item.id) { SubmittedOriginals {assignment_id:id} }
             if current_state == StudentAssignmentPresentationState::Graded {
                 match submission.read().as_ref() {
                     Some(Ok(Some(saved))) => rsx! {
@@ -339,6 +341,14 @@ fn AssignmentWorkModal(
     let id_for_submit = assignment_id.clone();
     let mut content = use_signal(String::new);
     let mut initialized = use_signal(|| false);
+    let mut revision = use_signal(|| None::<uuid::Uuid>);
+    let mut baseline_text = use_signal(String::new);
+    let mut request_id = use_signal(uuid::Uuid::new_v4);
+    let attachments = use_signal(
+        Vec::<api::server_functions::submission_attachment_functions::SubmissionAttachment>::new,
+    );
+    let files_loaded = use_signal(|| false);
+    let unuploaded = use_signal(|| false);
     let mut busy = use_signal(|| false);
     let mut error = use_signal(|| None::<String>);
     let existing = use_resource(move || {
@@ -349,10 +359,13 @@ fn AssignmentWorkModal(
     if !initialized() {
         if let Some(Ok(Some(StudentSubmission {
             content: existing_content,
+            revision: saved_revision,
             ..
         }))) = existing.read().as_ref()
         {
             content.set(existing_content.clone());
+            baseline_text.set(existing_content.clone());
+            revision.set(Some(*saved_revision));
             initialized.set(true);
         } else if matches!(existing.read().as_ref(), Some(Ok(None))) {
             initialized.set(true);
@@ -362,11 +375,11 @@ fn AssignmentWorkModal(
     let empty_work_error = locale.t("student.assignments.enter_work");
     let save_failed_error = locale.t("student.assignments.save_failed");
     let submit = move |_| {
-        if busy() {
+        if busy() || unuploaded() || !files_loaded() || !initialized() {
             return;
         }
         let text = content().trim().to_string();
-        if text.is_empty() {
+        if text.is_empty() && attachments().is_empty() {
             error.set(Some(empty_work_error.clone()));
             return;
         }
@@ -374,8 +387,11 @@ fn AssignmentWorkModal(
         error.set(None);
         let id = id_for_submit.clone();
         let save_failed_error = save_failed_error.clone();
+        let expected_revision = revision();
+        let token = request_id();
+        let ids = attachments().iter().map(|a| a.id).collect();
         spawn(async move {
-            match submit_student_assignment(id, text).await {
+            match finalize_student_submission(id, text, token, expected_revision, ids).await {
                 Ok(_) => on_saved.call(()),
                 Err(_) => {
                     error.set(Some(save_failed_error));
@@ -385,11 +401,29 @@ fn AssignmentWorkModal(
         });
     };
 
+    let request_close = EventHandler::new(move |_: ()| {
+        if busy() {
+            return;
+        }
+        #[cfg(target_arch = "wasm32")]
+        if content() != baseline_text() || unuploaded() {
+            let accepted = web_sys::window()
+                .and_then(|w| {
+                    w.confirm_with_message(&locale.t("submission.files.discard"))
+                        .ok()
+                })
+                .unwrap_or(false);
+            if !accepted {
+                return;
+            }
+        }
+        on_close.call(());
+    });
     rsx! {
         Modal {
             title: locale.t("student.assignments.work_title"),
             open: true,
-            on_close: move |_| if !busy() { on_close.call(()) },
+            on_close: request_close,
             children: rsx! {
                 div { class: "space-y-5",
                     match existing.read().as_ref() {
@@ -410,20 +444,23 @@ fn AssignmentWorkModal(
                             id: "student-assignment-work",
                             class: "min-h-64 w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 dark:border-gray-700 dark:bg-gray-900",
                             value: "{content}",
-                            oninput: move |event| content.set(event.value()),
+                            oninput: move |event| {content.set(event.value());request_id.set(uuid::Uuid::new_v4());},
                             disabled: busy(),
                         }
+                    }
+                    if let Ok(id)=uuid::Uuid::parse_str(&assignment_id) {
+                        SubmissionFiles {assignment_id:id,editable:true,attachments,busy,loaded:files_loaded,unuploaded}
                     }
                     div { class: "flex justify-end gap-3",
                         button {
                             class: "rounded-lg border border-gray-300 px-4 py-2 dark:border-gray-700",
                             disabled: busy(),
-                            onclick: move |_| on_close.call(()),
+                            onclick: move |_| request_close.call(()),
                             "{locale.t(\"common.cancel\")}"
                         }
                         button {
                             class: "et-ui-button et-ui-button--md et-ui-button--primary",
-                            disabled: busy(),
+                            disabled: busy() || unuploaded() || !files_loaded() || !initialized(),
                             onclick: submit,
                             if busy() {
                                 "{locale.t(\"student.assignments.submitting\")}"

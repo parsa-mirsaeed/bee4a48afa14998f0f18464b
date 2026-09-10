@@ -40,3 +40,6 @@ pub async fn test_validation() -> Result<Json<Value>, StatusCode> {
         "message": "Validation test successful"
     })))
 }
+
+#[cfg(feature = "server")]
+pub mod submission_attachments;

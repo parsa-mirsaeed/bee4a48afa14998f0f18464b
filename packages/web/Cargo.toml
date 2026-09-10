@@ -11,6 +11,7 @@ api = { path = "../api" }
 serde_json = { workspace = true }
 serde = { workspace = true }
 base64 = { workspace = true }
+sha2 = { workspace = true }
 regex = { workspace = true }
 web-sys = { version = "0.3.82", features = [
     "console",
@@ -26,6 +27,7 @@ web-sys = { version = "0.3.82", features = [
     "FileList",
     "FileReader",
     "Blob",
+    "Url",
     "FormData",
     "Event",
     "EventTarget",

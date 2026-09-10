@@ -135,8 +135,33 @@ async fn verified_ocr_cannot_revive_terminal_assets() {
     }
 
     // Review-stage fixtures must follow the real governed pipeline: immutable
-    // source revision -> protected byte review -> verified OCR. Do not fabricate
-    // audit evidence or let OCR establish source provenance itself.
+    // source revision -> protected byte review -> verified OCR. Establish the
+    // same transaction-local PlatformAdmin context that production uses before
+    // appending a governed source revision; the hardened source trigger rejects
+    // anonymous/ambient administrator writes by design.
+    let mut review_tx = pool
+        .begin()
+        .await
+        .expect("begin source review fixture transaction");
+    sqlx::query("SELECT set_config('app.user_id', $1, true)")
+        .bind(actor_id.to_string())
+        .execute(&mut *review_tx)
+        .await
+        .expect("set review actor context");
+    sqlx::query("SELECT set_config('app.user_role', 'PlatformAdmin', true)")
+        .execute(&mut *review_tx)
+        .await
+        .expect("set review role context");
+    sqlx::query("SELECT set_config('app.school_id', $1, true)")
+        .bind(school_id.to_string())
+        .execute(&mut *review_tx)
+        .await
+        .expect("set review school context");
+    sqlx::query("SELECT set_config('app.elevated_operation', 'false', true)")
+        .execute(&mut *review_tx)
+        .await
+        .expect("set non-elevated review context");
+
     let mut governed_sources = Vec::new();
     for asset_id in [submitted_asset, ocr_ready_asset, failed_asset] {
         let source_id = Uuid::new_v4();
@@ -157,30 +182,12 @@ async fn verified_ocr_cannot_revive_terminal_assets() {
         ))
         .bind(i64::try_from(source_bytes.len()).expect("fixture size fits i64"))
         .bind(&source_sha)
-        .execute(&pool)
+        .execute(&mut *review_tx)
         .await
         .expect("insert governed source revision");
         governed_sources.push((asset_id, source_id, source_sha, source_bytes));
     }
 
-    let mut review_tx = pool
-        .begin()
-        .await
-        .expect("begin source review fixture transaction");
-    sqlx::query("SELECT set_config('app.user_id', $1, true)")
-        .bind(actor_id.to_string())
-        .execute(&mut *review_tx)
-        .await
-        .expect("set review actor context");
-    sqlx::query("SELECT set_config('app.user_role', 'PlatformAdmin', true)")
-        .execute(&mut *review_tx)
-        .await
-        .expect("set review role context");
-    sqlx::query("SELECT set_config('app.school_id', $1, true)")
-        .bind(school_id.to_string())
-        .execute(&mut *review_tx)
-        .await
-        .expect("set review school context");
     for (asset_id, source_id, _source_sha, source_bytes) in &governed_sources {
         sqlx::query_scalar::<_, Uuid>("SELECT record_knowledge_source_review($1, $2, $3)")
             .bind(asset_id)
