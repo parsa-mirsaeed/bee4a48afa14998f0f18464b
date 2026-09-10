@@ -7,9 +7,12 @@ pub use auth::{
     login_handler, logout_handler, AuthenticatedUser, Claims, LoginRequest, LoginResponse,
 };
 
-// Governed knowledge source upload boundary
+// Governed knowledge upload and same-logical-asset source replacement boundary.
+// The legacy module remains compiled for its focused validation tests; runtime
+// routing uses the version-aware handler below.
 pub mod knowledge_upload;
-pub use knowledge_upload::{
+pub mod knowledge_asset_upload;
+pub use knowledge_asset_upload::{
     knowledge_upload_handler, MAX_KNOWLEDGE_PDF_BYTES, MAX_KNOWLEDGE_UPLOAD_BODY_BYTES,
 };
 
