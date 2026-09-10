@@ -22,6 +22,7 @@ bash scripts/ci/verify_browser_harness.sh
 bash scripts/ci/reset_browser_fixture_db.sh
 bash scripts/ci/apply_migrations.sh
 psql "${DATABASE_URL}" -v ON_ERROR_STOP=1 -f tests/e2e/fixtures/seed.sql
+psql "${DATABASE_URL}" -v ON_ERROR_STOP=1 -f tests/e2e/fixtures/runtime-rls-provenance.sql
 
 node tests/e2e/fixtures/mock-idp.mjs &
 MOCK_IDP_PID=$!
