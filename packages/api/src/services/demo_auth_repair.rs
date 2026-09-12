@@ -620,20 +620,16 @@ mod tests {
 
     #[test]
     fn canonical_id_validation_accepts_deterministic_fixture_uuid() {
-        assert!(validate_canonical_user_id(
-            "b0000000-0000-0000-0000-0000000000a2",
-            "Teacher"
-        )
-        .is_ok());
+        assert!(
+            validate_canonical_user_id("b0000000-0000-0000-0000-0000000000a2", "Teacher").is_ok()
+        );
     }
 
     #[test]
     fn canonical_id_validation_rejects_nil_or_malformed_uuid() {
-        assert!(validate_canonical_user_id(
-            "00000000-0000-0000-0000-000000000000",
-            "Teacher"
-        )
-        .is_err());
+        assert!(
+            validate_canonical_user_id("00000000-0000-0000-0000-000000000000", "Teacher").is_err()
+        );
         assert!(validate_canonical_user_id("not-a-uuid", "Teacher").is_err());
     }
 
