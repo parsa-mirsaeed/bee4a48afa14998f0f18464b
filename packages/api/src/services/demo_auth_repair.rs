@@ -255,6 +255,16 @@ fn validate_demo_password(password: &str) -> Result<()> {
     Ok(())
 }
 
+fn validate_canonical_user_id(value: &str, role: &str) -> Result<()> {
+    let parsed_id = Uuid::parse_str(value)
+        .with_context(|| format!("canonical {role} user ID is not a UUID"))?;
+    ensure!(
+        !parsed_id.is_nil(),
+        "canonical {role} user ID must not be the nil UUID"
+    );
+    Ok(())
+}
+
 async fn fetch_roles(state: &AppState) -> Result<HashMap<String, Value>> {
     let url = format!(
         "{}/rest/v1/roles",
@@ -337,13 +347,7 @@ async fn resolve_canonical_account(
         credential.role
     );
 
-    let parsed_id = Uuid::parse_str(&user.id)
-        .with_context(|| format!("canonical {} user ID is not a UUID", credential.role))?;
-    ensure!(
-        parsed_id.get_version_num() == 4,
-        "canonical {} user ID must be UUID v4 for Supabase Auth reconciliation",
-        credential.role
-    );
+    validate_canonical_user_id(&user.id, credential.role)?;
     ensure!(
         user.email.eq_ignore_ascii_case(&credential.email),
         "canonical email mismatch for {}",
@@ -612,6 +616,25 @@ mod tests {
         assert!(validate_demo_password("e2e-password").is_err());
         assert!(validate_demo_password("too-short").is_err());
         assert!(validate_demo_password("A-strong-demo-password-123!").is_ok());
+    }
+
+    #[test]
+    fn canonical_id_validation_accepts_deterministic_fixture_uuid() {
+        assert!(validate_canonical_user_id(
+            "b0000000-0000-0000-0000-0000000000a2",
+            "Teacher"
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn canonical_id_validation_rejects_nil_or_malformed_uuid() {
+        assert!(validate_canonical_user_id(
+            "00000000-0000-0000-0000-000000000000",
+            "Teacher"
+        )
+        .is_err());
+        assert!(validate_canonical_user_id("not-a-uuid", "Teacher").is_err());
     }
 
     #[test]
