@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 import importlib.util
 import json
+import os
 import pathlib
 import re
+import subprocess
+import tempfile
 import unittest
 
 ROOT = pathlib.Path(__file__).parent
@@ -42,6 +45,40 @@ class EvidenceContractTests(unittest.TestCase):
         self.assertIn("shadow", modes)
         self.assertIn("control", modes)
         self.assertIn("not_controlling", gate_results)
+
+    def test_ordinary_proof_checkouts_pin_and_verify_the_claimed_head(self):
+        for name in ("ci.yml", "full-validation.yml", "package.yml", "release-docs.yml"):
+            with self.subTest(workflow=name):
+                text = (ROOT.parent.parent / ".github/workflows" / name).read_text()
+                blocks = re.findall(
+                    r"      - uses: actions/checkout@[^\n]+\n(.*?)(?=      - |\Z)",
+                    text, re.S,
+                )
+                self.assertTrue(blocks)
+                for block in blocks:
+                    self.assertIn("ref: ${{ github.event.pull_request.head.sha || github.sha }}", block)
+                self.assertEqual(len(blocks), text.count("run: bash scripts/ci/stage1_verify_proof_head.sh"))
+                self.assertEqual(len(blocks), text.count("PROOF_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}"))
+
+    def test_browser_rejects_a_claimed_head_different_from_source(self):
+        text = (ROOT / "run_browser_e2e.sh").read_text()
+        self.assertIn('PROOF_HEAD_SHA="${E2E_HEAD_SHA}" bash scripts/ci/stage1_verify_proof_head.sh', text)
+
+    def test_head_verifier_accepts_exact_and_rejects_stale_missing_or_invalid_sha(self):
+        script = (ROOT / "stage1_verify_proof_head.sh").resolve()
+        with tempfile.TemporaryDirectory() as directory:
+            def git(*args):
+                return subprocess.check_output(["git", *args], cwd=directory, stderr=subprocess.DEVNULL, text=True).strip()
+            git("init", "--quiet")
+            git("-c", "user.name=Proof Test", "-c", "user.email=proof@example.test", "commit", "--allow-empty", "--quiet", "-m", "first")
+            old = git("rev-parse", "HEAD")
+            git("-c", "user.name=Proof Test", "-c", "user.email=proof@example.test", "commit", "--allow-empty", "--quiet", "-m", "second")
+            current = git("rev-parse", "HEAD")
+            for expected, success in ((current, True), (old, False), (current[:12], False), ("", False)):
+                with self.subTest(expected=expected):
+                    result = subprocess.run(["bash", str(script)], cwd=directory,
+                        env={**os.environ, "PROOF_HEAD_SHA": expected}, capture_output=True, text=True)
+                    self.assertEqual(result.returncode == 0, success, result.stderr)
 
 
 if __name__ == "__main__":
