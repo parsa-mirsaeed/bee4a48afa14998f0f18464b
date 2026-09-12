@@ -8,6 +8,7 @@ import { watchConsole, assertNoConsoleErrors } from '../fixtures/console-guard';
 
 const FIXTURE_PASSWORD = 'e2e-password';
 const MANAGER_EMAIL = 'e2e-manager-a@example.test';
+const TABLET_VIEWPORT = { width: 1024, height: 768 };
 
 async function signIn(page: Page, locale: 'en' | 'fa' = 'en'): Promise<void> {
   await page.addInitScript((value) => localStorage.setItem('edutalent_locale', value), locale);
@@ -36,6 +37,20 @@ async function openKnowledgeManager(page: Page): Promise<void> {
   await expect(page.getByRole('heading', { name: 'Manage existing assets' })).toBeVisible();
 }
 
+async function openKnowledgeManagerResponsive(page: Page, locale: 'en' | 'fa'): Promise<void> {
+  const navigationAction = actionWithIcon(page, 'upload_file');
+  if (!(await navigationAction.isVisible())) {
+    await page.locator('.et-mobile-menu-button').click();
+    await expect(navigationAction).toBeVisible();
+  }
+  await navigationAction.click();
+  await expect(
+    page.getByRole('heading', {
+      name: locale === 'fa' ? 'ویرایش منابع دانشی' : 'Manage existing assets',
+    }),
+  ).toBeVisible();
+}
+
 async function openAssetEditor(page: Page, title: string) {
   const card = page
     .getByText(title, { exact: true })
@@ -47,6 +62,40 @@ async function openAssetEditor(page: Page, title: string) {
     .locator('xpath=ancestor::form[1]');
   await expect(form).toBeVisible();
   return form;
+}
+
+async function openLocalizedFixtureEditor(page: Page, locale: 'en' | 'fa') {
+  const card = page
+    .getByText('E2E Published Asset', { exact: true })
+    .locator('xpath=ancestor::article[1]');
+  await expect(card).toBeVisible();
+  await card
+    .getByRole('button', { name: locale === 'fa' ? 'ویرایش' : 'Edit', exact: true })
+    .click();
+  const form = page
+    .getByRole('heading', {
+      name: locale === 'fa' ? 'جزئیات منبع' : 'Asset details',
+      exact: true,
+    })
+    .locator('xpath=ancestor::form[1]');
+  await expect(form).toBeVisible();
+  return form;
+}
+
+async function assertLocaleDirection(page: Page, locale: 'en' | 'fa'): Promise<void> {
+  await expect.poll(() => page.evaluate(() => document.documentElement.lang)).toMatch(
+    new RegExp(`^${locale}`, 'i'),
+  );
+  await expect.poll(() => page.evaluate(() => document.documentElement.dir)).toBe(
+    locale === 'fa' ? 'rtl' : 'ltr',
+  );
+}
+
+async function assertNoHorizontalOverflow(page: Page): Promise<void> {
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+  );
+  expect(overflow, 'knowledge editor must not introduce page-level horizontal overflow').toBeFalsy();
 }
 
 test.beforeEach(async ({ page, request }) => {
@@ -149,4 +198,33 @@ test('manager knowledge editing surface renders Persian controls @smoke @workflo
   await actionWithIcon(page, 'upload_file').click();
   await expect(page.getByRole('heading', { name: 'ویرایش منابع دانشی' })).toBeVisible();
   await expect(page.getByText(/وضعیت چرخهٔ عمر فقط در سمت سرور تغییر می‌کند/)).toBeVisible();
+  await assertLocaleDirection(page, 'fa');
 });
+
+for (const locale of ['en', 'fa'] as const) {
+  test(`manager knowledge editor is usable at tablet viewport in ${locale} @smoke @workflow-truth @tablet`, async ({ page }) => {
+    await page.setViewportSize(TABLET_VIEWPORT);
+    await signIn(page, locale);
+    await assertLocaleDirection(page, locale);
+    await openKnowledgeManagerResponsive(page, locale);
+    const form = await openLocalizedFixtureEditor(page, locale);
+    await expect(form).toBeInViewport({ ratio: 0.5 });
+    await expect(
+      form.getByRole('button', { name: locale === 'fa' ? 'ذخیره' : 'Save', exact: true }),
+    ).toBeVisible();
+    await assertNoHorizontalOverflow(page);
+  });
+
+  test(`manager knowledge editor is usable on mobile in ${locale} @smoke @workflow-truth @mobile`, async ({ page }) => {
+    test.skip(test.info().project.name !== 'mobile-chromium', 'mobile evidence runs in the mobile Chromium project');
+    await signIn(page, locale);
+    await assertLocaleDirection(page, locale);
+    await openKnowledgeManagerResponsive(page, locale);
+    const form = await openLocalizedFixtureEditor(page, locale);
+    await expect(form).toBeVisible();
+    await expect(
+      form.getByRole('button', { name: locale === 'fa' ? 'ذخیره' : 'Save', exact: true }),
+    ).toBeVisible();
+    await assertNoHorizontalOverflow(page);
+  });
+}
