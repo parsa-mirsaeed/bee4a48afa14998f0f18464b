@@ -292,7 +292,9 @@ case "${command}" in
         docker compose --env-file "${ENV_FILE}" -f compose.release.yaml config --quiet
         grep -Fq 'cargo chef cook' Dockerfile
         grep -Fq 'dioxus-cli@${DIOXUS_CLI_VERSION}' Dockerfile
-        grep -Fq 'dx bundle --web --release --package web' Dockerfile
+        grep -Fq 'bash scripts/package/build_web_release.sh' Dockerfile
+        grep -Fq 'dx bundle --web --release --package web --debug-symbols false' scripts/package/build_web_release.sh
+        bash -n scripts/package/build_web_release.sh
         grep -Fq 'target/dx/web/release/web' Dockerfile
         grep -Fq 'bash edutalent package' .github/workflows/package.yml
         grep -Fq 'production-ai-check' edutalent
