@@ -101,9 +101,7 @@ fn ManagerKnowledgeAssetEditor() -> Element {
             notice.set(Some((false, json_message(fa).to_string())));
             return;
         }
-        if retrieval_sensitive_changed(&asset, &values, &tags)
-            && !confirm(retrieval_warning(fa))
-        {
+        if retrieval_sensitive_changed(&asset, &values, &tags) && !confirm(retrieval_warning(fa)) {
             return;
         }
 
@@ -197,7 +195,8 @@ fn ManagerKnowledgeAssetEditor() -> Element {
                 return;
             };
             spawn(async move {
-                let response = Request::post("/api/manager/knowledge-submissions/upload").body(form);
+                let response =
+                    Request::post("/api/manager/knowledge-submissions/upload").body(form);
                 match response {
                     Ok(request) => match request.send().await {
                         Ok(response) if (200..300).contains(&response.status()) => {
@@ -374,7 +373,12 @@ fn ManagerKnowledgeAssetEditor() -> Element {
 }
 
 #[component]
-fn Field(label: &'static str, value: String, required: bool, oninput: EventHandler<String>) -> Element {
+fn Field(
+    label: &'static str,
+    value: String,
+    required: bool,
+    oninput: EventHandler<String>,
+) -> Element {
     rsx! {
         div {
             label { class: "block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1", "{label}" if required { " *" } }
@@ -383,68 +387,373 @@ fn Field(label: &'static str, value: String, required: bool, oninput: EventHandl
     }
 }
 
-fn optional(value: &str) -> Option<String> { let value=value.trim(); if value.is_empty(){None}else{Some(value.to_string())} }
-fn retrieval_sensitive_changed(asset: &ManagerKnowledgeAssetEditState, draft: &Draft, tags: &Value) -> bool {
-    asset.title.trim()!=draft.title.trim()
-        || asset.subject.as_deref().unwrap_or("").trim()!=draft.subject.trim()
-        || asset.grade.as_deref().unwrap_or("").trim()!=draft.grade.trim()
-        || asset.language.trim()!=draft.language.trim()
-        || asset.template_type.as_deref().unwrap_or("").trim()!=draft.template_type.trim()
-        || &asset.tags!=tags
+fn optional(value: &str) -> Option<String> {
+    let value = value.trim();
+    if value.is_empty() {
+        None
+    } else {
+        Some(value.to_string())
+    }
+}
+fn retrieval_sensitive_changed(
+    asset: &ManagerKnowledgeAssetEditState,
+    draft: &Draft,
+    tags: &Value,
+) -> bool {
+    asset.title.trim() != draft.title.trim()
+        || asset.subject.as_deref().unwrap_or("").trim() != draft.subject.trim()
+        || asset.grade.as_deref().unwrap_or("").trim() != draft.grade.trim()
+        || asset.language.trim() != draft.language.trim()
+        || asset.template_type.as_deref().unwrap_or("").trim() != draft.template_type.trim()
+        || &asset.tags != tags
 }
 fn confirm(message: &str) -> bool {
-    #[cfg(target_arch="wasm32")]
-    { web_sys::window().and_then(|w| w.confirm_with_message(message).ok()).unwrap_or(false) }
-    #[cfg(not(target_arch="wasm32"))]
-    { let _=message; true }
+    #[cfg(target_arch = "wasm32")]
+    {
+        web_sys::window()
+            .and_then(|w| w.confirm_with_message(message).ok())
+            .unwrap_or(false)
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = message;
+        true
+    }
 }
-fn replacement_error_message(status:u16,fa:bool)->String { match (fa,status) { (true,409)=>"این منبع هم‌زمان تغییر کرده است؛ فهرست را تازه کنید.".into(), (false,409)=>"This asset changed concurrently; refresh the asset list.".into(), (true,413)=>"PDF از حد ۲۰ MiB بزرگ‌تر است.".into(), (false,413)=>"The PDF exceeds the 20 MiB limit.".into(), (true,415)=>"فایل انتخاب‌شده PDF کامل نیست.".into(), (false,415)=>"The selected file is not a complete PDF.".into(), (true,_)=>"نسخهٔ جدید منبع ثبت نشد؛ دوباره تلاش کنید.".into(), (false,_)=>"The new source revision was not registered; refresh and try again.".into() } }
+fn replacement_error_message(status: u16, fa: bool) -> String {
+    match (fa, status) {
+        (true, 409) => "این منبع هم‌زمان تغییر کرده است؛ فهرست را تازه کنید.".into(),
+        (false, 409) => "This asset changed concurrently; refresh the asset list.".into(),
+        (true, 413) => "PDF از حد ۲۰ MiB بزرگ‌تر است.".into(),
+        (false, 413) => "The PDF exceeds the 20 MiB limit.".into(),
+        (true, 415) => "فایل انتخاب‌شده PDF کامل نیست.".into(),
+        (false, 415) => "The selected file is not a complete PDF.".into(),
+        (true, _) => "نسخهٔ جدید منبع ثبت نشد؛ دوباره تلاش کنید.".into(),
+        (false, _) => "The new source revision was not registered; refresh and try again.".into(),
+    }
+}
 
-fn required_message(f:bool)->&'static str{if f{"عنوان و زبان الزامی هستند."}else{"Title and language are required."}}
-fn json_message(f:bool)->&'static str{if f{"برچسب‌ها/طبقه‌بندی باید یک شیء JSON معتبر باشد."}else{"Tags/classification must be a valid JSON object."}}
-fn retrieval_warning(f:bool)->&'static str{if f{"این تغییر روی بازیابی/بردارها اثر می‌گذارد. اگر منبع منتشر شده باشد، انتشار لغو و پردازش مجدد لازم می‌شود. ادامه می‌دهید؟"}else{"This change affects retrieval metadata. If the asset is embedded or published, it will be withdrawn and returned for reprocessing. Continue?"}}
-fn discard_warning(f:bool)->&'static str{if f{"تغییرات ذخیره‌نشده کنار گذاشته شوند؟"}else{"Discard your unsaved changes?"}}
-fn switch_warning(f:bool)->&'static str{if f{"تغییرات ذخیره‌نشده کنار گذاشته و منبع دیگری باز شود؟"}else{"Discard unsaved changes and edit another asset?"}}
-fn replacement_warning(f:bool)->&'static str{if f{"جایگزینی PDF یک نسخهٔ منبع تغییرناپذیر جدید می‌سازد، OCR/بردارهای جاری را قدیمی و انتشار را لغو می‌کند. ادامه می‌دهید؟"}else{"Replacing the PDF creates a new immutable source revision, retires current OCR/vectors, and withdraws publication. Continue?"}}
-fn archived_message(f:bool)->&'static str{if f{"منبع بایگانی‌شده پایانی است و نسخهٔ منبع جدید نمی‌پذیرد."}else{"Archived is terminal; no new source revision can be appended."}}
-fn conflict_message(f:bool)->&'static str{if f{"این منبع هم‌زمان تغییر کرده است. فهرست را تازه کنید."}else{"This asset changed while you were editing. Refresh the list and try again."}}
-fn save_error_message(f:bool)->&'static str{if f{"ذخیرهٔ تغییرات ممکن نشد. داده‌ها را بررسی کنید."}else{"The changes could not be saved. Check the values and refresh the asset list."}}
-fn source_form_error(f:bool)->&'static str{if f{"فرم جایگزینی PDF خوانده نشد."}else{"The replacement upload could not be prepared."}}
-fn replacement_success(f:bool)->&'static str{if f{"نسخهٔ جدید PDF ثبت شد. منبع برای بررسی و پردازش مجدد آماده است."}else{"New PDF source revision registered. The asset is ready for governed review and reprocessing."}}
-fn storage_error(f:bool)->&'static str{if f{"سرویس ذخیره‌سازی در دسترس نیست؛ نسخهٔ فعلی تغییر نکرده است."}else{"Storage is unavailable; the current source revision was not changed."}}
-fn loading_text(f:bool)->&'static str{if f{"در حال بارگذاری منابع…"}else{"Loading assets…"}}
-fn load_error_text(f:bool)->&'static str{if f{"فهرست منابع بارگذاری نشد."}else{"Assets could not be loaded."}}
-fn retry_text(f:bool)->&'static str{if f{"تلاش دوباره"}else{"Try again"}}
-fn empty_text(f:bool)->&'static str{if f{"هنوز منبعی برای ویرایش وجود ندارد."}else{"There are no assets to edit yet."}}
-fn status_prefix(f:bool)->&'static str{if f{"وضعیت:"}else{"Status:"}}
-fn revision_prefix(f:bool)->&'static str{if f{"نسخه:"}else{"Revision:"}}
-fn current_source_prefix(f:bool)->&'static str{if f{"منبع جاری:"}else{"Current source:"}}
-fn edit_text(f:bool)->&'static str{if f{"ویرایش"}else{"Edit"}}
-fn details_text(f:bool)->&'static str{if f{"جزئیات منبع"}else{"Asset details"}}
-fn server_status_text(f:bool)->&'static str{if f{"شناسهٔ منطقی ثابت می‌ماند. وضعیت چرخهٔ عمر توسط سرور کنترل می‌شود."}else{"The logical asset ID stays fixed. Lifecycle status is controlled by the server."}}
-fn title_text(f:bool)->&'static str{if f{"عنوان"}else{"Title"}}
-fn language_text(f:bool)->&'static str{if f{"زبان"}else{"Language"}}
-fn subject_text(f:bool)->&'static str{if f{"موضوع"}else{"Subject"}}
-fn grade_text(f:bool)->&'static str{if f{"پایه"}else{"Grade"}}
-fn template_text(f:bool)->&'static str{if f{"نوع/قالب"}else{"Template/type"}}
-fn description_text(f:bool)->&'static str{if f{"توضیحات"}else{"Description"}}
-fn description_help(f:bool)->&'static str{if f{"ویرایش توضیحات به‌تنهایی انتشار را باطل نمی‌کند."}else{"A description-only edit does not invalidate publication."}}
-fn tags_text(f:bool)->&'static str{if f{"برچسب‌ها / طبقه‌بندی (JSON)"}else{"Tags / classification (JSON)"}}
-fn retrieval_help(f:bool)->&'static str{if f{"تغییر عنوان، موضوع، پایه، زبان، نوع/قالب یا طبقه‌بندی ممکن است بردارها را قدیمی کند؛ سامانه در این حالت منبع را از انتشار خارج می‌کند."}else{"Changing title, subject, grade, language, template/type, or classification may stale vector metadata; the server withdraws the asset when reprocessing is required."}}
-fn save_text(f:bool)->&'static str{if f{"ذخیره"}else{"Save"}}
-fn cancel_text(f:bool)->&'static str{if f{"لغو"}else{"Cancel"}}
-fn unsaved_text(f:bool)->&'static str{if f{"تغییرات ذخیره‌نشده"}else{"Unsaved changes"}}
-fn source_document_text(f:bool)->&'static str{if f{"سند منبع"}else{"Source document"}}
-fn source_help(f:bool)->&'static str{if f{"جایگزینی فایل قبلی را بازنویسی نمی‌کند؛ یک نسخهٔ تغییرناپذیر جدید برای همان شناسه می‌سازد."}else{"Replacement never overwrites the previous object; it appends a new immutable source revision under the same asset ID."}}
-fn current_file_text(f:bool)->&'static str{if f{"فایل جاری"}else{"Current file"}}
-fn replacement_pdf_text(f:bool)->&'static str{if f{"PDF جایگزین"}else{"Replacement PDF"}}
-fn replacement_help(f:bool)->&'static str{if f{"حداکثر ۲۰ MiB؛ فقط PDF. این اقدام OCR و بردارهای جاری را قدیمی می‌کند."}else{"Maximum 20 MiB; PDF only. This action retires current OCR and vector state."}}
-fn replace_text(f:bool)->&'static str{if f{"جایگزینی سند منبع"}else{"Replace source document"}}
+fn required_message(f: bool) -> &'static str {
+    if f {
+        "عنوان و زبان الزامی هستند."
+    } else {
+        "Title and language are required."
+    }
+}
+fn json_message(f: bool) -> &'static str {
+    if f {
+        "برچسب‌ها/طبقه‌بندی باید یک شیء JSON معتبر باشد."
+    } else {
+        "Tags/classification must be a valid JSON object."
+    }
+}
+fn retrieval_warning(f: bool) -> &'static str {
+    if f {
+        "این تغییر روی بازیابی/بردارها اثر می‌گذارد. اگر منبع منتشر شده باشد، انتشار لغو و پردازش مجدد لازم می‌شود. ادامه می‌دهید؟"
+    } else {
+        "This change affects retrieval metadata. If the asset is embedded or published, it will be withdrawn and returned for reprocessing. Continue?"
+    }
+}
+fn discard_warning(f: bool) -> &'static str {
+    if f {
+        "تغییرات ذخیره‌نشده کنار گذاشته شوند؟"
+    } else {
+        "Discard your unsaved changes?"
+    }
+}
+fn switch_warning(f: bool) -> &'static str {
+    if f {
+        "تغییرات ذخیره‌نشده کنار گذاشته و منبع دیگری باز شود؟"
+    } else {
+        "Discard unsaved changes and edit another asset?"
+    }
+}
+fn replacement_warning(f: bool) -> &'static str {
+    if f {
+        "جایگزینی PDF یک نسخهٔ منبع تغییرناپذیر جدید می‌سازد، OCR/بردارهای جاری را قدیمی و انتشار را لغو می‌کند. ادامه می‌دهید؟"
+    } else {
+        "Replacing the PDF creates a new immutable source revision, retires current OCR/vectors, and withdraws publication. Continue?"
+    }
+}
+fn archived_message(f: bool) -> &'static str {
+    if f {
+        "منبع بایگانی‌شده پایانی است و نسخهٔ منبع جدید نمی‌پذیرد."
+    } else {
+        "Archived is terminal; no new source revision can be appended."
+    }
+}
+fn conflict_message(f: bool) -> &'static str {
+    if f {
+        "این منبع هم‌زمان تغییر کرده است. فهرست را تازه کنید."
+    } else {
+        "This asset changed while you were editing. Refresh the list and try again."
+    }
+}
+fn save_error_message(f: bool) -> &'static str {
+    if f {
+        "ذخیرهٔ تغییرات ممکن نشد. داده‌ها را بررسی کنید."
+    } else {
+        "The changes could not be saved. Check the values and refresh the asset list."
+    }
+}
+fn source_form_error(f: bool) -> &'static str {
+    if f {
+        "فرم جایگزینی PDF خوانده نشد."
+    } else {
+        "The replacement upload could not be prepared."
+    }
+}
+fn replacement_success(f: bool) -> &'static str {
+    if f {
+        "نسخهٔ جدید PDF ثبت شد. منبع برای بررسی و پردازش مجدد آماده است."
+    } else {
+        "New PDF source revision registered. The asset is ready for governed review and reprocessing."
+    }
+}
+fn storage_error(f: bool) -> &'static str {
+    if f {
+        "سرویس ذخیره‌سازی در دسترس نیست؛ نسخهٔ فعلی تغییر نکرده است."
+    } else {
+        "Storage is unavailable; the current source revision was not changed."
+    }
+}
+fn loading_text(f: bool) -> &'static str {
+    if f {
+        "در حال بارگذاری منابع…"
+    } else {
+        "Loading assets…"
+    }
+}
+fn load_error_text(f: bool) -> &'static str {
+    if f {
+        "فهرست منابع بارگذاری نشد."
+    } else {
+        "Assets could not be loaded."
+    }
+}
+fn retry_text(f: bool) -> &'static str {
+    if f {
+        "تلاش دوباره"
+    } else {
+        "Try again"
+    }
+}
+fn empty_text(f: bool) -> &'static str {
+    if f {
+        "هنوز منبعی برای ویرایش وجود ندارد."
+    } else {
+        "There are no assets to edit yet."
+    }
+}
+fn status_prefix(f: bool) -> &'static str {
+    if f {
+        "وضعیت:"
+    } else {
+        "Status:"
+    }
+}
+fn revision_prefix(f: bool) -> &'static str {
+    if f {
+        "نسخه:"
+    } else {
+        "Revision:"
+    }
+}
+fn current_source_prefix(f: bool) -> &'static str {
+    if f {
+        "منبع جاری:"
+    } else {
+        "Current source:"
+    }
+}
+fn edit_text(f: bool) -> &'static str {
+    if f {
+        "ویرایش"
+    } else {
+        "Edit"
+    }
+}
+fn details_text(f: bool) -> &'static str {
+    if f {
+        "جزئیات منبع"
+    } else {
+        "Asset details"
+    }
+}
+fn server_status_text(f: bool) -> &'static str {
+    if f {
+        "شناسهٔ منطقی ثابت می‌ماند. وضعیت چرخهٔ عمر توسط سرور کنترل می‌شود."
+    } else {
+        "The logical asset ID stays fixed. Lifecycle status is controlled by the server."
+    }
+}
+fn title_text(f: bool) -> &'static str {
+    if f {
+        "عنوان"
+    } else {
+        "Title"
+    }
+}
+fn language_text(f: bool) -> &'static str {
+    if f {
+        "زبان"
+    } else {
+        "Language"
+    }
+}
+fn subject_text(f: bool) -> &'static str {
+    if f {
+        "موضوع"
+    } else {
+        "Subject"
+    }
+}
+fn grade_text(f: bool) -> &'static str {
+    if f {
+        "پایه"
+    } else {
+        "Grade"
+    }
+}
+fn template_text(f: bool) -> &'static str {
+    if f {
+        "نوع/قالب"
+    } else {
+        "Template/type"
+    }
+}
+fn description_text(f: bool) -> &'static str {
+    if f {
+        "توضیحات"
+    } else {
+        "Description"
+    }
+}
+fn description_help(f: bool) -> &'static str {
+    if f {
+        "ویرایش توضیحات به‌تنهایی انتشار را باطل نمی‌کند."
+    } else {
+        "A description-only edit does not invalidate publication."
+    }
+}
+fn tags_text(f: bool) -> &'static str {
+    if f {
+        "برچسب‌ها / طبقه‌بندی (JSON)"
+    } else {
+        "Tags / classification (JSON)"
+    }
+}
+fn retrieval_help(f: bool) -> &'static str {
+    if f {
+        "تغییر عنوان، موضوع، پایه، زبان، نوع/قالب یا طبقه‌بندی ممکن است بردارها را قدیمی کند؛ سامانه در این حالت منبع را از انتشار خارج می‌کند."
+    } else {
+        "Changing title, subject, grade, language, template/type, or classification may stale vector metadata; the server withdraws the asset when reprocessing is required."
+    }
+}
+fn save_text(f: bool) -> &'static str {
+    if f {
+        "ذخیره"
+    } else {
+        "Save"
+    }
+}
+fn cancel_text(f: bool) -> &'static str {
+    if f {
+        "لغو"
+    } else {
+        "Cancel"
+    }
+}
+fn unsaved_text(f: bool) -> &'static str {
+    if f {
+        "تغییرات ذخیره‌نشده"
+    } else {
+        "Unsaved changes"
+    }
+}
+fn source_document_text(f: bool) -> &'static str {
+    if f {
+        "سند منبع"
+    } else {
+        "Source document"
+    }
+}
+fn source_help(f: bool) -> &'static str {
+    if f {
+        "جایگزینی فایل قبلی را بازنویسی نمی‌کند؛ یک نسخهٔ تغییرناپذیر جدید برای همان شناسه می‌سازد."
+    } else {
+        "Replacement never overwrites the previous object; it appends a new immutable source revision under the same asset ID."
+    }
+}
+fn current_file_text(f: bool) -> &'static str {
+    if f {
+        "فایل جاری"
+    } else {
+        "Current file"
+    }
+}
+fn replacement_pdf_text(f: bool) -> &'static str {
+    if f {
+        "PDF جایگزین"
+    } else {
+        "Replacement PDF"
+    }
+}
+fn replacement_help(f: bool) -> &'static str {
+    if f {
+        "حداکثر ۲۰ MiB؛ فقط PDF. این اقدام OCR و بردارهای جاری را قدیمی می‌کند."
+    } else {
+        "Maximum 20 MiB; PDF only. This action retires current OCR and vector state."
+    }
+}
+fn replace_text(f: bool) -> &'static str {
+    if f {
+        "جایگزینی سند منبع"
+    } else {
+        "Replace source document"
+    }
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn asset()->ManagerKnowledgeAssetEditState{ManagerKnowledgeAssetEditState{id:"asset".into(),title:"Title".into(),description:Some("Description".into()),subject:Some("Math".into()),grade:Some("8".into()),language:"en".into(),template_type:None,tags:serde_json::json!({"kind":"guide"}),status:"published".into(),asset_revision:7,current_source_file_id:Some("source".into()),current_source_filename:Some("guide.pdf".into()),current_source_sha256:Some("a".repeat(64))}}
-    #[test] fn description_only_is_not_retrieval_sensitive(){let baseline=asset();let mut draft=Draft::from(&baseline);draft.description="New presentation copy".into();assert!(!retrieval_sensitive_changed(&baseline,&draft,&baseline.tags));}
-    #[test] fn vector_payload_metadata_is_retrieval_sensitive(){let baseline=asset();let mut draft=Draft::from(&baseline);draft.subject="Physics".into();assert!(retrieval_sensitive_changed(&baseline,&draft,&baseline.tags));}
+    fn asset() -> ManagerKnowledgeAssetEditState {
+        ManagerKnowledgeAssetEditState {
+            id: "asset".into(),
+            title: "Title".into(),
+            description: Some("Description".into()),
+            subject: Some("Math".into()),
+            grade: Some("8".into()),
+            language: "en".into(),
+            template_type: None,
+            tags: serde_json::json!({"kind":"guide"}),
+            status: "published".into(),
+            asset_revision: 7,
+            current_source_file_id: Some("source".into()),
+            current_source_filename: Some("guide.pdf".into()),
+            current_source_sha256: Some("a".repeat(64)),
+        }
+    }
+    #[test]
+    fn description_only_is_not_retrieval_sensitive() {
+        let baseline = asset();
+        let mut draft = Draft::from(&baseline);
+        draft.description = "New presentation copy".into();
+        assert!(!retrieval_sensitive_changed(
+            &baseline,
+            &draft,
+            &baseline.tags
+        ));
+    }
+    #[test]
+    fn vector_payload_metadata_is_retrieval_sensitive() {
+        let baseline = asset();
+        let mut draft = Draft::from(&baseline);
+        draft.subject = "Physics".into();
+        assert!(retrieval_sensitive_changed(
+            &baseline,
+            &draft,
+            &baseline.tags
+        ));
+    }
 }
