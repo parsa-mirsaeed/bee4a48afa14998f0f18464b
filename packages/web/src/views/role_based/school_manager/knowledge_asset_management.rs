@@ -55,9 +55,8 @@ pub fn ManagerKnowledgeUploadSection() -> Element {
 fn ManagerKnowledgeAssetEditor() -> Element {
     let locale = use_locale();
     let is_fa = locale.current() == Locale::Fa;
-    let mut assets = use_resource(move || async move {
-        list_manager_knowledge_assets_for_editing().await
-    });
+    let mut assets =
+        use_resource(move || async move { list_manager_knowledge_assets_for_editing().await });
     let mut baseline = use_signal(|| None::<ManagerKnowledgeAssetEditState>);
     let mut draft = use_signal(KnowledgeEditDraft::default);
     let mut busy = use_signal(|| false);
@@ -70,7 +69,11 @@ fn ManagerKnowledgeAssetEditor() -> Element {
         .map(|asset| draft() != KnowledgeEditDraft::from(asset))
         .unwrap_or(false);
 
-    let title = if is_fa { "ویرایش منابع دانشی" } else { "Manage existing assets" };
+    let title = if is_fa {
+        "ویرایش منابع دانشی"
+    } else {
+        "Manage existing assets"
+    };
     let description = if is_fa {
         "فرادادهٔ منبع را با همان شناسه و تاریخچه ویرایش کنید یا یک نسخهٔ جدید PDF جایگزین کنید. وضعیت چرخهٔ عمر فقط در سمت سرور تغییر می‌کند."
     } else {
@@ -88,27 +91,36 @@ fn ManagerKnowledgeAssetEditor() -> Element {
         let current = draft();
         let parsed_tags = serde_json::from_str::<Value>(current.tags_json.trim());
         let Ok(tags) = parsed_tags else {
-            notice.set(Some((false, if is_fa {
-                "برچسب‌ها/طبقه‌بندی باید یک شیء JSON معتبر باشد.".to_string()
-            } else {
-                "Tags/classification must be a valid JSON object.".to_string()
-            })));
+            notice.set(Some((
+                false,
+                if is_fa {
+                    "برچسب‌ها/طبقه‌بندی باید یک شیء JSON معتبر باشد.".to_string()
+                } else {
+                    "Tags/classification must be a valid JSON object.".to_string()
+                },
+            )));
             return;
         };
         if !tags.is_object() {
-            notice.set(Some((false, if is_fa {
-                "برچسب‌ها/طبقه‌بندی باید یک شیء JSON باشد.".to_string()
-            } else {
-                "Tags/classification must be a JSON object.".to_string()
-            })));
+            notice.set(Some((
+                false,
+                if is_fa {
+                    "برچسب‌ها/طبقه‌بندی باید یک شیء JSON باشد.".to_string()
+                } else {
+                    "Tags/classification must be a JSON object.".to_string()
+                },
+            )));
             return;
         }
         if current.title.trim().is_empty() || current.language.trim().is_empty() {
-            notice.set(Some((false, if is_fa {
-                "عنوان و زبان الزامی هستند.".to_string()
-            } else {
-                "Title and language are required.".to_string()
-            })));
+            notice.set(Some((
+                false,
+                if is_fa {
+                    "عنوان و زبان الزامی هستند.".to_string()
+                } else {
+                    "Title and language are required.".to_string()
+                },
+            )));
             return;
         }
 
@@ -127,18 +139,19 @@ fn ManagerKnowledgeAssetEditor() -> Element {
         busy.set(true);
         notice.set(None);
         spawn(async move {
-            let result = update_manager_knowledge_asset_metadata(UpdateKnowledgeAssetMetadataRequest {
-                asset_id: asset.id.clone(),
-                expected_revision: asset.asset_revision,
-                title: current.title.trim().to_string(),
-                description: normalized_optional(&current.description),
-                subject: normalized_optional(&current.subject),
-                grade: normalized_optional(&current.grade),
-                language: current.language.trim().to_string(),
-                template_type: normalized_optional(&current.template_type),
-                tags,
-            })
-            .await;
+            let result =
+                update_manager_knowledge_asset_metadata(UpdateKnowledgeAssetMetadataRequest {
+                    asset_id: asset.id.clone(),
+                    expected_revision: asset.asset_revision,
+                    title: current.title.trim().to_string(),
+                    description: normalized_optional(&current.description),
+                    subject: normalized_optional(&current.subject),
+                    grade: normalized_optional(&current.grade),
+                    language: current.language.trim().to_string(),
+                    template_type: normalized_optional(&current.template_type),
+                    tags,
+                })
+                .await;
 
             match result {
                 Ok(result) => {
@@ -162,7 +175,8 @@ fn ManagerKnowledgeAssetEditor() -> Element {
                     let error_text = error.to_string();
                     let message = if error_text.contains("changed while you were editing") {
                         if is_fa {
-                            "این منبع هم‌زمان تغییر کرده است. فهرست را تازه کنید و دوباره تلاش کنید.".to_string()
+                            "این منبع هم‌زمان تغییر کرده است. فهرست را تازه کنید و دوباره تلاش کنید."
+                                .to_string()
                         } else {
                             "This asset changed while you were editing. Refresh the list and try again.".to_string()
                         }
@@ -204,11 +218,14 @@ fn ManagerKnowledgeAssetEditor() -> Element {
             return;
         };
         if asset.status == "archived" {
-            notice.set(Some((false, if is_fa {
-                "منبع بایگانی‌شده نسخهٔ منبع جدید نمی‌پذیرد.".to_string()
-            } else {
-                "Archived assets cannot receive a new source revision.".to_string()
-            })));
+            notice.set(Some((
+                false,
+                if is_fa {
+                    "منبع بایگانی‌شده نسخهٔ منبع جدید نمی‌پذیرد.".to_string()
+                } else {
+                    "Archived assets cannot receive a new source revision.".to_string()
+                },
+            )));
             return;
         }
         let warning = if is_fa {
@@ -233,16 +250,20 @@ fn ManagerKnowledgeAssetEditor() -> Element {
 
             let Some(form) = form else {
                 busy.set(false);
-                notice.set(Some((false, if is_fa {
-                    "فرم جایگزینی PDF خوانده نشد. صفحه را تازه کنید.".to_string()
-                } else {
-                    "The replacement form could not be read. Refresh the page.".to_string()
-                })));
+                notice.set(Some((
+                    false,
+                    if is_fa {
+                        "فرم جایگزینی PDF خوانده نشد. صفحه را تازه کنید.".to_string()
+                    } else {
+                        "The replacement form could not be read. Refresh the page.".to_string()
+                    },
+                )));
                 return;
             };
 
             spawn(async move {
-                let response = Request::post("/api/manager/knowledge-submissions/upload").body(form);
+                let response =
+                    Request::post("/api/manager/knowledge-submissions/upload").body(form);
                 match response {
                     Ok(request) => match request.send().await {
                         Ok(response) if (200..300).contains(&response.status()) => {
@@ -280,7 +301,10 @@ fn ManagerKnowledgeAssetEditor() -> Element {
         {
             let _ = asset;
             busy.set(false);
-            notice.set(Some((false, "PDF replacement is available in the browser application.".to_string())));
+            notice.set(Some((
+                false,
+                "PDF replacement is available in the browser application.".to_string(),
+            )));
         }
     };
 
@@ -483,7 +507,11 @@ fn EditInput(
 
 fn normalized_optional(value: &str) -> Option<String> {
     let value = value.trim();
-    if value.is_empty() { None } else { Some(value.to_string()) }
+    if value.is_empty() {
+        None
+    } else {
+        Some(value.to_string())
+    }
 }
 
 fn retrieval_sensitive_changed(
@@ -530,7 +558,8 @@ fn replacement_error_message(status: u16, is_fa: bool) -> String {
             409 => "This asset changed concurrently; refresh the asset list.".to_string(),
             413 => "The PDF exceeds the 20 MiB limit.".to_string(),
             415 => "The selected file is not a complete PDF.".to_string(),
-            _ => "The new source revision was not registered; refresh the asset and try again.".to_string(),
+            _ => "The new source revision was not registered; refresh the asset and try again."
+                .to_string(),
         }
     }
 }
@@ -562,7 +591,11 @@ mod tests {
         let baseline = asset();
         let mut draft = KnowledgeEditDraft::from(&baseline);
         draft.description = "New presentation copy".to_string();
-        assert!(!retrieval_sensitive_changed(&baseline, &draft, &baseline.tags));
+        assert!(!retrieval_sensitive_changed(
+            &baseline,
+            &draft,
+            &baseline.tags
+        ));
     }
 
     #[test]
@@ -570,6 +603,10 @@ mod tests {
         let baseline = asset();
         let mut draft = KnowledgeEditDraft::from(&baseline);
         draft.subject = "Physics".to_string();
-        assert!(retrieval_sensitive_changed(&baseline, &draft, &baseline.tags));
+        assert!(retrieval_sensitive_changed(
+            &baseline,
+            &draft,
+            &baseline.tags
+        ));
     }
 }
