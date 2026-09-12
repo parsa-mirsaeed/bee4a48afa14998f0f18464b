@@ -31,7 +31,7 @@ pub fn DashboardLayout(user: User, active_section: String, children: Element) ->
         .unwrap_or_else(|| locale.t("nav.dashboard"));
 
     rsx! {
-        document::Link { rel: "stylesheet", href: DASHBOARD_TABLET_CSS }
+        document::Stylesheet { href: DASHBOARD_TABLET_CSS }
         AppShell {
             div { class: "et-dashboard-shell",
                 if mobile_nav_open() {
