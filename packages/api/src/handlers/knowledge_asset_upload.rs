@@ -631,7 +631,8 @@ endobj\
 trailer\
 <<>>\
 %%EOF\
-".to_vec()
+"
+        .to_vec()
     }
 
     #[test]
@@ -639,8 +640,12 @@ trailer\
         assert!(validate_pdf("guide.pdf", &minimal_pdf()).is_ok());
         assert!(validate_pdf("guide.txt", &minimal_pdf()).is_err());
         assert!(validate_pdf("guide.pdf", b"not-a-pdf").is_err());
-        assert!(validate_pdf("guide.pdf", b"%PDF-1.4\
-missing eof").is_err());
+        assert!(validate_pdf(
+            "guide.pdf",
+            b"%PDF-1.4\
+missing eof"
+        )
+        .is_err());
     }
 
     #[test]
