@@ -29,18 +29,16 @@ async fn replacement_source_reverification_rebinds_stale_ocr_with_new_revision()
     let source_one_sha = format!("{:x}", Sha256::digest(&source_one_bytes));
     let source_two_sha = format!("{:x}", Sha256::digest(&source_two_bytes));
 
-    let manager_role: Uuid = sqlx::query_scalar(
-        "SELECT id FROM roles WHERE name::text = 'SchoolManager' LIMIT 1",
-    )
-    .fetch_one(&pool)
-    .await
-    .expect("SchoolManager role fixture");
-    let admin_role: Uuid = sqlx::query_scalar(
-        "SELECT id FROM roles WHERE name::text = 'PlatformAdmin' LIMIT 1",
-    )
-    .fetch_one(&pool)
-    .await
-    .expect("PlatformAdmin role fixture");
+    let manager_role: Uuid =
+        sqlx::query_scalar("SELECT id FROM roles WHERE name::text = 'SchoolManager' LIMIT 1")
+            .fetch_one(&pool)
+            .await
+            .expect("SchoolManager role fixture");
+    let admin_role: Uuid =
+        sqlx::query_scalar("SELECT id FROM roles WHERE name::text = 'PlatformAdmin' LIMIT 1")
+            .fetch_one(&pool)
+            .await
+            .expect("PlatformAdmin role fixture");
 
     sqlx::query("INSERT INTO schools (id, name) VALUES ($1, $2)")
         .bind(school_id)
@@ -57,7 +55,9 @@ async fn replacement_source_reverification_rebinds_stale_ocr_with_new_revision()
         "#,
     )
     .bind(manager_id)
-    .bind(format!("knowledge-provenance-manager-{suffix}@example.test"))
+    .bind(format!(
+        "knowledge-provenance-manager-{suffix}@example.test"
+    ))
     .bind(manager_role)
     .bind(school_id)
     .bind(admin_id)
@@ -145,7 +145,10 @@ async fn replacement_source_reverification_rebinds_stale_ocr_with_new_revision()
         .execute(&mut *bootstrap)
         .await
         .expect("advance initial asset to OCR ready");
-    bootstrap.commit().await.expect("commit provenance bootstrap");
+    bootstrap
+        .commit()
+        .await
+        .expect("commit provenance bootstrap");
 
     let expected_asset_revision: i64 =
         sqlx::query_scalar("SELECT asset_revision FROM knowledge_assets WHERE id = $1")
@@ -204,13 +207,20 @@ async fn replacement_source_reverification_rebinds_stale_ocr_with_new_revision()
     .fetch_one(&pool)
     .await
     .expect("read stale OCR after source replacement");
-    assert_eq!(stale_row.try_get::<String, _>("status").unwrap(), "ocr_pending");
     assert_eq!(
-        stale_row.try_get::<Uuid, _>("current_source_file_id").unwrap(),
+        stale_row.try_get::<String, _>("status").unwrap(),
+        "ocr_pending"
+    );
+    assert_eq!(
+        stale_row
+            .try_get::<Uuid, _>("current_source_file_id")
+            .unwrap(),
         replacement_source
     );
     assert_eq!(
-        stale_row.try_get::<Option<Uuid>, _>("source_file_id").unwrap(),
+        stale_row
+            .try_get::<Option<Uuid>, _>("source_file_id")
+            .unwrap(),
         Some(source_one)
     );
     assert_eq!(
@@ -237,8 +247,8 @@ async fn replacement_source_reverification_rebinds_stale_ocr_with_new_revision()
     .expect("count current OCR after source replacement");
     assert_eq!(current_ocr_count, 0);
 
-    let admin_actor = AuthorizedActor::new(admin_id, "PlatformAdmin", None)
-        .expect("valid PlatformAdmin actor");
+    let admin_actor =
+        AuthorizedActor::new(admin_id, "PlatformAdmin", None).expect("valid PlatformAdmin actor");
     let admin_tx = AuthorizedTx::begin(&pool, admin_actor)
         .await
         .expect("begin replacement OCR review transaction");
@@ -246,15 +256,13 @@ async fn replacement_source_reverification_rebinds_stale_ocr_with_new_revision()
         .scope(
             async {
                 let repository = KnowledgeAssetRepository::new(());
-                sqlx::query_scalar::<_, Uuid>(
-                    "SELECT record_knowledge_source_review($1, $2, $3)",
-                )
-                .bind(asset_id)
-                .bind(replacement_source)
-                .bind(&source_two_bytes)
-                .fetch_one(&*repository.pool())
-                .await
-                .expect("review replacement governed source");
+                sqlx::query_scalar::<_, Uuid>("SELECT record_knowledge_source_review($1, $2, $3)")
+                    .bind(asset_id)
+                    .bind(replacement_source)
+                    .bind(&source_two_bytes)
+                    .fetch_one(&*repository.pool())
+                    .await
+                    .expect("review replacement governed source");
 
                 repository
                     .attach_verified_ocr_for_source(
@@ -292,14 +300,20 @@ async fn replacement_source_reverification_rebinds_stale_ocr_with_new_revision()
     .fetch_one(&pool)
     .await
     .expect("read rebound OCR");
-    let rebound_revision: Uuid = rebound.try_get("revision").expect("decode rebound revision");
+    let rebound_revision: Uuid = rebound
+        .try_get("revision")
+        .expect("decode rebound revision");
     assert_eq!(rebound.try_get::<String, _>("status").unwrap(), "ocr_ready");
     assert_eq!(
-        rebound.try_get::<Option<Uuid>, _>("source_file_id").unwrap(),
+        rebound
+            .try_get::<Option<Uuid>, _>("source_file_id")
+            .unwrap(),
         Some(replacement_source)
     );
     assert_eq!(
-        rebound.try_get::<Option<String>, _>("source_sha256").unwrap(),
+        rebound
+            .try_get::<Option<String>, _>("source_sha256")
+            .unwrap(),
         Some(source_two_sha)
     );
     assert_ne!(rebound_revision, initial_ocr_revision);
