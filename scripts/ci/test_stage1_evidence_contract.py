@@ -47,7 +47,7 @@ class EvidenceContractTests(unittest.TestCase):
         self.assertIn("not_controlling", gate_results)
 
     def test_ordinary_proof_checkouts_pin_and_verify_the_claimed_head(self):
-        for name in ("ci.yml", "full-validation.yml", "package.yml", "release-docs.yml"):
+        for name in ("ci.yml", "full-validation.yml", "package.yml", "release-docs.yml", "production-foundation.yml"):
             with self.subTest(workflow=name):
                 text = (ROOT.parent.parent / ".github/workflows" / name).read_text()
                 blocks = re.findall(
@@ -63,6 +63,15 @@ class EvidenceContractTests(unittest.TestCase):
     def test_browser_rejects_a_claimed_head_different_from_source(self):
         text = (ROOT / "run_browser_e2e.sh").read_text()
         self.assertIn('PROOF_HEAD_SHA="${E2E_HEAD_SHA}" bash scripts/ci/stage1_verify_proof_head.sh', text)
+
+    def test_other_specialized_workflows_keep_explicit_head_pins(self):
+        for name in ("production-operations.yml", "air-gapped-appliance.yml", "dependency-security.yml"):
+            with self.subTest(workflow=name):
+                text = (ROOT.parent.parent / ".github/workflows" / name).read_text()
+                blocks = re.findall(r"- uses: actions/checkout@[^\n]+\n(.*?)(?=      - |\Z)", text, re.S)
+                self.assertTrue(blocks)
+                for block in blocks:
+                    self.assertIn("ref: ${{ github.event.pull_request.head.sha || github.sha }}", block)
 
     def test_head_verifier_accepts_exact_and_rejects_stale_missing_or_invalid_sha(self):
         script = (ROOT / "stage1_verify_proof_head.sh").resolve()
