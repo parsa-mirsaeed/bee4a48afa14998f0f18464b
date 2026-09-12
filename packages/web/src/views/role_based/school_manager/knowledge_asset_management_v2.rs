@@ -43,10 +43,12 @@ impl From<&ManagerKnowledgeAssetEditState> for Draft {
 
 #[component]
 pub fn ManagerKnowledgeUploadSection() -> Element {
+    let refresh_epoch = knowledge_upload::KNOWLEDGE_ASSET_REFRESH();
+
     rsx! {
         div { class: "space-y-8",
             knowledge_upload::ManagerKnowledgeUploadSection {}
-            ManagerKnowledgeAssetEditor {}
+            ManagerKnowledgeAssetEditor { key: "knowledge-editor-{refresh_epoch}" }
         }
     }
 }

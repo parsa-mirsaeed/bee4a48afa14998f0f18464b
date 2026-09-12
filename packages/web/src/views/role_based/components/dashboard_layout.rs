@@ -5,6 +5,8 @@ use crate::i18n::use_locale;
 use crate::ui::AppShell;
 use dioxus::prelude::*;
 
+const DASHBOARD_TABLET_CSS: Asset = asset!("/assets/dashboard-tablet.css");
+
 /// Shared responsive product shell for every authenticated role.
 ///
 /// Desktop uses a persistent logical-inline sidebar. Tablet and mobile use the
@@ -29,6 +31,7 @@ pub fn DashboardLayout(user: User, active_section: String, children: Element) ->
         .unwrap_or_else(|| locale.t("nav.dashboard"));
 
     rsx! {
+        document::Link { rel: "stylesheet", href: DASHBOARD_TABLET_CSS }
         AppShell {
             div { class: "et-dashboard-shell",
                 if mobile_nav_open() {

@@ -13,6 +13,8 @@ use wasm_bindgen::JsCast;
 const MAX_PDF_MB: usize = 20;
 const KNOWLEDGE_UPLOAD_FORM_ID: &str = "manager-knowledge-upload-form";
 
+pub static KNOWLEDGE_ASSET_REFRESH: GlobalSignal<u64> = Signal::global(|| 0);
+
 #[component]
 pub fn ManagerKnowledgeUploadSection() -> Element {
     let mut busy = use_signal(|| false);
@@ -98,6 +100,7 @@ pub fn ManagerKnowledgeUploadSection() -> Element {
                         )));
                         form_epoch.set(form_epoch() + 1);
                         assets.restart();
+                        *KNOWLEDGE_ASSET_REFRESH.write() += 1;
                     }
                     Ok(response) => {
                         notice.set(Some((false, upload_error_message(response.status()))));

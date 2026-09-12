@@ -1,0 +1,43 @@
+/* Tablet navigation contract: the shared dashboard shell uses the same
+ * keyboard-operable drawer model on tablet and mobile. The existing
+ * dashboard-remake.css mobile rules continue to own <=767px; these overrides
+ * extend only the drawer behavior through the tablet breakpoint. */
+@media (min-width: 768px) and (max-width: 1100px) {
+  .et-sidebar {
+    width: min(310px, 88vw);
+    max-width: 310px;
+    height: 100dvh;
+    position: fixed;
+    inset-block: 0;
+    inset-inline-start: 0;
+    transform: translateX(-105%);
+    transition: transform 180ms ease;
+    box-shadow: var(--et-shadow-float);
+    z-index: 80;
+  }
+
+  [dir="rtl"] .et-sidebar {
+    transform: translateX(105%);
+  }
+
+  .et-sidebar--mobile-open,
+  [dir="rtl"] .et-sidebar--mobile-open {
+    transform: translateX(0);
+  }
+
+  .et-sidebar-mobile-close {
+    display: inline-flex;
+  }
+
+  .et-mobile-overlay {
+    position: fixed;
+    inset: 0;
+    display: block;
+    background: rgba(15, 17, 23, 0.42);
+    z-index: 75;
+  }
+
+  .et-mobile-menu-button {
+    display: inline-flex;
+  }
+}
