@@ -41,3 +41,13 @@
     display: inline-flex;
   }
 }
+
+@media (max-width: 1100px) {
+  .et-sidebar:not(.et-sidebar--mobile-open) {
+    visibility: hidden;
+    pointer-events: none;
+  }
+  .et-sidebar--mobile-open {
+    visibility: visible;
+  }
+}

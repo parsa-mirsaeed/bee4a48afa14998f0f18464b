@@ -1,5 +1,6 @@
 use super::knowledge_upload;
-use crate::i18n::{use_locale, Locale};
+use crate::i18n::{platform_admin_status_label, use_locale, Locale};
+use crate::ui::Dialog;
 use crate::views::role_based::components::DashboardSection;
 use api::server_functions::knowledge_asset_edit_functions::{
     list_manager_knowledge_assets_for_editing, update_manager_knowledge_asset_metadata,
@@ -43,12 +44,10 @@ impl From<&ManagerKnowledgeAssetEditState> for Draft {
 
 #[component]
 pub fn ManagerKnowledgeUploadSection() -> Element {
-    let refresh_epoch = knowledge_upload::KNOWLEDGE_ASSET_REFRESH();
-
     rsx! {
         div { class: "space-y-8",
             knowledge_upload::ManagerKnowledgeUploadSection {}
-            ManagerKnowledgeAssetEditor { key: "knowledge-editor-{refresh_epoch}" }
+            ManagerKnowledgeAssetEditor {}
         }
     }
 }
@@ -57,13 +56,17 @@ pub fn ManagerKnowledgeUploadSection() -> Element {
 fn ManagerKnowledgeAssetEditor() -> Element {
     let locale = use_locale();
     let fa = locale.current() == Locale::Fa;
-    let mut assets =
-        use_resource(move || async move { list_manager_knowledge_assets_for_editing().await });
+    // Subscribe the resource itself: a key on a static child does not restart
+    // its fetch, and remounting would also discard an in-progress draft.
+    let mut assets = use_resource(move || {
+        let _refresh = knowledge_upload::KNOWLEDGE_ASSET_REFRESH();
+        async move { list_manager_knowledge_assets_for_editing().await }
+    });
     let mut selected = use_signal(|| None::<ManagerKnowledgeAssetEditState>);
     let mut draft = use_signal(Draft::default);
     let mut busy = use_signal(|| false);
     let mut notice = use_signal(|| None::<(bool, String)>);
-    let mut source_epoch = use_signal(|| 0_u64);
+    let mut source_dirty = use_signal(|| false);
 
     let current = selected();
     let dirty = current
@@ -77,9 +80,9 @@ fn ManagerKnowledgeAssetEditor() -> Element {
         "Manage existing assets"
     };
     let section_description = if fa {
-        "فراداده را با همان شناسه و تاریخچه ویرایش کنید یا یک نسخهٔ جدید PDF بسازید. وضعیت چرخهٔ عمر فقط در سمت سرور تغییر می‌کند."
+        "جزئیات منابع مدرسه را ویرایش یا سند PDF را جایگزین کنید. تاریخچهٔ نسخه‌های قبلی حفظ می‌شود."
     } else {
-        "Edit metadata under the same logical asset ID, or append a new PDF source revision. Lifecycle status remains server-owned."
+        "Update school resource details or replace a PDF. Previous versions remain in the asset history."
     };
 
     let save = move |event: FormEvent| {
@@ -90,6 +93,9 @@ fn ManagerKnowledgeAssetEditor() -> Element {
         let Some(asset) = selected() else {
             return;
         };
+        if source_dirty() && !confirm(discard_warning(fa)) {
+            return;
+        }
         let values = draft();
         if values.title.trim().is_empty() || values.language.trim().is_empty() {
             notice.set(Some((false, required_message(fa).to_string())));
@@ -140,6 +146,7 @@ fn ManagerKnowledgeAssetEditor() -> Element {
                     notice.set(Some((true, message.to_string())));
                     selected.set(None);
                     draft.set(Draft::default());
+                    source_dirty.set(false);
                     assets.restart();
                 }
                 Err(error) => {
@@ -157,12 +164,16 @@ fn ManagerKnowledgeAssetEditor() -> Element {
         });
     };
 
-    let cancel = move |_| {
-        if dirty && !confirm(discard_warning(fa)) {
+    let cancel = move |_: ()| {
+        if busy() {
+            return;
+        }
+        if (dirty || source_dirty()) && !confirm(discard_warning(fa)) {
             return;
         }
         selected.set(None);
         draft.set(Draft::default());
+        source_dirty.set(false);
         notice.set(None);
     };
 
@@ -176,6 +187,12 @@ fn ManagerKnowledgeAssetEditor() -> Element {
         };
         if asset.status == "archived" {
             notice.set(Some((false, archived_message(fa).to_string())));
+            return;
+        }
+        if dirty && !confirm(discard_warning(fa)) {
+            return;
+        }
+        if !source_dirty() {
             return;
         }
         if !confirm(replacement_warning(fa)) {
@@ -203,7 +220,7 @@ fn ManagerKnowledgeAssetEditor() -> Element {
                     Ok(request) => match request.send().await {
                         Ok(response) if (200..300).contains(&response.status()) => {
                             notice.set(Some((true, replacement_success(fa).to_string())));
-                            source_epoch.set(source_epoch() + 1);
+                            source_dirty.set(false);
                             selected.set(None);
                             draft.set(Draft::default());
                             assets.restart();
@@ -243,7 +260,7 @@ fn ManagerKnowledgeAssetEditor() -> Element {
             description: Some(section_description.to_string()),
             children: rsx! {
                 div { class: "space-y-5",
-                    if let Some((success, message)) = notice() {
+                    if let Some((success, message)) = notice().filter(|_| current.is_none()) {
                         p {
                             class: if success { "et-ui-alert et-ui-tone--success" } else { "et-ui-alert et-ui-tone--danger" },
                             role: if success { "status" } else { "alert" },
@@ -273,14 +290,15 @@ fn ManagerKnowledgeAssetEditor() -> Element {
                                                 div { class: "flex flex-wrap items-start justify-between gap-3",
                                                     div {
                                                         h3 { class: "font-semibold text-gray-900 dark:text-white", "{item.title}" }
-                                                        p { class: "mt-1 text-xs text-gray-500 dark:text-gray-400", "{status_prefix(fa)} {item.status} · {revision_prefix(fa)} {item.asset_revision}" }
+                                                        p { class: "mt-1 text-xs text-gray-500 dark:text-gray-400", "{status_prefix(fa)} {platform_admin_status_label(&item.status, locale.current())} · {revision_prefix(fa)} {item.asset_revision}" }
                                                     }
                                                     button {
                                                         class: "et-ui-button et-ui-button--secondary et-ui-button--sm",
                                                         r#type: "button",
-                                                        disabled: busy(),
+                                                        disabled: busy() || item.status == "archived",
                                                         onclick: move |_| {
-                                                            if dirty && !confirm(switch_warning(fa)) { return; }
+                                                            if (dirty || source_dirty()) && !confirm(switch_warning(fa)) { return; }
+                                                            source_dirty.set(false);
                                                             draft.set(Draft::from(&item_for_click));
                                                             selected.set(Some(item_for_click.clone()));
                                                             notice.set(None);
@@ -299,35 +317,44 @@ fn ManagerKnowledgeAssetEditor() -> Element {
                         },
                     }
 
-                    if let Some(asset) = current.as_ref() {
+                    Dialog {
+                        open: current.is_some(),
+                        title: current.as_ref().map(|asset| format!("{} — {}", edit_text(fa), asset.title)).unwrap_or_default(),
+                        busy: Some(busy()),
+                        close_label: Some(cancel_text(fa).to_string()),
+                        on_close: cancel,
+                        if let Some(asset) = current.as_ref() {
+                        if let Some((success, message)) = notice() {
+                            p { role: if success { "status" } else { "alert" }, "{message}" }
+                        }
                         form { class: "et-ui-card space-y-5", onsubmit: save,
                             div { class: "flex flex-wrap items-start justify-between gap-3",
                                 div {
                                     h3 { class: "text-lg font-semibold text-gray-900 dark:text-white", "{details_text(fa)}" }
                                     p { class: "mt-1 text-sm text-gray-500 dark:text-gray-400", "{server_status_text(fa)}" }
                                 }
-                                span { class: "rounded-full bg-gray-100 dark:bg-gray-800 px-3 py-1 text-xs", "{asset.status}" }
+                                span { class: "rounded-full bg-gray-100 dark:bg-gray-800 px-3 py-1 text-xs", "{platform_admin_status_label(&asset.status, locale.current())}" }
                             }
                             div { class: "grid grid-cols-1 gap-4 md:grid-cols-2",
-                                Field { label: title_text(fa), value: draft().title, required: true, oninput: move |value| { let mut next=draft(); next.title=value; draft.set(next); } }
-                                Field { label: language_text(fa), value: draft().language, required: true, oninput: move |value| { let mut next=draft(); next.language=value; draft.set(next); } }
-                                Field { label: subject_text(fa), value: draft().subject, required: false, oninput: move |value| { let mut next=draft(); next.subject=value; draft.set(next); } }
-                                Field { label: grade_text(fa), value: draft().grade, required: false, oninput: move |value| { let mut next=draft(); next.grade=value; draft.set(next); } }
-                                Field { label: template_text(fa), value: draft().template_type, required: false, oninput: move |value| { let mut next=draft(); next.template_type=value; draft.set(next); } }
+                                Field { id: "knowledge-edit-title", label: title_text(fa), value: draft().title, required: true, oninput: move |value| { let mut next=draft(); next.title=value; draft.set(next); } }
+                                Field { id: "knowledge-edit-language", label: language_text(fa), value: draft().language, required: true, oninput: move |value| { let mut next=draft(); next.language=value; draft.set(next); } }
+                                Field { id: "knowledge-edit-subject", label: subject_text(fa), value: draft().subject, required: false, oninput: move |value| { let mut next=draft(); next.subject=value; draft.set(next); } }
+                                Field { id: "knowledge-edit-grade", label: grade_text(fa), value: draft().grade, required: false, oninput: move |value| { let mut next=draft(); next.grade=value; draft.set(next); } }
+                                Field { id: "knowledge-edit-template", label: template_text(fa), value: draft().template_type, required: false, oninput: move |value| { let mut next=draft(); next.template_type=value; draft.set(next); } }
                             }
                             div {
-                                label { class: "block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1", "{description_text(fa)}" }
-                                textarea { class: "et-ui-textarea", rows: "4", maxlength: "8000", value: "{draft().description}", oninput: move |event| { let mut next=draft(); next.description=event.value(); draft.set(next); } }
+                                label { r#for: "knowledge-edit-description", class: "block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1", "{description_text(fa)}" }
+                                textarea { id: "knowledge-edit-description", class: "et-ui-textarea", rows: "4", maxlength: "8000", value: "{draft().description}", oninput: move |event| { let mut next=draft(); next.description=event.value(); draft.set(next); } }
                                 p { class: "mt-1 text-xs text-gray-500 dark:text-gray-400", "{description_help(fa)}" }
                             }
                             div {
-                                label { class: "block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1", "{tags_text(fa)}" }
-                                textarea { class: "et-ui-textarea font-mono text-sm", rows: "4", value: "{draft().tags_json}", oninput: move |event| { let mut next=draft(); next.tags_json=event.value(); draft.set(next); } }
+                                label { r#for: "knowledge-edit-tags", class: "block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1", "{tags_text(fa)}" }
+                                textarea { id: "knowledge-edit-tags", class: "et-ui-textarea font-mono text-sm", rows: "4", value: "{draft().tags_json}", oninput: move |event| { let mut next=draft(); next.tags_json=event.value(); draft.set(next); } }
                             }
                             div { class: "et-ui-alert et-ui-tone--neutral", "{retrieval_help(fa)}" }
                             div { class: "flex flex-wrap gap-3",
                                 button { class: "et-ui-button et-ui-button--primary et-ui-button--md", r#type: "submit", disabled: busy() || !dirty, "{save_text(fa)}" }
-                                button { class: "et-ui-button et-ui-button--secondary et-ui-button--md", r#type: "button", disabled: busy(), onclick: cancel, "{cancel_text(fa)}" }
+                                button { class: "et-ui-button et-ui-button--secondary et-ui-button--md", r#type: "button", disabled: busy(), onclick: move |_| cancel(()), "{cancel_text(fa)}" }
                                 if dirty { span { class: "self-center text-xs font-medium text-amber-700 dark:text-amber-300", "{unsaved_text(fa)}" } }
                             }
                         }
@@ -361,11 +388,12 @@ fn ManagerKnowledgeAssetEditor() -> Element {
                             input { r#type: "hidden", name: "expected_revision", value: "{asset.asset_revision}" }
                             div {
                                 label { r#for: "knowledge-source-replacement-file", class: "block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1", "{replacement_pdf_text(fa)}" }
-                                input { id: "knowledge-source-replacement-file", class: "et-ui-input", r#type: "file", name: "file", accept: "application/pdf,.pdf", disabled: busy() || asset.status == "archived" }
+                                input { id: "knowledge-source-replacement-file", class: "et-ui-input", r#type: "file", name: "file", accept: "application/pdf,.pdf", onchange: move |event| source_dirty.set(!event.value().is_empty()), disabled: busy() || asset.status == "archived" }
                                 p { class: "mt-1 text-xs text-gray-500 dark:text-gray-400", "{replacement_help(fa)}" }
                             }
-                            button { class: "et-ui-button et-ui-button--danger et-ui-button--md", r#type: "submit", disabled: busy() || asset.status == "archived", "{replace_text(fa)}" }
+                            button { class: "et-ui-button et-ui-button--danger et-ui-button--md", r#type: "submit", disabled: busy() || !source_dirty() || asset.status == "archived", "{replace_text(fa)}" }
                             if asset.status == "archived" { p { class: "text-sm text-gray-500", "{archived_message(fa)}" } }
+                        }
                         }
                     }
                 }
@@ -376,6 +404,7 @@ fn ManagerKnowledgeAssetEditor() -> Element {
 
 #[component]
 fn Field(
+    id: &'static str,
     label: &'static str,
     value: String,
     required: bool,
@@ -383,8 +412,8 @@ fn Field(
 ) -> Element {
     rsx! {
         div {
-            label { class: "block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1", "{label}" if required { " *" } }
-            input { class: "et-ui-input", r#type: "text", value: "{value}", "aria-required": required, oninput: move |event| oninput.call(event.value()) }
+            label { r#for: id, class: "block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1", "{label}" if required { " *" } }
+            input { id, class: "et-ui-input", r#type: "text", value: "{value}", "aria-required": required, oninput: move |event| oninput.call(event.value()) }
         }
     }
 }
@@ -514,9 +543,9 @@ fn replacement_success(f: bool) -> &'static str {
 }
 fn storage_error(f: bool) -> &'static str {
     if f {
-        "سرویس ذخیره‌سازی در دسترس نیست؛ نسخهٔ فعلی تغییر نکرده است."
+        "نتیجهٔ بارگذاری تأیید نشد. پیش از تلاش دوباره، منبع جاری را بررسی کنید."
     } else {
-        "Storage is unavailable; the current source revision was not changed."
+        "The upload result could not be confirmed. Check the current source before retrying."
     }
 }
 fn loading_text(f: bool) -> &'static str {
@@ -584,9 +613,9 @@ fn details_text(f: bool) -> &'static str {
 }
 fn server_status_text(f: bool) -> &'static str {
     if f {
-        "شناسهٔ منطقی ثابت می‌ماند. وضعیت چرخهٔ عمر توسط سرور کنترل می‌شود."
+        "ویرایش این منبع، تاریخچهٔ آن را حفظ می‌کند."
     } else {
-        "The logical asset ID stays fixed. Lifecycle status is controlled by the server."
+        "Changes preserve this resource’s history."
     }
 }
 fn title_text(f: bool) -> &'static str {

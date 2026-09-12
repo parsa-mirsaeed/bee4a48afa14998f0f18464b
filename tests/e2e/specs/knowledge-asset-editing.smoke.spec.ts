@@ -1,3 +1,4 @@
+import AxeBuilder from '@axe-core/playwright';
 // @smoke @workflow-truth — #34 focused browser evidence for lifecycle-aware
 // knowledge asset editing/versioning. Uses the real Dioxus server functions,
 // PostgreSQL RLS context, and local private-storage contract; application
@@ -38,8 +39,8 @@ async function openKnowledgeManager(page: Page): Promise<void> {
 }
 
 async function openKnowledgeManagerResponsive(page: Page, locale: 'en' | 'fa'): Promise<void> {
-  const navigationAction = actionWithIcon(page, 'upload_file');
-  if (!(await navigationAction.isVisible())) {
+  const navigationAction = page.getByRole('button', { name: locale === 'fa' ? 'ارسال منابع دانشی' : 'Knowledge submissions', exact: true });
+  if (await page.locator('.et-mobile-menu-button').isVisible()) {
     await page.locator('.et-mobile-menu-button').click();
     await expect(navigationAction).toBeVisible();
   }
@@ -61,6 +62,7 @@ async function openAssetEditor(page: Page, title: string) {
     .getByRole('heading', { name: 'Asset details', exact: true })
     .locator('xpath=ancestor::form[1]');
   await expect(form).toBeVisible();
+  await expect(page.getByRole('dialog')).toBeFocused();
   return form;
 }
 
@@ -79,6 +81,7 @@ async function openLocalizedFixtureEditor(page: Page, locale: 'en' | 'fa') {
     })
     .locator('xpath=ancestor::form[1]');
   await expect(form).toBeVisible();
+  await expect(page.getByRole('dialog')).toBeFocused();
   return form;
 }
 
@@ -96,6 +99,24 @@ async function assertNoHorizontalOverflow(page: Page): Promise<void> {
     () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
   );
   expect(overflow, 'knowledge editor must not introduce page-level horizontal overflow').toBeFalsy();
+}
+
+async function assertEditorAccessibility(page: Page, locale: 'en' | 'fa'): Promise<void> {
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toHaveAccessibleName(new RegExp('E2E Published Asset'));
+  const title = dialog.getByLabel(locale === 'fa' ? 'عنوان *' : 'Title *', { exact: true });
+  await expect(title).toHaveValue('E2E Published Asset');
+  const save = dialog.getByRole('button', { name: locale === 'fa' ? 'ذخیره' : 'Save', exact: true });
+  await save.scrollIntoViewIfNeeded();
+  await expect(save).toBeInViewport();
+  const result = await new AxeBuilder({ page }).include('[role="dialog"]')
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa']).analyze();
+  expect(result.violations.filter(v => v.impact === 'serious' || v.impact === 'critical')).toEqual([]);
+  await title.focus();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  const card = page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'E2E Published Asset', exact: true }) });
+  await expect(card.getByRole('button', { name: locale === 'fa' ? 'ویرایش' : 'Edit', exact: true })).toBeFocused();
 }
 
 test.beforeEach(async ({ page, request }) => {
@@ -132,7 +153,7 @@ test('manager edits same asset with dirty-state guard and replaces immutable sou
   await expect(page.getByRole('status')).toContainText(/uploaded and registered with status submitted/i);
 
   let metadataForm = await openAssetEditor(page, title);
-  const description = metadataForm.locator('textarea').nth(0);
+  const description = metadataForm.getByLabel('Description', { exact: true });
   const cancel = metadataForm.getByRole('button', { name: 'Cancel', exact: true });
   const save = metadataForm.getByRole('button', { name: 'Save', exact: true });
   await expect(save).toBeDisabled();
@@ -157,17 +178,17 @@ test('manager edits same asset with dirty-state guard and replaces immutable sou
   await expect(page.getByRole('heading', { name: 'Asset details', exact: true })).toHaveCount(0);
 
   metadataForm = await openAssetEditor(page, title);
-  const subject = metadataForm.locator('input[type="text"]').nth(2);
+  const subject = metadataForm.getByLabel('Subject', { exact: true });
   await subject.fill('Physics');
   page.once('dialog', async (dialog) => {
     expect(dialog.message()).toMatch(/affects retrieval metadata/);
     await dialog.accept();
   });
   await metadataForm.getByRole('button', { name: 'Save', exact: true }).click();
-  await expect(page.getByRole('status')).toContainText(/Metadata saved/);
+  await expect(page.getByRole('status').filter({ hasText: /Metadata saved/ })).toBeVisible();
 
   metadataForm = await openAssetEditor(page, title);
-  await expect(metadataForm.locator('input[type="text"]').nth(2)).toHaveValue('Physics');
+  await expect(metadataForm.getByLabel('Subject', { exact: true })).toHaveValue('Physics');
 
   const sourceForm = page
     .getByRole('heading', { name: 'Source document', exact: true })
@@ -183,7 +204,7 @@ test('manager edits same asset with dirty-state guard and replaces immutable sou
     await dialog.accept();
   });
   await sourceForm.getByRole('button', { name: 'Replace source document', exact: true }).click();
-  await expect(page.getByRole('status')).toContainText(/New PDF source revision registered/);
+  await expect(page.getByRole('status').filter({ hasText: /New PDF source revision registered/ })).toBeVisible();
 
   await openAssetEditor(page, title);
   await expect(page.getByText(replacementName, { exact: true })).toBeVisible();
@@ -197,7 +218,7 @@ test('manager knowledge editing surface renders Persian controls @smoke @workflo
   await signIn(page, 'fa');
   await actionWithIcon(page, 'upload_file').click();
   await expect(page.getByRole('heading', { name: 'ویرایش منابع دانشی' })).toBeVisible();
-  await expect(page.getByText(/وضعیت چرخهٔ عمر فقط در سمت سرور تغییر می‌کند/)).toBeVisible();
+  await expect(page.getByText(/تاریخچهٔ نسخه‌های قبلی حفظ می‌شود/)).toBeVisible();
   await assertLocaleDirection(page, 'fa');
 });
 
@@ -208,10 +229,11 @@ for (const locale of ['en', 'fa'] as const) {
     await assertLocaleDirection(page, locale);
     await openKnowledgeManagerResponsive(page, locale);
     const form = await openLocalizedFixtureEditor(page, locale);
-    await expect(form).toBeInViewport({ ratio: 0.5 });
+    await expect(page.getByRole('dialog')).toBeInViewport({ ratio: 0.9 });
     await expect(
       form.getByRole('button', { name: locale === 'fa' ? 'ذخیره' : 'Save', exact: true }),
     ).toBeVisible();
+    await assertEditorAccessibility(page, locale);
     await assertNoHorizontalOverflow(page);
   });
 
@@ -225,6 +247,7 @@ for (const locale of ['en', 'fa'] as const) {
     await expect(
       form.getByRole('button', { name: locale === 'fa' ? 'ذخیره' : 'Save', exact: true }),
     ).toBeVisible();
+    await assertEditorAccessibility(page, locale);
     await assertNoHorizontalOverflow(page);
   });
 }

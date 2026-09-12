@@ -148,7 +148,6 @@ pub fn Dialog(
                     if event.key() == Key::Escape && !busy {
                         event.stop_propagation();
                         on_close.call(());
-                        restore_active_element(return_focus_id);
                     } else if event.key() == Key::Tab {
                         trap_tab(&event, &dialog_focus_root);
                     }
@@ -161,7 +160,6 @@ pub fn Dialog(
                     onclick: move |_| {
                         if !busy {
                             on_close.call(());
-                            restore_active_element(return_focus_id);
                         }
                     },
                 }
@@ -184,7 +182,6 @@ pub fn Dialog(
                             disabled: busy,
                             onclick: move |_| {
                                 on_close.call(());
-                                restore_active_element(return_focus_id);
                             },
                         }
                     }

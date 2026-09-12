@@ -1,5 +1,4 @@
 use crate::views::role_based::components::DashboardSection;
-use api::server_functions::knowledge_functions::list_manager_knowledge_submissions;
 use api::server_functions::knowledge_readiness::{
     get_knowledge_storage_readiness, KnowledgeStorageReadiness,
 };
@@ -20,8 +19,6 @@ pub fn ManagerKnowledgeUploadSection() -> Element {
     let mut busy = use_signal(|| false);
     let mut notice = use_signal(|| None::<(bool, String)>);
     let mut form_epoch = use_signal(|| 0_u64);
-    let mut assets =
-        use_resource(move || async move { list_manager_knowledge_submissions().await });
     let mut readiness =
         use_resource(move || async move { get_knowledge_storage_readiness().await });
 
@@ -99,7 +96,6 @@ pub fn ManagerKnowledgeUploadSection() -> Element {
                             ),
                         )));
                         form_epoch.set(form_epoch() + 1);
-                        assets.restart();
                         *KNOWLEDGE_ASSET_REFRESH.write() += 1;
                     }
                     Ok(response) => {
@@ -153,7 +149,7 @@ pub fn ManagerKnowledgeUploadSection() -> Element {
                         }
                     }
 
-                    div { class: "grid grid-cols-1 gap-6 xl:grid-cols-2",
+                    div { class: "space-y-4",
                         form {
                             key: "knowledge-upload-{form_epoch}",
                             id: KNOWLEDGE_UPLOAD_FORM_ID,
@@ -202,7 +198,6 @@ pub fn ManagerKnowledgeUploadSection() -> Element {
                             }
                         }
 
-                        SubmissionList { resource: assets }
                     }
                 }
             }
@@ -263,61 +258,6 @@ fn UploadTextField(
                 maxlength: "{maxlength}",
                 placeholder: "{placeholder}",
                 "aria-required": required,
-            }
-        }
-    }
-}
-
-#[component]
-fn SubmissionList(
-    resource: Resource<
-        Result<Vec<api::server_functions::knowledge_functions::KnowledgeAssetDto>, ServerFnError>,
-    >,
-) -> Element {
-    rsx! {
-        div { class: "space-y-4",
-            h3 { class: "text-lg font-semibold text-gray-900 dark:text-white", "School submissions" }
-            match resource.read().as_ref() {
-                None => rsx! { p { class: "text-gray-500", "Loading submissions…" } },
-                Some(Err(_)) => rsx! {
-                    div { class: "et-state-panel et-state-panel--error",
-                        p { "Submissions could not be loaded." }
-                        button { class: "et-inline-action mt-2", onclick: move |_| resource.restart(), "Try again" }
-                    }
-                },
-                Some(Ok(items)) if items.is_empty() => rsx! {
-                    div { class: "et-ui-data-state",
-                        h4 { class: "font-semibold text-gray-900 dark:text-white", "No governed PDFs yet" }
-                        p { class: "mt-1 text-sm", "Upload the first approved school PDF when private storage is ready." }
-                    }
-                },
-                Some(Ok(items)) => rsx! {
-                    for item in items.iter() {
-                        {
-                            let metadata = match (item.subject.as_deref(), item.grade.as_deref()) {
-                                (Some(subject), Some(grade)) => format!("{subject} · {grade}"),
-                                (Some(subject), None) => subject.to_string(),
-                                (None, Some(grade)) => grade.to_string(),
-                                (None, None) => "General".to_string(),
-                            };
-                            rsx! {
-                                div { key: "{item.id}", class: "et-ui-card et-ui-stack et-ui-stack--sm",
-                                    div { class: "flex items-start justify-between gap-3",
-                                        h4 { class: "font-semibold text-gray-900 dark:text-white", "{item.title}" }
-                                        span { class: "rounded-full bg-gray-100 dark:bg-gray-800 px-2 py-1 text-xs text-gray-700 dark:text-gray-300", "{item.status}" }
-                                    }
-                                    p { class: "text-sm text-gray-500 dark:text-gray-400", "{metadata}" }
-                                    if item.status == "submitted" {
-                                        p { class: "text-xs text-gray-500 dark:text-gray-400", "Registered for platform review; not OCRed, embedded, or published." }
-                                    }
-                                    if let Some(description) = item.description.as_ref() {
-                                        p { class: "text-sm text-gray-600 dark:text-gray-300", "{description}" }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                },
             }
         }
     }
