@@ -2,6 +2,7 @@
 
 pub mod class_management;
 pub mod dashboard;
+pub mod knowledge_asset_management;
 pub mod knowledge_upload;
 pub mod reports;
 pub mod requests;
@@ -11,7 +12,7 @@ pub mod user_management;
 
 pub use class_management::*;
 pub use dashboard::{SchoolManagerDashboard, SchoolManagerOverviewSection};
-pub use knowledge_upload::*;
+pub use knowledge_asset_management::ManagerKnowledgeUploadSection;
 pub use reports::*;
 pub use settings::*;
 pub use user_management::*;
