@@ -210,7 +210,9 @@ fn map_governed_edit_error(error: sqlx::Error) -> RepositoryError {
                 id: "scoped".into(),
             },
             ("42501", _) | (_, "knowledge_asset_forbidden") => RepositoryError::Unauthorized,
-            ("22023", _) | (_, "knowledge_asset_metadata_invalid") | (_, "knowledge_source_revision_invalid") => {
+            ("22023", _)
+            | (_, "knowledge_asset_metadata_invalid")
+            | (_, "knowledge_source_revision_invalid") => {
                 RepositoryError::Validation("Knowledge asset edit is invalid".into())
             }
             ("23514", _) if message.contains("archived_knowledge_asset_source_is_terminal") => {
