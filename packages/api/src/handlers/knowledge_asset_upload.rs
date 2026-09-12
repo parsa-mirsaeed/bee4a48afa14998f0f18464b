@@ -172,8 +172,14 @@ async fn replace_source(
     .parse::<i64>()
     .ok()
     .filter(|revision| *revision > 0)
-    .ok_or_else(|| reject(StatusCode::BAD_REQUEST, "Knowledge asset revision is invalid"))?;
-    let original_filename = required_text(upload.original_filename, "A replacement PDF is required")?;
+    .ok_or_else(|| {
+        reject(
+            StatusCode::BAD_REQUEST,
+            "Knowledge asset revision is invalid",
+        )
+    })?;
+    let original_filename =
+        required_text(upload.original_filename, "A replacement PDF is required")?;
     let pdf_bytes = upload
         .pdf_bytes
         .ok_or_else(|| reject(StatusCode::BAD_REQUEST, "A replacement PDF is required"))?;
@@ -317,7 +323,12 @@ async fn read_text_field(field: &mut Field<'_>, limit: usize) -> Result<String, 
     let bytes = read_limited_field(field, limit).await?;
     String::from_utf8(bytes)
         .map(|value| value.trim().to_string())
-        .map_err(|_| reject(StatusCode::BAD_REQUEST, "Upload metadata must be valid UTF-8"))
+        .map_err(|_| {
+            reject(
+                StatusCode::BAD_REQUEST,
+                "Upload metadata must be valid UTF-8",
+            )
+        })
 }
 
 async fn read_limited_field(
@@ -330,7 +341,10 @@ async fn read_limited_field(
         reject(StatusCode::BAD_REQUEST, "Invalid upload body")
     })? {
         if bytes.len().saturating_add(chunk.len()) > limit {
-            return Err(reject(StatusCode::PAYLOAD_TOO_LARGE, "Upload field is too large"));
+            return Err(reject(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "Upload field is too large",
+            ));
         }
         bytes.extend_from_slice(&chunk);
     }
@@ -361,20 +375,32 @@ fn normalize_optional(value: Option<String>) -> Option<String> {
 
 fn validate_pdf(filename: &str, bytes: &[u8]) -> Result<(), UploadRejection> {
     if !filename.to_ascii_lowercase().ends_with(".pdf") {
-        return Err(reject(StatusCode::UNSUPPORTED_MEDIA_TYPE, "Only PDF files are accepted"));
+        return Err(reject(
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            "Only PDF files are accepted",
+        ));
     }
     if bytes.is_empty() || bytes.len() > MAX_KNOWLEDGE_PDF_BYTES {
-        return Err(reject(StatusCode::PAYLOAD_TOO_LARGE, "PDF is empty or too large"));
+        return Err(reject(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "PDF is empty or too large",
+        ));
     }
     if !bytes.starts_with(b"%PDF-") {
-        return Err(reject(StatusCode::UNSUPPORTED_MEDIA_TYPE, "File content is not a PDF"));
+        return Err(reject(
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            "File content is not a PDF",
+        ));
     }
     let tail_start = bytes.len().saturating_sub(1024);
     if !bytes[tail_start..]
         .windows(5)
         .any(|window| window == b"%%EOF")
     {
-        return Err(reject(StatusCode::UNSUPPORTED_MEDIA_TYPE, "PDF is incomplete"));
+        return Err(reject(
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            "PDF is incomplete",
+        ));
     }
     Ok(())
 }
@@ -408,7 +434,10 @@ async fn ensure_private_bucket(state: &AppState) -> Result<(), UploadRejection> 
             reject(StatusCode::BAD_GATEWAY, "Knowledge storage is unavailable")
         })?;
         if body.get("public").and_then(Value::as_bool) != Some(false) {
-            error!(bucket = KNOWLEDGE_SOURCE_BUCKET, "knowledge source bucket is not private");
+            error!(
+                bucket = KNOWLEDGE_SOURCE_BUCKET,
+                "knowledge source bucket is not private"
+            );
             return Err(reject(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "Knowledge storage is not safely configured",
@@ -419,7 +448,10 @@ async fn ensure_private_bucket(state: &AppState) -> Result<(), UploadRejection> 
 
     if response.status().as_u16() != 404 {
         error!(status = %response.status(), "knowledge storage bucket lookup failed");
-        return Err(reject(StatusCode::BAD_GATEWAY, "Knowledge storage is unavailable"));
+        return Err(reject(
+            StatusCode::BAD_GATEWAY,
+            "Knowledge storage is unavailable",
+        ));
     }
 
     let create_url = format!(
@@ -448,7 +480,10 @@ async fn ensure_private_bucket(state: &AppState) -> Result<(), UploadRejection> 
         return verify_bucket_private(state).await;
     }
     error!(status = %response.status(), "knowledge storage bucket creation failed");
-    Err(reject(StatusCode::BAD_GATEWAY, "Knowledge storage is unavailable"))
+    Err(reject(
+        StatusCode::BAD_GATEWAY,
+        "Knowledge storage is unavailable",
+    ))
 }
 
 async fn verify_bucket_private(state: &AppState) -> Result<(), UploadRejection> {
@@ -464,7 +499,10 @@ async fn verify_bucket_private(state: &AppState) -> Result<(), UploadRejection> 
             reject(StatusCode::BAD_GATEWAY, "Knowledge storage is unavailable")
         })?;
     if !response.status().is_success() {
-        return Err(reject(StatusCode::BAD_GATEWAY, "Knowledge storage is unavailable"));
+        return Err(reject(
+            StatusCode::BAD_GATEWAY,
+            "Knowledge storage is unavailable",
+        ));
     }
     let body = response.json::<Value>().await.map_err(|error| {
         error!(%error, "knowledge storage bucket verification response was invalid");
@@ -504,7 +542,10 @@ async fn upload_storage_object(
         Ok(())
     } else {
         error!(status = %response.status(), object_key = %object_key, "knowledge source object upload was rejected");
-        Err(reject(StatusCode::BAD_GATEWAY, "Unable to store uploaded PDF"))
+        Err(reject(
+            StatusCode::BAD_GATEWAY,
+            "Unable to store uploaded PDF",
+        ))
     }
 }
 
@@ -556,11 +597,20 @@ fn map_replacement_error(error: RepositoryError) -> UploadRejection {
             StatusCode::CONFLICT,
             "Archived knowledge assets cannot replace their source document",
         ),
-        RepositoryError::Validation(_) => reject(StatusCode::BAD_REQUEST, "Knowledge source replacement is invalid"),
-        RepositoryError::Duplicate { .. } => reject(StatusCode::CONFLICT, "Knowledge source replacement conflicts with current data"),
+        RepositoryError::Validation(_) => reject(
+            StatusCode::BAD_REQUEST,
+            "Knowledge source replacement is invalid",
+        ),
+        RepositoryError::Duplicate { .. } => reject(
+            StatusCode::CONFLICT,
+            "Knowledge source replacement conflicts with current data",
+        ),
         RepositoryError::Database(error) => {
             error!(%error, "knowledge source replacement database failure");
-            reject(StatusCode::INTERNAL_SERVER_ERROR, "Unable to replace knowledge source")
+            reject(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Unable to replace knowledge source",
+            )
         }
     }
 }
@@ -574,7 +624,14 @@ mod tests {
     use super::*;
 
     fn minimal_pdf() -> Vec<u8> {
-        b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF\n".to_vec()
+        b"%PDF-1.4\
+1 0 obj\
+<<>>\
+endobj\
+trailer\
+<<>>\
+%%EOF\
+".to_vec()
     }
 
     #[test]
@@ -582,7 +639,8 @@ mod tests {
         assert!(validate_pdf("guide.pdf", &minimal_pdf()).is_ok());
         assert!(validate_pdf("guide.txt", &minimal_pdf()).is_err());
         assert!(validate_pdf("guide.pdf", b"not-a-pdf").is_err());
-        assert!(validate_pdf("guide.pdf", b"%PDF-1.4\nmissing eof").is_err());
+        assert!(validate_pdf("guide.pdf", b"%PDF-1.4\
+missing eof").is_err());
     }
 
     #[test]
