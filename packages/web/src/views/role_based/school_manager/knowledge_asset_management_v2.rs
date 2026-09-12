@@ -68,6 +68,43 @@ fn ManagerKnowledgeAssetEditor() -> Element {
     let mut notice = use_signal(|| None::<(bool, String)>);
     let mut source_dirty = use_signal(|| false);
 
+    // Native reload/tab-close navigation must not silently discard the draft
+    // or leave an in-flight mutation looking as though it never happened.
+    #[cfg(target_arch = "wasm32")]
+    {
+        let unload_listener = use_hook(move || {
+            let listener = wasm_bindgen::closure::Closure::<dyn FnMut(web_sys::Event)>::new(
+                move |event: web_sys::Event| {
+                    let changed = selected
+                        .peek()
+                        .as_ref()
+                        .map(|asset| *draft.peek() != Draft::from(asset))
+                        .unwrap_or(false);
+                    if changed || *source_dirty.peek() || *busy.peek() {
+                        event.prevent_default();
+                        let _ =
+                            js_sys::Reflect::set(event.as_ref(), &"returnValue".into(), &"".into());
+                    }
+                },
+            );
+            if let Some(window) = web_sys::window() {
+                let _ = window.add_event_listener_with_callback(
+                    "beforeunload",
+                    listener.as_ref().unchecked_ref(),
+                );
+            }
+            std::rc::Rc::new(listener)
+        });
+        use_drop(move || {
+            if let Some(window) = web_sys::window() {
+                let _ = window.remove_event_listener_with_callback(
+                    "beforeunload",
+                    unload_listener.as_ref().as_ref().unchecked_ref(),
+                );
+            }
+        });
+    }
+
     let current = selected();
     let dirty = current
         .as_ref()

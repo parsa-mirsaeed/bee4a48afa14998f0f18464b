@@ -162,6 +162,13 @@ test('manager edits same asset with dirty-state guard and replaces immutable sou
   await expect(metadataForm.getByText('Unsaved changes', { exact: true })).toBeVisible();
   await expect(save).toBeEnabled();
 
+  const reloadPrompt = page.waitForEvent('dialog');
+  await page.evaluate(() => setTimeout(() => location.reload(), 0));
+  const unloadDialog = await reloadPrompt;
+  expect(unloadDialog.type()).toBe('beforeunload');
+  await unloadDialog.dismiss();
+  await expect(description).toHaveValue('Unsaved presentation copy');
+
   page.once('dialog', async (dialog) => {
     expect(dialog.message()).toMatch(/Discard your unsaved changes/);
     await dialog.dismiss();
@@ -212,6 +219,21 @@ test('manager edits same asset with dirty-state guard and replaces immutable sou
     .getByText(title, { exact: true })
     .locator('xpath=ancestor::article[1]');
   await expect(selectedCard).toContainText(/Revision: [3-9][0-9]*/);
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+
+  const adminLogin = await page.context().request.post('/api/auth/login', {
+    data: { email: 'e2e-admin@example.test', password: FIXTURE_PASSWORD },
+  });
+  expect(adminLogin.ok()).toBeTruthy();
+  await page.goto('/dashboard/knowledge-audit');
+  const auditRows = page.getByRole('row').filter({ hasText: title });
+  await expect(auditRows.filter({ hasText: 'Asset details updated' })).toHaveCount(1);
+  const replaced = auditRows.filter({ hasText: 'Source document replaced' });
+  await expect(replaced).toHaveCount(1);
+  await replaced.getByRole('button', { name: 'View details', exact: true }).click();
+  await expect(page.getByRole('dialog')).toContainText('knowledge_asset.source_replaced');
+  await expect(page.getByRole('dialog')).toContainText(replacementName);
 });
 
 test('manager knowledge editing surface renders Persian controls @smoke @workflow-truth', async ({ page }) => {
