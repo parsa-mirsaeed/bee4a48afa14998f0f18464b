@@ -131,7 +131,15 @@ IFS='|' read -r published job_status chunk_count <<<"${post_sensitive}"
 
 replacement_result="$(manager_query "${manager_a}" "${school_a}" "SELECT asset_revision,status,source_file_id,vectors_invalidated FROM manager_replace_knowledge_source_revision('${asset_id}',${sensitive_revision},'storage://edutalent-knowledge-sources/${school_a}/${source_two}.pdf','replacement.pdf','application/pdf',49,lower(encode(digest(convert_to('%PDF-1.4\\nreplacement knowledge source\\n%%EOF\\n','UTF8'),'sha256'),'hex')),NULL,FALSE);" | grep -E '^[0-9]+\|' | tail -1)"
 IFS='|' read -r replacement_revision replacement_status replacement_source replacement_invalidated <<<"${replacement_result}"
-[[ "${replacement_status}" == ocr_pending && "${replacement_source}" == "${source_two}" ]] || { echo "Source replacement failed: ${replacement_result}" >&2; exit 1; }
+[[ "${replacement_status}" == ocr_pending && -n "${replacement_source}" && "${replacement_source}" != "${initial_source}" && "${replacement_revision}" -gt "${sensitive_revision}" ]] || {
+  echo "Source replacement failed: ${replacement_result}" >&2; exit 1;
+}
+replacement_state="$(psql "${DATABASE_URL}" -At --field-separator='|' \
+  -c "SELECT asset.current_source_file_id,source.original_file_url,source.original_filename FROM knowledge_assets AS asset JOIN knowledge_source_files AS source ON source.id=asset.current_source_file_id AND source.asset_id=asset.id WHERE asset.id='${asset_id}';")"
+IFS='|' read -r canonical_source replacement_url replacement_filename <<<"${replacement_state}"
+[[ "${canonical_source}" == "${replacement_source}" && "${replacement_url}" == "storage://edutalent-knowledge-sources/${school_a}/${source_two}.pdf" && "${replacement_filename}" == replacement.pdf ]] || {
+  echo "Replacement source provenance mismatch: ${replacement_state}" >&2; exit 1;
+}
 
 state="$(psql "${DATABASE_URL}" -At --field-separator='|' \
   -c "SELECT (SELECT count(*) FROM knowledge_source_files WHERE asset_id='${asset_id}'),(SELECT count(*) FROM knowledge_ocr_texts WHERE asset_id='${asset_id}'),(SELECT count(*) FROM knowledge_ocr_revision_provenance WHERE revision='${ocr_revision}'),(SELECT count(*) FROM knowledge_audit_logs WHERE target_id='${asset_id}' AND action='knowledge_asset.metadata_updated'),(SELECT count(*) FROM knowledge_audit_logs WHERE target_id='${asset_id}' AND action='knowledge_asset.source_replaced');")"
