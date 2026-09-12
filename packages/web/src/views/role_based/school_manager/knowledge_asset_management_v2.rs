@@ -164,7 +164,7 @@ fn ManagerKnowledgeAssetEditor() -> Element {
         });
     };
 
-    let cancel = move |_: ()| {
+    let mut cancel = move |_: ()| {
         if busy() {
             return;
         }
