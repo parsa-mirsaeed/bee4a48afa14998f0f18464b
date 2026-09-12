@@ -1,6 +1,7 @@
 import { test, expect, type Page, type Locator } from '@playwright/test';
 import { enforceOfflineAllowlist, assertNoUnexpectedOrigins } from '../fixtures/network-policy';
 import { watchConsole, assertNoConsoleErrors } from '../fixtures/console-guard';
+import { expectSidebarRole } from '../fixtures/dashboard-sidebar';
 
 const PASSWORD = 'e2e-password';
 const ADMIN = 'e2e-admin@example.test';
@@ -105,7 +106,7 @@ for (const scenario of [
     await openAdminRoute(page, scenario.locale, '/dashboard');
     const body = page.locator('body');
 
-    await expect(page.getByText(scenario.role, { exact: true }).first()).toBeVisible();
+    await expectSidebarRole(page, scenario.role);
     await expect(page.getByText(scenario.reviewTitle, { exact: true })).toBeVisible();
 
     const verifiedCard = page.locator('article').filter({
