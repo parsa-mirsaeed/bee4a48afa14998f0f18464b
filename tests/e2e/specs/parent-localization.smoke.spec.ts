@@ -1,6 +1,7 @@
 import { test, expect, type Page, type Locator } from '@playwright/test';
 import { enforceOfflineAllowlist, assertNoUnexpectedOrigins } from '../fixtures/network-policy';
 import { watchConsole, assertNoConsoleErrors } from '../fixtures/console-guard';
+import { expectSidebarRole } from '../fixtures/dashboard-sidebar';
 
 const PASSWORD = 'e2e-password';
 const LINKED_PARENT = 'e2e-parent-a@example.test';
@@ -82,7 +83,7 @@ for (const scenario of [
     const body = page.locator('body');
 
     await expect(page.getByText('E2E Student A', { exact: true })).toBeVisible();
-    await expect(page.getByText(scenario.role, { exact: true }).first()).toBeVisible();
+    await expectSidebarRole(page, scenario.role);
     await expect(page.getByText(scenario.intro, { exact: true })).toBeVisible();
     await expect(page.getByText(scenario.gradeMissing, { exact: true })).toBeVisible();
     await expect(page.getByText(scenario.classCount, { exact: true })).toBeVisible();

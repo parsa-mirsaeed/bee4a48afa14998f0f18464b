@@ -11,7 +11,10 @@ pub mod class_section_repository;
 pub mod custom_assignment_repository;
 pub mod enrollment_repository;
 pub mod invite_repository;
+pub mod knowledge_asset_edit_repository;
 pub mod knowledge_asset_provenance_repository;
+#[cfg(test)]
+mod knowledge_asset_provenance_repository_tests;
 pub mod knowledge_asset_repository;
 #[cfg(test)]
 mod knowledge_asset_repository_tests;
@@ -46,6 +49,7 @@ pub use class_section_repository::*;
 pub use custom_assignment_repository::*;
 pub use enrollment_repository::*;
 pub use invite_repository::*;
+pub use knowledge_asset_edit_repository::*;
 pub use knowledge_asset_repository::*;
 pub use knowledge_audit_repository::*;
 pub use knowledge_ingestion_job_repository::*;

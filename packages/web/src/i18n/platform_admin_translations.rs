@@ -263,6 +263,10 @@ pub(crate) fn platform_admin_translation(
         (Locale::Fa, "platform_admin.audit.none") => Some("ثبت نشده"),
         (Locale::En, "platform_admin.audit.action.submitted") => Some("Knowledge source submitted"),
         (Locale::Fa, "platform_admin.audit.action.submitted") => Some("منبع دانشی ارسال شد"),
+        (Locale::En, "platform_admin.audit.action.metadata_updated") => Some("Asset details updated"),
+        (Locale::Fa, "platform_admin.audit.action.metadata_updated") => Some("جزئیات منبع ویرایش شد"),
+        (Locale::En, "platform_admin.audit.action.source_replaced") => Some("Source document replaced"),
+        (Locale::Fa, "platform_admin.audit.action.source_replaced") => Some("سند منبع جایگزین شد"),
         (Locale::En, "platform_admin.audit.action.source_reviewed") => Some("Private source reviewed"),
         (Locale::Fa, "platform_admin.audit.action.source_reviewed") => Some("منبع خصوصی بازبینی شد"),
         (Locale::En, "platform_admin.audit.action.ocr_verified") => Some("OCR text verified"),
@@ -334,6 +338,8 @@ pub(crate) fn platform_admin_audit_action_label(action: &str, locale: Locale) ->
         "knowledge_asset.submitted" | "knowledge_source.submitted" => {
             "platform_admin.audit.action.submitted"
         }
+        "knowledge_asset.metadata_updated" => "platform_admin.audit.action.metadata_updated",
+        "knowledge_asset.source_replaced" => "platform_admin.audit.action.source_replaced",
         "knowledge_asset.source_reviewed" | "knowledge_source.reviewed" => {
             "platform_admin.audit.action.source_reviewed"
         }
@@ -475,6 +481,8 @@ mod tests {
         "platform_admin.audit.action_code",
         "platform_admin.audit.target_id",
         "platform_admin.audit.structured_details",
+        "platform_admin.audit.action.metadata_updated",
+        "platform_admin.audit.action.source_replaced",
     ];
 
     #[test]
@@ -509,6 +517,25 @@ mod tests {
             platform_admin_actor_label("PlatformAdmin", Locale::Fa),
             "مدیر سامانه"
         );
+    }
+
+    #[test]
+    fn asset_revision_events_are_distinct_and_localized() {
+        for (code, english, persian) in [
+            (
+                "knowledge_asset.metadata_updated",
+                "Asset details updated",
+                "جزئیات منبع ویرایش شد",
+            ),
+            (
+                "knowledge_asset.source_replaced",
+                "Source document replaced",
+                "سند منبع جایگزین شد",
+            ),
+        ] {
+            assert_eq!(platform_admin_audit_action_label(code, Locale::En), english);
+            assert_eq!(platform_admin_audit_action_label(code, Locale::Fa), persian);
+        }
     }
 
     #[test]
