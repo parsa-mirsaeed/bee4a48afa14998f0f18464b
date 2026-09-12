@@ -199,7 +199,8 @@ impl KnowledgeAssetEditRepository {
 
 fn map_governed_edit_error(error: sqlx::Error) -> RepositoryError {
     if let sqlx::Error::Database(database) = &error {
-        let code = database.code().as_deref().unwrap_or_default();
+        let database_code = database.code();
+        let code = database_code.as_deref().unwrap_or_default();
         let message = database.message();
         return match (code, message) {
             ("40001", _) | (_, "knowledge_asset_revision_conflict") => RepositoryError::Validation(
