@@ -88,6 +88,10 @@ async fn main() {
         .expect("App state should be initialized")
         .clone();
 
+    api::services::run_demo_auth_repair_if_enabled(&app_state)
+        .await
+        .expect("Demo authentication reconciliation failed");
+
     let _knowledge_ingestion_worker = api::services::start_knowledge_ingestion_worker(
         app_state.services.raw_pool.clone(),
         app_state.services.pool.clone(),
