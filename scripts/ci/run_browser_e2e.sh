@@ -36,7 +36,7 @@ cleanup() {
 trap cleanup EXIT
 
 # Match the production Dockerfile's release bundle rather than a debug artifact.
-dx bundle --web --release --package web
+bash scripts/package/build_web_release.sh
 
 bundle_dir="target/dx/web/release/web"
 # The production Dockerfile stages these locally bundled fonts into public/fonts.
