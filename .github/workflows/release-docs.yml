@@ -35,7 +35,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           show-progress: false
+
+      - name: Verify checked-out proof identity
+        env:
+          PROOF_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: bash scripts/ci/stage1_verify_proof_head.sh
 
       - name: Compile verifier
         run: python3 -m py_compile scripts/ci/verify_release_docs.py scripts/ci/test_verify_release_docs.py

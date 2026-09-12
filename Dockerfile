@@ -70,7 +70,7 @@ RUN set -eux; \
     runuser -u postgres -- createdb -p 55433 edutalent_build; \
     export DATABASE_URL='postgresql://postgres:postgres@127.0.0.1:55433/edutalent_build'; \
     bash scripts/ci/apply_migrations.sh; \
-    dx bundle --web --release --package web; \
+    bash scripts/package/build_web_release.sh; \
     service postgresql stop
 RUN set -eux; \
     bundle_dir="target/dx/web/release/web"; \

@@ -14,6 +14,7 @@ cd "${ROOT}"
 : "${E2E_HEAD_SHA:=$(git rev-parse HEAD)}"
 : "${E2E_GREP:=@smoke}"
 export E2E_HEAD_SHA
+PROOF_HEAD_SHA="${E2E_HEAD_SHA}" bash scripts/ci/stage1_verify_proof_head.sh
 export E2E_BASE_URL="${E2E_BASE_URL:-http://127.0.0.1:8080}"
 export E2E_ALLOWED_ORIGINS="${E2E_ALLOWED_ORIGINS:-${E2E_BASE_URL},http://127.0.0.1:9100}"
 export DATABASE_URL="${DATABASE_URL:-postgresql://postgres:postgres@127.0.0.1:5432/edutalent_ci}"
@@ -36,7 +37,7 @@ cleanup() {
 trap cleanup EXIT
 
 # Match the production Dockerfile's release bundle rather than a debug artifact.
-dx bundle --web --release --package web
+bash scripts/package/build_web_release.sh
 
 bundle_dir="target/dx/web/release/web"
 # The production Dockerfile stages these locally bundled fonts into public/fonts.

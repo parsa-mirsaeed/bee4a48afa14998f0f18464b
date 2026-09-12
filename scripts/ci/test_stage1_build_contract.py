@@ -3,6 +3,10 @@
 
 from pathlib import Path
 import unittest
+import os
+import subprocess
+import tempfile
+import shutil
 
 
 DOCKERFILE = Path("Dockerfile")
@@ -56,7 +60,7 @@ class Stage1BuildBoundaryTests(unittest.TestCase):
             self.gateway_builder,
         )
         self.assertIn("COPY . .", self.web_builder)
-        self.assertIn("dx bundle --web --release --package web", self.web_builder)
+        self.assertIn("bash scripts/package/build_web_release.sh", self.web_builder)
 
     def test_gateway_build_uses_real_patched_dependency_after_chef_stubs(self):
         source_copy = "COPY vendor/dioxus-fullstack/ vendor/dioxus-fullstack/"
@@ -147,6 +151,57 @@ class Stage1BuildBoundaryTests(unittest.TestCase):
     def test_complete_package_still_replays_packaged_migrations_twice(self):
         self.assertEqual(self.complete_package.count("run --rm migrate"), 2)
         self.assertIn("Docker image and release bundle", self.complete_package)
+
+
+class ReleaseWebBuildTests(unittest.TestCase):
+    def run_bundle(self, mode):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "scripts/package").mkdir(parents=True)
+            shutil.copy("scripts/package/build_web_release.sh", root / "scripts/package/build_web_release.sh")
+            (root / "bin").mkdir()
+            dx = root / "bin/dx"
+            dx.write_text("""#!/usr/bin/env bash
+set -eu
+if [[ "$1" == '--version' ]]; then echo 'dioxus 0.7.2'; exit 0; fi
+[[ "$*" == 'bundle --web --release --package web --debug-symbols false' ]]
+case "$FAKE_DX_MODE" in
+  build_failure) exit 9 ;;
+  swallowed_failure) echo 'ERROR wasm-opt failed with status code signal: 6 (SIGABRT)'; exit 0 ;;
+  missing) exit 0 ;;
+esac
+mkdir -p target/dx/web/release/web/public/assets
+if [[ "$FAKE_DX_MODE" == 'invalid' ]]; then
+  echo invalid > target/dx/web/release/web/public/assets/web.wasm
+else
+  printf '\\0asm\\1\\0\\0\\0\\0\\1\\0' > target/dx/web/release/web/public/assets/web.wasm
+fi
+""")
+            dx.chmod(0o755)
+            stale = root / "target/dx/web/release/web/public/assets/stale.wasm"
+            stale.parent.mkdir(parents=True)
+            stale.write_bytes(b"\x00asm\x01\x00\x00\x00\x00\x01\x00")
+            result = subprocess.run(
+                ["bash", "scripts/package/build_web_release.sh"], cwd=root,
+                env={**os.environ, "PATH": f"{root / 'bin'}:{os.environ['PATH']}", "FAKE_DX_MODE": mode},
+                capture_output=True, text=True,
+            )
+            proof = root / "target/web-release-evidence.txt"
+            return result.returncode, proof.read_text() if proof.exists() else None, result.stdout + result.stderr
+
+    def test_success_records_fresh_module_identity(self):
+        code, proof, output = self.run_bundle("success")
+        self.assertEqual(code, 0, output)
+        self.assertIn("wasm_bytes=11", proof)
+        self.assertIn("release_wasm_debug_symbols=false", proof)
+        self.assertNotIn("stale.wasm", proof)
+
+    def test_failure_missing_or_invalid_output_never_produces_release_evidence(self):
+        for mode in ["build_failure", "swallowed_failure", "missing", "invalid"]:
+            with self.subTest(mode=mode):
+                code, proof, output = self.run_bundle(mode)
+                self.assertNotEqual(code, 0, output)
+                self.assertIsNone(proof)
 
 
 if __name__ == "__main__":
