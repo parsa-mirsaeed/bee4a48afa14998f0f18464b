@@ -105,8 +105,21 @@ IFS='|' read -r safe_revision safe_status safe_invalidated <<<"${safe_result}"
 
 expect_failure 'stale optimistic revision' "${manager_a}" "${school_a}" "SELECT * FROM manager_update_knowledge_asset_metadata('${asset_id}',${initial_revision},'Stale','Safe presentation update','Mathematics','8','en',NULL,'{\"scope\":\"fixture\"}'::jsonb);"
 expect_failure 'cross-school manager mutation' "${manager_b}" "${school_b}" "SELECT * FROM manager_update_knowledge_asset_metadata('${asset_id}',${safe_revision},'Cross school','Safe presentation update','Mathematics','8','en',NULL,'{\"scope\":\"fixture\"}'::jsonb);"
-expect_failure 'direct manager lifecycle mutation' "${manager_a}" "${school_a}" "UPDATE knowledge_assets SET status='archived' WHERE id='${asset_id}';"
-expect_failure 'manager verified OCR overwrite' "${manager_a}" "${school_a}" "UPDATE knowledge_ocr_texts SET raw_text='manager overwrite',clean_text='manager overwrite' WHERE asset_id='${asset_id}';"
+
+# Direct writes are denied by RLS. PostgreSQL may report this as UPDATE 0 rather
+# than throwing, so prove the protected row remained unchanged instead of
+# requiring an exception from the statement itself.
+manager_query "${manager_a}" "${school_a}" \
+  "UPDATE knowledge_assets SET status='archived' WHERE id='${asset_id}';" >/dev/null
+[[ "$(psql "${DATABASE_URL}" -At -c "SELECT status::text FROM knowledge_assets WHERE id='${asset_id}';")" == published ]] || {
+  echo 'Direct manager lifecycle mutation changed the protected asset' >&2; exit 1;
+}
+
+manager_query "${manager_a}" "${school_a}" \
+  "UPDATE knowledge_ocr_texts SET raw_text='manager overwrite',clean_text='manager overwrite' WHERE asset_id='${asset_id}';" >/dev/null
+[[ "$(psql "${DATABASE_URL}" -At -c "SELECT raw_text FROM knowledge_ocr_texts WHERE asset_id='${asset_id}';")" == 'Verified original OCR' ]] || {
+  echo 'Manager directly overwrote verified OCR' >&2; exit 1;
+}
 
 sensitive_result="$(manager_query "${manager_a}" "${school_a}" "SELECT asset_revision,status,vectors_invalidated FROM manager_update_knowledge_asset_metadata('${asset_id}',${safe_revision},'Knowledge edit published asset','Safe presentation update','Physics','8','en',NULL,'{\"scope\":\"fixture\"}'::jsonb);" | grep -E '^[0-9]+\|' | tail -1)"
 IFS='|' read -r sensitive_revision sensitive_status sensitive_invalidated <<<"${sensitive_result}"
