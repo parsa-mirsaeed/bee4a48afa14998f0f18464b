@@ -165,15 +165,7 @@ pub async fn run_demo_auth_repair_if_enabled(state: &AppState) -> Result<()> {
             && canonical_emails.contains(&current_email)
         {
             let temporary_email = format!("edutalent-repair-{}@example.test", account.id);
-            update_auth_user(
-                state,
-                &account.id,
-                &temporary_email,
-                None,
-                false,
-                None,
-            )
-            .await?;
+            update_auth_user(state, &account.id, &temporary_email, None, false, None).await?;
             tracing::info!(
                 auth_user_id = %account.id,
                 role = %account.role,
@@ -224,7 +216,11 @@ fn load_credentials() -> Result<Vec<DemoCredential>> {
 fn load_stale_emails() -> Result<HashSet<String>> {
     let raw = std::env::var(STALE_EMAILS_ENV).unwrap_or_default();
     let mut emails = HashSet::new();
-    for value in raw.split(',').map(str::trim).filter(|value| !value.is_empty()) {
+    for value in raw
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
         let email = value.to_ascii_lowercase();
         validate_demo_email(&email)?;
         emails.insert(email);
@@ -233,7 +229,8 @@ fn load_stale_emails() -> Result<HashSet<String>> {
 }
 
 fn required_env(name: &str) -> Result<String> {
-    let value = std::env::var(name).with_context(|| format!("{name} is required when demo auth repair is enabled"))?;
+    let value = std::env::var(name)
+        .with_context(|| format!("{name} is required when demo auth repair is enabled"))?;
     ensure!(!value.trim().is_empty(), "{name} must not be empty");
     Ok(value)
 }
@@ -259,23 +256,26 @@ fn validate_demo_password(password: &str) -> Result<()> {
 }
 
 async fn fetch_roles(state: &AppState) -> Result<HashMap<String, Value>> {
-    let url = format!("{}/rest/v1/roles", state.supabase_config.url.trim_end_matches('/'));
+    let url = format!(
+        "{}/rest/v1/roles",
+        state.supabase_config.url.trim_end_matches('/')
+    );
     let response = elevated_request(state, Method::GET, &url)
         .query(&[("select", "id,name")])
         .send()
         .await
         .context("failed to query canonical roles")?;
     let status = response.status();
-    ensure!(status.is_success(), "canonical role query failed with HTTP {status}");
+    ensure!(
+        status.is_success(),
+        "canonical role query failed with HTTP {status}"
+    );
     let roles = response
         .json::<Vec<RestRole>>()
         .await
         .context("failed to decode canonical roles")?;
 
-    Ok(roles
-        .into_iter()
-        .map(|role| (role.name, role.id))
-        .collect())
+    Ok(roles.into_iter().map(|role| (role.name, role.id)).collect())
 }
 
 async fn resolve_canonical_account(
@@ -283,25 +283,36 @@ async fn resolve_canonical_account(
     credential: DemoCredential,
     roles: &HashMap<String, Value>,
 ) -> Result<CanonicalAccount> {
-    let url = format!("{}/rest/v1/users", state.supabase_config.url.trim_end_matches('/'));
+    let url = format!(
+        "{}/rest/v1/users",
+        state.supabase_config.url.trim_end_matches('/')
+    );
+    let email_filter = format!("eq.{}", credential.email);
     let response = elevated_request(state, Method::GET, &url)
         .query(&[
             ("select", "id,email,role_id,is_active"),
-            ("email", &format!("eq.{}", credential.email)),
+            ("email", email_filter.as_str()),
         ])
         .send()
         .await
-        .with_context(|| format!("failed to query canonical demo account for {}", credential.role))?;
+        .with_context(|| {
+            format!(
+                "failed to query canonical demo account for {}",
+                credential.role
+            )
+        })?;
     let status = response.status();
     ensure!(
         status.is_success(),
         "canonical demo account query for {} failed with HTTP {status}",
         credential.role
     );
-    let users = response
-        .json::<Vec<RestUser>>()
-        .await
-        .with_context(|| format!("failed to decode canonical demo account for {}", credential.role))?;
+    let users = response.json::<Vec<RestUser>>().await.with_context(|| {
+        format!(
+            "failed to decode canonical demo account for {}",
+            credential.role
+        )
+    })?;
     ensure!(
         users.len() == 1,
         "expected exactly one canonical {} account for {}, found {}",
@@ -311,7 +322,11 @@ async fn resolve_canonical_account(
     );
 
     let user = users.into_iter().next().expect("length checked");
-    ensure!(user.is_active, "canonical {} account is inactive", credential.role);
+    ensure!(
+        user.is_active,
+        "canonical {} account is inactive",
+        credential.role
+    );
     let expected_role_id = roles
         .get(credential.role)
         .ok_or_else(|| anyhow!("canonical role {} does not exist", credential.role))?;
@@ -351,12 +366,15 @@ async fn list_auth_users(state: &AppState) -> Result<Vec<AdminUser>> {
             state.supabase_config.url.trim_end_matches('/')
         );
         let response = elevated_request(state, Method::GET, &url)
-            .query(&[("page", page.to_string()), ("per_page", LIST_PAGE_SIZE.to_string())])
+            .query(&[("page", page), ("per_page", LIST_PAGE_SIZE)])
             .send()
             .await
             .context("failed to list Supabase Auth users")?;
         let status = response.status();
-        ensure!(status.is_success(), "Supabase Auth user listing failed with HTTP {status}");
+        ensure!(
+            status.is_success(),
+            "Supabase Auth user listing failed with HTTP {status}"
+        );
         let page_body = response
             .json::<AdminUserList>()
             .await
@@ -460,7 +478,10 @@ async fn update_auth_user(
         .await
         .context("failed to update Supabase Auth identity")?;
     let status = response.status();
-    ensure!(status.is_success(), "Supabase Auth identity update failed with HTTP {status}");
+    ensure!(
+        status.is_success(),
+        "Supabase Auth identity update failed with HTTP {status}"
+    );
     Ok(())
 }
 
@@ -470,12 +491,14 @@ async fn delete_auth_user(state: &AppState, user_id: &str) -> Result<()> {
         state.supabase_config.url.trim_end_matches('/')
     );
     let response = elevated_request(state, Method::DELETE, &url)
-        .json(&json!({ "should_soft_delete": false }))
         .send()
         .await
         .context("failed to delete stale Supabase Auth identity")?;
     let status = response.status();
-    ensure!(status.is_success(), "Supabase Auth identity deletion failed with HTTP {status}");
+    ensure!(
+        status.is_success(),
+        "Supabase Auth identity deletion failed with HTTP {status}"
+    );
     Ok(())
 }
 
@@ -526,7 +549,12 @@ async fn verify_account(state: &AppState, account: &CanonicalAccount) -> Result<
 
     let active_session = resolve_active_session(state, &token_user_id)
         .await
-        .map_err(|error| anyhow!("{} canonical session verification failed: {error}", account.role))?;
+        .map_err(|error| {
+            anyhow!(
+                "{} canonical session verification failed: {error}",
+                account.role
+            )
+        })?;
     ensure!(
         active_session.user.role == account.role,
         "{} canonical session resolved as unexpected role {}",
@@ -534,7 +562,10 @@ async fn verify_account(state: &AppState, account: &CanonicalAccount) -> Result<
         active_session.user.role
     );
     ensure!(
-        active_session.user.email.eq_ignore_ascii_case(&account.email),
+        active_session
+            .user
+            .email
+            .eq_ignore_ascii_case(&account.email),
         "{} canonical session email mismatch",
         account.role
     );
