@@ -73,8 +73,10 @@ INSERT INTO ingestion_jobs (id, asset_id, stage, status, requested_by)
 VALUES (:'job_id', :'asset_id', 'embed', 'queued', :'platform_admin');
 SQL
 
-initial_revision="$(psql "${DATABASE_URL}" -At --set=ON_ERROR_STOP=1 --set=asset_id="${asset_id}" -c "SELECT asset_revision FROM knowledge_assets WHERE id=:'asset_id';")"
-initial_source="$(psql "${DATABASE_URL}" -At --set=ON_ERROR_STOP=1 --set=asset_id="${asset_id}" -c "SELECT current_source_file_id FROM knowledge_assets WHERE id=:'asset_id';")"
+initial_revision="$(psql "${DATABASE_URL}" -At --set=ON_ERROR_STOP=1 \
+  -c "SELECT asset_revision FROM knowledge_assets WHERE id='${asset_id}';")"
+initial_source="$(psql "${DATABASE_URL}" -At --set=ON_ERROR_STOP=1 \
+  -c "SELECT current_source_file_id FROM knowledge_assets WHERE id='${asset_id}';")"
 
 manager_query() {
   local actor="$1" school="$2" sql="$3"
@@ -99,7 +101,7 @@ expect_failure() {
 safe_result="$(manager_query "${manager_a}" "${school_a}" "SELECT asset_revision,status,vectors_invalidated FROM manager_update_knowledge_asset_metadata('${asset_id}',${initial_revision},'Knowledge edit published asset','Safe presentation update','Mathematics','8','en',NULL,'{\"scope\":\"fixture\"}'::jsonb);" | grep -E '^[0-9]+\|' | tail -1)"
 IFS='|' read -r safe_revision safe_status safe_invalidated <<<"${safe_result}"
 [[ "${safe_status}" == published && "${safe_invalidated}" == f ]] || { echo "Safe edit changed lifecycle: ${safe_result}" >&2; exit 1; }
-[[ "$(psql "${DATABASE_URL}" -At --set=asset_id="${asset_id}" -c "SELECT current_source_file_id FROM knowledge_assets WHERE id=:'asset_id';")" == "${initial_source}" ]] || { echo 'Safe edit replaced source' >&2; exit 1; }
+[[ "$(psql "${DATABASE_URL}" -At -c "SELECT current_source_file_id FROM knowledge_assets WHERE id='${asset_id}';")" == "${initial_source}" ]] || { echo 'Safe edit replaced source' >&2; exit 1; }
 
 expect_failure 'stale optimistic revision' "${manager_a}" "${school_a}" "SELECT * FROM manager_update_knowledge_asset_metadata('${asset_id}',${initial_revision},'Stale','Safe presentation update','Mathematics','8','en',NULL,'{\"scope\":\"fixture\"}'::jsonb);"
 expect_failure 'cross-school manager mutation' "${manager_b}" "${school_b}" "SELECT * FROM manager_update_knowledge_asset_metadata('${asset_id}',${safe_revision},'Cross school','Safe presentation update','Mathematics','8','en',NULL,'{\"scope\":\"fixture\"}'::jsonb);"
@@ -109,7 +111,8 @@ expect_failure 'manager verified OCR overwrite' "${manager_a}" "${school_a}" "UP
 sensitive_result="$(manager_query "${manager_a}" "${school_a}" "SELECT asset_revision,status,vectors_invalidated FROM manager_update_knowledge_asset_metadata('${asset_id}',${safe_revision},'Knowledge edit published asset','Safe presentation update','Physics','8','en',NULL,'{\"scope\":\"fixture\"}'::jsonb);" | grep -E '^[0-9]+\|' | tail -1)"
 IFS='|' read -r sensitive_revision sensitive_status sensitive_invalidated <<<"${sensitive_result}"
 [[ "${sensitive_status}" == ocr_ready && "${sensitive_invalidated}" == t ]] || { echo "Sensitive edit did not require reprocessing: ${sensitive_result}" >&2; exit 1; }
-post_sensitive="$(psql "${DATABASE_URL}" -At --field-separator='|' --set=asset_id="${asset_id}" --set=job_id="${job_id}" -c "SELECT COALESCE(published_at::text,''),(SELECT status::text FROM ingestion_jobs WHERE id=:'job_id'),(SELECT count(*) FROM knowledge_chunks WHERE asset_id=:'asset_id') FROM knowledge_assets WHERE id=:'asset_id';")"
+post_sensitive="$(psql "${DATABASE_URL}" -At --field-separator='|' \
+  -c "SELECT COALESCE(published_at::text,''),(SELECT status::text FROM ingestion_jobs WHERE id='${job_id}'),(SELECT count(*) FROM knowledge_chunks WHERE asset_id='${asset_id}') FROM knowledge_assets WHERE id='${asset_id}';")"
 IFS='|' read -r published job_status chunk_count <<<"${post_sensitive}"
 [[ -z "${published}" && "${job_status}" == cancelled && "${chunk_count}" == 0 ]] || { echo "Sensitive invalidation failed: ${post_sensitive}" >&2; exit 1; }
 
@@ -117,7 +120,8 @@ replacement_result="$(manager_query "${manager_a}" "${school_a}" "SELECT asset_r
 IFS='|' read -r replacement_revision replacement_status replacement_source replacement_invalidated <<<"${replacement_result}"
 [[ "${replacement_status}" == ocr_pending && "${replacement_source}" == "${source_two}" ]] || { echo "Source replacement failed: ${replacement_result}" >&2; exit 1; }
 
-state="$(psql "${DATABASE_URL}" -At --field-separator='|' --set=asset_id="${asset_id}" --set=ocr_revision="${ocr_revision}" -c "SELECT (SELECT count(*) FROM knowledge_source_files WHERE asset_id=:'asset_id'),(SELECT count(*) FROM knowledge_ocr_texts WHERE asset_id=:'asset_id'),(SELECT count(*) FROM knowledge_ocr_revision_provenance WHERE revision=:'ocr_revision'),(SELECT count(*) FROM knowledge_audit_logs WHERE target_id=:'asset_id' AND action='knowledge_asset.metadata_updated'),(SELECT count(*) FROM knowledge_audit_logs WHERE target_id=:'asset_id' AND action='knowledge_asset.source_replaced');")"
+state="$(psql "${DATABASE_URL}" -At --field-separator='|' \
+  -c "SELECT (SELECT count(*) FROM knowledge_source_files WHERE asset_id='${asset_id}'),(SELECT count(*) FROM knowledge_ocr_texts WHERE asset_id='${asset_id}'),(SELECT count(*) FROM knowledge_ocr_revision_provenance WHERE revision='${ocr_revision}'),(SELECT count(*) FROM knowledge_audit_logs WHERE target_id='${asset_id}' AND action='knowledge_asset.metadata_updated'),(SELECT count(*) FROM knowledge_audit_logs WHERE target_id='${asset_id}' AND action='knowledge_asset.source_replaced');")"
 IFS='|' read -r source_count active_ocr provenance metadata_audits source_audits <<<"${state}"
 [[ "${source_count}" == 2 && "${active_ocr}" == 0 && "${provenance}" == 1 && "${metadata_audits}" -ge 2 && "${source_audits}" == 1 ]] || { echo "Source/OCR/audit invariant failed: ${state}" >&2; exit 1; }
 
@@ -128,7 +132,8 @@ SET LOCAL app.school_id=:'school_a'; SET LOCAL app.elevated_operation='false';
 UPDATE knowledge_assets SET status='archived' WHERE id=:'asset_id';
 COMMIT;
 SQL
-archived_revision="$(psql "${DATABASE_URL}" -At --set=asset_id="${asset_id}" -c "SELECT asset_revision FROM knowledge_assets WHERE id=:'asset_id';")"
+archived_revision="$(psql "${DATABASE_URL}" -At \
+  -c "SELECT asset_revision FROM knowledge_assets WHERE id='${asset_id}';")"
 expect_failure 'archived source replacement' "${manager_a}" "${school_a}" "SELECT * FROM manager_replace_knowledge_source_revision('${asset_id}',${archived_revision},'storage://edutalent-knowledge-sources/${school_a}/$(uuid).pdf','forbidden.pdf','application/pdf',10,repeat('a',64),NULL,FALSE);"
 
 echo 'knowledge asset editing/versioning invariants verified'
