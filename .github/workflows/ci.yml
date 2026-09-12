@@ -47,8 +47,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
           show-progress: false
+
+      - name: Verify checked-out proof identity
+        env:
+          PROOF_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: bash scripts/ci/stage1_verify_proof_head.sh
 
       - id: scope
         name: Detect affected systems
@@ -175,7 +181,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           show-progress: false
+
+      - name: Verify checked-out proof identity
+        env:
+          PROOF_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: bash scripts/ci/stage1_verify_proof_head.sh
 
       - name: Run Stage 1 classifier matrix
         run: python3 scripts/ci/test_stage1_change_classifier.py
@@ -207,7 +219,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           show-progress: false
+
+      - name: Verify checked-out proof identity
+        env:
+          PROOF_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: bash scripts/ci/stage1_verify_proof_head.sh
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -282,7 +300,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           show-progress: false
+
+      - name: Verify checked-out proof identity
+        env:
+          PROOF_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: bash scripts/ci/stage1_verify_proof_head.sh
 
       - name: Verify PostgreSQL client tools
         run: |
@@ -341,7 +365,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           show-progress: false
+
+      - name: Verify checked-out proof identity
+        env:
+          PROOF_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: bash scripts/ci/stage1_verify_proof_head.sh
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -412,7 +442,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           show-progress: false
+
+      - name: Verify checked-out proof identity
+        env:
+          PROOF_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: bash scripts/ci/stage1_verify_proof_head.sh
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -496,7 +532,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           show-progress: false
+
+      - name: Verify checked-out proof identity
+        env:
+          PROOF_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: bash scripts/ci/stage1_verify_proof_head.sh
 
       - uses: actions/download-artifact@v4
         with:

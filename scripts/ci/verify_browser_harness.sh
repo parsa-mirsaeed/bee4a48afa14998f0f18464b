@@ -25,7 +25,8 @@ grep -q "kid: KID" tests/e2e/fixtures/mock-idp.mjs
 grep -q "email," tests/e2e/fixtures/mock-idp.mjs
 grep -q 'SUPABASE_JWT_ISSUER="http://127.0.0.1:9100/auth/v1"' scripts/ci/run_browser_e2e.sh
 
-grep -q 'dx bundle --web --release --package web' scripts/ci/run_browser_e2e.sh
+grep -q 'bash scripts/package/build_web_release.sh' scripts/ci/run_browser_e2e.sh
+python3 scripts/ci/test_stage1_build_contract.py
 grep -q 'target/dx/web/release/web' scripts/ci/run_browser_e2e.sh
 grep -q 'bash scripts/ci/configure_database_role.sh' scripts/ci/run_browser_e2e.sh
 grep -q 'NOT rolsuper AND NOT rolbypassrls' scripts/ci/run_browser_e2e.sh

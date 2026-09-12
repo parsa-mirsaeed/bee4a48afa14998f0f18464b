@@ -31,7 +31,13 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           show-progress: false
+
+      - name: Verify checked-out proof identity
+        env:
+          PROOF_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: bash scripts/ci/stage1_verify_proof_head.sh
 
       - name: Prepare non-secret environment template
         run: cp .env.example .env
@@ -68,7 +74,13 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           show-progress: false
+
+      - name: Verify checked-out proof identity
+        env:
+          PROOF_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: bash scripts/ci/stage1_verify_proof_head.sh
 
       - uses: docker/setup-buildx-action@v4
         with:
@@ -132,7 +144,13 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           show-progress: false
+
+      - name: Verify checked-out proof identity
+        env:
+          PROOF_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: bash scripts/ci/stage1_verify_proof_head.sh
 
       - uses: docker/setup-buildx-action@v4
         with:
