@@ -170,10 +170,16 @@ pub async fn update_manager_knowledge_asset_metadata(
 #[cfg(feature = "server")]
 fn safe_edit_error(error: RepositoryError) -> ServerFnError {
     let message = match error {
-        RepositoryError::Unauthorized => "Knowledge asset is not available in your school".to_string(),
-        RepositoryError::NotFound { .. } => "Knowledge asset is not available in your school".to_string(),
+        RepositoryError::Unauthorized => {
+            "Knowledge asset is not available in your school".to_string()
+        }
+        RepositoryError::NotFound { .. } => {
+            "Knowledge asset is not available in your school".to_string()
+        }
         RepositoryError::Validation(message) => message,
-        RepositoryError::Duplicate { .. } => "Knowledge asset edit conflicted with existing data".to_string(),
+        RepositoryError::Duplicate { .. } => {
+            "Knowledge asset edit conflicted with existing data".to_string()
+        }
         RepositoryError::Database(error) => {
             tracing::error!(%error, "knowledge asset edit database failure");
             "Knowledge asset could not be updated".to_string()
