@@ -4,6 +4,8 @@ pub mod assignment_personalization_service;
 pub mod assignment_personalization_worker;
 pub mod audit_service;
 #[cfg(feature = "server")]
+pub mod demo_auth_repair;
+#[cfg(feature = "server")]
 pub mod document_extraction_service;
 #[cfg(feature = "server")]
 pub mod embedding_profile;
@@ -31,6 +33,8 @@ pub use assignment_personalization_service::{
 #[cfg(feature = "server")]
 pub use assignment_personalization_worker::start_assignment_personalization_worker;
 pub use audit_service::AuditService;
+#[cfg(feature = "server")]
+pub use demo_auth_repair::run_demo_auth_repair_if_enabled;
 pub use llm_service::{DeepSeekClient, ExternalLlmClient, LlmConfig, LlmError};
 pub use student_context_service::{StudentContextError, StudentContextService};
 pub use supabase_auth::SupabaseAdminService;
