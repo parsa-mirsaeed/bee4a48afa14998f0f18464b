@@ -806,6 +806,7 @@ fn render_review_card(
                                             Ok(_) => {
                                                 notice.set(Some("platform_admin.notice.embedding_queued"));
                                                 assets.restart();
+                                                busy.set(false);
                                                 #[cfg(target_arch = "wasm32")]
                                                 for delay_ms in [500_u32, 1_000, 1_500, 2_500, 4_000, 6_000, 8_000, 10_000] {
                                                     TimeoutFuture::new(delay_ms).await;
