@@ -35,7 +35,14 @@ BEGIN
                 )
                 OR
                 (
-                    embedding_profile IN ('openai-v1', 'local-bge-v1')
+                    embedding_profile IS NOT NULL
+                    AND embedding_provider IS NOT NULL
+                    AND embedding_model IS NOT NULL
+                    AND embedding_dimensions IS NOT NULL
+                    AND embedding_collection IS NOT NULL
+                    AND chunk_size IS NOT NULL
+                    AND chunk_overlap IS NOT NULL
+                    AND embedding_profile IN ('openai-v1', 'local-bge-v1')
                     AND embedding_provider IN ('openai', 'local')
                     AND NULLIF(btrim(embedding_model), '') IS NOT NULL
                     AND embedding_dimensions > 0
