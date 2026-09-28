@@ -222,6 +222,13 @@ pub async fn initialize_app_state(config: Config) -> Result<(), Box<dyn std::err
         supabase_config: config.supabase,
     };
 
+    if let Err(error) = crate::services::run_demo_auth_repair_if_enabled(&app_state).await {
+        return Err(std::io::Error::other(format!(
+            "Demo authentication reconciliation failed: {error}"
+        ))
+        .into());
+    }
+
     APP_STATE
         .set(app_state)
         .map_err(|_| "App state already initialized")?;

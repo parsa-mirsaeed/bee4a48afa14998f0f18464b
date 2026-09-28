@@ -19,6 +19,8 @@ use api::server_functions::knowledge_functions::{
     archive_admin_knowledge_asset, embed_admin_knowledge_asset, publish_admin_knowledge_asset,
 };
 use dioxus::prelude::*;
+#[cfg(target_arch = "wasm32")]
+use gloo_timers::future::TimeoutFuture;
 
 fn admin_t(key: &'static str, locale: Locale) -> String {
     platform_admin_translation(key, locale)
@@ -39,6 +41,7 @@ struct OcrEditorState {
     text_sha256: Option<String>,
     source_file_id: Option<String>,
     source_sha256: Option<String>,
+    has_source_review: bool,
     loading: bool,
     error: Option<&'static str>,
 }
@@ -57,6 +60,7 @@ impl OcrEditorState {
             text_sha256: None,
             source_file_id: None,
             source_sha256: None,
+            has_source_review: false,
             loading: true,
             error: None,
         }
@@ -255,20 +259,32 @@ fn open_ocr_editor(
                     text_sha256: ocr.text_sha256,
                     source_file_id: Some(source.source_file_id),
                     source_sha256: Some(source.source_sha256),
+                    has_source_review: source.has_source_review,
                     loading: false,
-                    error: None,
+                    error: if !source.has_source_review {
+                        Some("platform_admin.ocr.source_not_reviewed")
+                    } else {
+                        None
+                    },
                 }));
             }
             Ok(None) => selected_ocr_asset.set(Some(OcrEditorState {
                 original_provider: "manual-verified".to_string(),
                 source_file_id: Some(source.source_file_id),
                 source_sha256: Some(source.source_sha256),
+                has_source_review: source.has_source_review,
                 loading: false,
+                error: if !source.has_source_review {
+                    Some("platform_admin.ocr.source_not_reviewed")
+                } else {
+                    None
+                },
                 ..current
             })),
             Err(_) => selected_ocr_asset.set(Some(OcrEditorState {
                 source_file_id: Some(source.source_file_id),
                 source_sha256: Some(source.source_sha256),
+                has_source_review: source.has_source_review,
                 loading: false,
                 error: Some("platform_admin.ocr.load_error"),
                 ..current
@@ -330,6 +346,13 @@ fn OcrEditorDialog(
             return;
         }
         if ocr_text().trim().is_empty() || provider().trim().is_empty() {
+            return;
+        }
+        if !editor_for_submit.has_source_review {
+            selected_ocr_asset.set(Some(OcrEditorState {
+                error: Some("platform_admin.ocr.source_not_reviewed"),
+                ..editor_for_submit.clone()
+            }));
             return;
         }
         let Some(expected_source_file_id) = editor_for_submit.source_file_id.clone() else {
@@ -715,17 +738,28 @@ fn render_review_card(
             div { class: "rounded-lg bg-gray-50 p-3 text-sm dark:bg-gray-900/40",
                 p { class: "font-medium text-gray-800 dark:text-gray-200", {admin_t("platform_admin.source.title", locale)} }
                 p { class: "mt-1 text-xs text-gray-500", dir: "auto", "{source_description}" }
-                if item.source_review_available {
-                    a {
-                        class: "mt-2 inline-flex items-center gap-1 font-medium text-primary hover:underline",
-                        href: source_href,
-                        target: "_blank",
-                        rel: "noopener noreferrer",
-                        {admin_t("platform_admin.source.review", locale)},
-                        span { class: "material-icons-outlined text-base", aria_hidden: "true", "open_in_new" }
+                div { class: "mt-2 flex flex-wrap items-center gap-2",
+                    if item.source_review_available {
+                        a {
+                            class: "inline-flex items-center gap-1 font-medium text-primary hover:underline",
+                            href: source_href,
+                            target: "_blank",
+                            rel: "noopener noreferrer",
+                            {admin_t("platform_admin.source.review", locale)},
+                            span { class: "material-icons-outlined text-base", aria_hidden: "true", "open_in_new" }
+                        }
+                    } else {
+                        p { class: "text-xs text-amber-700 dark:text-amber-300", {admin_t("platform_admin.source.unavailable", locale)} }
                     }
-                } else {
-                    p { class: "mt-2 text-xs text-amber-700 dark:text-amber-300", {admin_t("platform_admin.source.unavailable", locale)} }
+                    if item.has_source_review {
+                        span { class: "inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900/30 dark:text-green-300",
+                            {admin_t("platform_admin.source.reviewed", locale)}
+                        }
+                    } else if item.source_review_available {
+                        span { class: "inline-flex items-center rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-300",
+                            {admin_t("platform_admin.source.not_reviewed", locale)}
+                        }
+                    }
                 }
             }
             div { class: "flex flex-wrap gap-2",
@@ -772,6 +806,12 @@ fn render_review_card(
                                             Ok(_) => {
                                                 notice.set(Some("platform_admin.notice.embedding_queued"));
                                                 assets.restart();
+                                                busy.set(false);
+                                                #[cfg(target_arch = "wasm32")]
+                                                for delay_ms in [500_u32, 1_000, 1_500, 2_500, 4_000, 6_000, 8_000, 10_000] {
+                                                    TimeoutFuture::new(delay_ms).await;
+                                                    assets.restart();
+                                                }
                                             }
                                             Err(_) => notice.set(Some("platform_admin.notice.embedding_failed")),
                                         }

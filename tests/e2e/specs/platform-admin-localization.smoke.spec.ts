@@ -129,6 +129,7 @@ for (const scenario of [
     await expect(dialog.getByText(scenario.verifiedText, { exact: true })).toBeVisible();
     await expect(dialog.locator('#verified-ocr-text')).toHaveValue('E2E preverified OCR text');
     await expect(dialog.locator('#ocr-provider')).toHaveValue('e2e-manual-review');
+    await expect(dialog).not.toContainText(/source review required/i);
     await expect(dialog).not.toContainText(/platform_admin\.[a-z0-9_.]+/i);
     await dialog.getByRole('button', { name: scenario.cancel, exact: true }).click();
     await expect(dialog).toHaveCount(0);

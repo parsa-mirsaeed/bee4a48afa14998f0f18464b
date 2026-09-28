@@ -4,12 +4,19 @@
 // Storage APIs) without adding a production bypass.
 import http from 'node:http';
 import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 
 const PORT = Number(process.env.MOCK_IDP_PORT ?? 9100);
 const ISSUER = `http://127.0.0.1:${PORT}/auth/v1`;
 const KID = 'e2e-local-es256';
 const FIXTURE_PASSWORD = 'e2e-password';
 const KNOWLEDGE_BUCKET = 'edutalent-knowledge-sources';
+const STORAGE_DIR = process.env.MOCK_STORAGE_DIR ?? '/tmp/edutalent-mock-storage';
+
+try {
+  fs.mkdirSync(STORAGE_DIR, { recursive: true });
+} catch {}
 
 const { privateKey, publicKey } = crypto.generateKeyPairSync('ec', { namedCurve: 'P-256' });
 const publicJwk = publicKey.export({ format: 'jwk' });
@@ -30,8 +37,56 @@ const USERS = new Map([
   ['e2e-inactive@example.test', 'b0000000-0000-0000-0000-0000000000a9'],
 ]);
 const PASSWORDS = new Map([...USERS.keys()].map((email) => [email, FIXTURE_PASSWORD]));
-const BUCKETS = new Map();
+const BUCKETS = new Map([
+  [KNOWLEDGE_BUCKET, { id: KNOWLEDGE_BUCKET, name: KNOWLEDGE_BUCKET, public: false }],
+  ['edutalent-submission-originals', { id: 'edutalent-submission-originals', name: 'edutalent-submission-originals', public: false }],
+]);
 const OBJECTS = new Map();
+
+function storageFilePath(key) {
+  return path.join(STORAGE_DIR, encodeURIComponent(key));
+}
+
+function persistObject(key, buffer) {
+  OBJECTS.set(key, buffer);
+  try {
+    fs.writeFileSync(storageFilePath(key), buffer);
+  } catch {}
+}
+
+function deletePersistedObject(key) {
+  OBJECTS.delete(key);
+  try {
+    fs.unlinkSync(storageFilePath(key));
+  } catch {}
+}
+
+function getObject(key) {
+  if (OBJECTS.has(key)) return OBJECTS.get(key);
+  try {
+    const filePath = storageFilePath(key);
+    if (fs.existsSync(filePath)) {
+      const buffer = fs.readFileSync(filePath);
+      OBJECTS.set(key, buffer);
+      return buffer;
+    }
+  } catch {}
+  return null;
+}
+
+try {
+  if (fs.existsSync(STORAGE_DIR)) {
+    const files = fs.readdirSync(STORAGE_DIR);
+    for (const file of files) {
+      try {
+        const key = decodeURIComponent(file);
+        const buffer = fs.readFileSync(path.join(STORAGE_DIR, file));
+        OBJECTS.set(key, buffer);
+      } catch {}
+    }
+  }
+} catch {}
+
 let storageMode = 'ready';
 
 const encode = (value) => Buffer.from(JSON.stringify(value)).toString('base64url');
@@ -229,7 +284,7 @@ const server = http.createServer((req, res) => {
     if (req.method === 'GET' && supportedBucket && url.pathname.startsWith(objectPrefix)) {
       if (storageUnavailable(res)) return;
       const key = `${bucketId}/${decodeURIComponent(url.pathname.slice(objectPrefix.length))}`;
-      const bytes = OBJECTS.get(key);
+      const bytes = getObject(key);
       if (!bytes) { json(res, 404, { error: 'not_found' }); return; }
       res.statusCode = 200;
       res.setHeader('content-type', 'application/octet-stream');
@@ -248,11 +303,11 @@ const server = http.createServer((req, res) => {
         return;
       }
       const storageKey = `${bucketId}/${objectKey}`;
-      if (OBJECTS.has(storageKey) && req.headers['x-upsert'] !== 'true') {
+      if (getObject(storageKey) && req.headers['x-upsert'] !== 'true') {
         json(res, 409, { error: 'already_exists' });
         return;
       }
-      OBJECTS.set(storageKey, Buffer.from(bodyBuffer));
+      persistObject(storageKey, Buffer.from(bodyBuffer));
       json(res, 200, { key: storageKey });
       return;
     }
@@ -261,7 +316,7 @@ const server = http.createServer((req, res) => {
       if (storageUnavailable(res)) return;
       const payload = parseBody(body);
       for (const prefix of payload?.prefixes ?? []) {
-        OBJECTS.delete(`${bucketId}/${prefix}`);
+        deletePersistedObject(`${bucketId}/${prefix}`);
       }
       json(res, 200, { deleted: payload?.prefixes ?? [] });
       return;
