@@ -406,6 +406,12 @@ pub async fn list_admin_knowledge_assets_for_review(
                 });
                 let has_verified_ocr = ocr_asset_ids.contains(&asset.id);
                 let has_source_review = reviewed_asset_ids.contains(&asset.id);
+                let vectorization = vectorization_by_asset
+                    .remove(&asset.id)
+                    .unwrap_or_else(|| AdminKnowledgeVectorizationDto {
+                        methods: methods.clone(),
+                        ..Default::default()
+                    });
                 AdminKnowledgeReviewAssetDto {
                     asset: asset.into(),
                     school_name,
@@ -416,12 +422,7 @@ pub async fn list_admin_knowledge_assets_for_review(
                     file_size_bytes: source.and_then(|source| source.file_size_bytes),
                     has_verified_ocr,
                     has_source_review,
-                    vectorization: vectorization_by_asset
-                        .remove(&asset.id)
-                        .unwrap_or_else(|| AdminKnowledgeVectorizationDto {
-                            methods: methods.clone(),
-                            ..Default::default()
-                        }),
+                    vectorization,
                 }
             })
             .collect())
