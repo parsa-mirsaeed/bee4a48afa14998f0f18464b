@@ -8,10 +8,7 @@ pub(crate) enum PostCommitSideEffect {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum RollbackSideEffect {
-    DeleteKnowledgeStorageObject {
-        object_key: String,
-        school_id: Uuid,
-    },
+    DeleteKnowledgeStorageObject { object_key: String, school_id: Uuid },
 }
 
 /// External effects that must be ordered relative to the request-scoped
@@ -32,11 +29,7 @@ impl RequestSideEffects {
             .push(PostCommitSideEffect::DeleteKnowledgeVectors { asset_id });
     }
 
-    pub fn delete_knowledge_storage_on_rollback(
-        &self,
-        object_key: String,
-        school_id: Uuid,
-    ) {
+    pub fn delete_knowledge_storage_on_rollback(&self, object_key: String, school_id: Uuid) {
         self.rollback
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())

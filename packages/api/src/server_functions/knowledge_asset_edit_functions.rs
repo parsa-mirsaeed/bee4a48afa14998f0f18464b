@@ -145,9 +145,10 @@ pub async fn update_manager_knowledge_asset_metadata(
             .map_err(safe_edit_error)?;
 
         if mutation.vectors_invalidated {
-            let Extension(side_effects): Extension<Arc<RequestSideEffects>> = extract()
-                .await
-                .map_err(|_| ServerFnError::new("Request transaction finalization is unavailable"))?;
+            let Extension(side_effects): Extension<Arc<RequestSideEffects>> =
+                extract().await.map_err(|_| {
+                    ServerFnError::new("Request transaction finalization is unavailable")
+                })?;
             side_effects.delete_knowledge_vectors_after_commit(asset_id);
         }
 
