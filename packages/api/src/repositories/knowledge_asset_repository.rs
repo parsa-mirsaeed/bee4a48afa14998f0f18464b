@@ -330,6 +330,37 @@ impl KnowledgeAssetRepository {
             .collect()
     }
 
+    pub async fn list_enabled_asset_ids_for_teacher(
+        &self,
+        teacher_user_id: Uuid,
+        context_scope: &str,
+        context_key: &str,
+    ) -> RepositoryResult<Vec<Uuid>> {
+        sqlx::query_scalar::<_, Uuid>(
+            r#"
+            SELECT ka.id
+            FROM teachers AS teacher
+            JOIN users AS teacher_user ON teacher_user.id = teacher.user_id
+            JOIN teacher_asset_selections AS selection
+              ON selection.teacher_id = teacher.id
+             AND selection.enabled = TRUE
+             AND selection.context_scope = $2
+             AND selection.context_key = $3
+            JOIN knowledge_assets AS ka ON ka.id = selection.asset_id
+            WHERE teacher.user_id = $1
+              AND ka.school_id = teacher_user.school_id
+              AND ka.status = 'published'
+            ORDER BY ka.id
+            "#,
+        )
+        .bind(teacher_user_id)
+        .bind(context_scope)
+        .bind(context_key)
+        .fetch_all(&*self.base.pool())
+        .await
+        .map_err(RepositoryError::from)
+    }
+
     pub async fn set_teacher_selection(
         &self,
         teacher_user_id: Uuid,
