@@ -88,10 +88,10 @@ pub(crate) fn teacher_assignments_translation(
         (Locale::En, "teacher.assignments.create_draft") => Some("Create draft"),
         (Locale::Fa, "teacher.assignments.create_draft") => Some("ایجاد پیش‌نویس"),
         (Locale::En, "teacher.assignments.materials_legend") => {
-            Some("Governed class materials (optional)")
+            Some("Class materials (optional)")
         }
         (Locale::Fa, "teacher.assignments.materials_legend") => {
-            Some("منابع تأییدشده کلاس (اختیاری)")
+            Some("منابع کلاس (اختیاری)")
         }
         (Locale::En, "teacher.assignments.materials_loading") => Some("Loading materials…"),
         (Locale::Fa, "teacher.assignments.materials_loading") => Some("در حال بارگذاری منابع…"),
@@ -107,6 +107,36 @@ pub(crate) fn teacher_assignments_translation(
         (Locale::Fa, "teacher.assignments.materials_empty") => {
             Some("هیچ منبعی برای این کلاس در دسترس نیست.")
         }
+        (Locale::En, "teacher.assignments.knowledge_legend") => {
+            Some("School knowledge for AI generation")
+        }
+        (Locale::Fa, "teacher.assignments.knowledge_legend") => {
+            Some("دانش مدرسه برای تولید با هوش مصنوعی")
+        }
+        (Locale::En, "teacher.assignments.knowledge_helper") => Some(
+            "Enabled school knowledge is used automatically during AI generation. It is separate from class materials.",
+        ),
+        (Locale::Fa, "teacher.assignments.knowledge_helper") => Some(
+            "دانش فعال‌شده مدرسه هنگام تولید با هوش مصنوعی به‌صورت خودکار استفاده می‌شود و از منابع پیوست‌شده به کلاس جدا است.",
+        ),
+        (Locale::En, "teacher.assignments.knowledge_loading") => {
+            Some("Loading enabled school knowledge…")
+        }
+        (Locale::Fa, "teacher.assignments.knowledge_loading") => {
+            Some("در حال بارگذاری دانش فعال‌شده مدرسه…")
+        }
+        (Locale::En, "teacher.assignments.knowledge_load_error") => Some(
+            "Enabled school knowledge could not be loaded. Refresh before relying on AI generation context.",
+        ),
+        (Locale::Fa, "teacher.assignments.knowledge_load_error") => Some(
+            "بارگذاری دانش فعال‌شده مدرسه ممکن نشد. پیش از اتکا به زمینهٔ تولید هوش مصنوعی صفحه را تازه‌سازی کنید.",
+        ),
+        (Locale::En, "teacher.assignments.knowledge_empty") => Some(
+            "No school knowledge is enabled for generation. Enable a published asset from Knowledge if needed.",
+        ),
+        (Locale::Fa, "teacher.assignments.knowledge_empty") => Some(
+            "هیچ منبع دانشی مدرسه برای تولید فعال نیست. در صورت نیاز یک منبع منتشرشده را از بخش دانش فعال کنید.",
+        ),
         (Locale::En, "teacher.assignments.details_title") => Some("Assignment details"),
         (Locale::Fa, "teacher.assignments.details_title") => Some("جزئیات تکلیف"),
         (Locale::En, "teacher.assignments.details_loading") => Some("Loading assignment…"),
@@ -191,6 +221,11 @@ mod tests {
         "teacher.assignments.materials_loading",
         "teacher.assignments.materials_load_error",
         "teacher.assignments.materials_empty",
+        "teacher.assignments.knowledge_legend",
+        "teacher.assignments.knowledge_helper",
+        "teacher.assignments.knowledge_loading",
+        "teacher.assignments.knowledge_load_error",
+        "teacher.assignments.knowledge_empty",
         "teacher.assignments.details_title",
         "teacher.assignments.details_loading",
         "teacher.assignments.details_load_error",

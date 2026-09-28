@@ -6,14 +6,18 @@
 //! never logs student identifiers, assignment text, material titles, document
 //! excerpts, or provider payloads.
 
-use crate::domain::{AssignmentId, ClassSectionId, CustomAssignmentId, StudentId};
-use crate::repositories::{AssignmentRepository, CustomAssignmentRepository, EnrollmentRepository};
+use crate::domain::{AssignmentId, ClassSectionId, CustomAssignmentId, StudentId, TeacherId};
+use crate::repositories::{
+    AssignmentRepository, CustomAssignmentRepository, EnrollmentRepository,
+    KnowledgeAssetRepository,
+};
 use crate::rls_context::AuthorizedPool;
 use crate::services::llm_service::{
     AssignmentScope, BaseAssignment, DeepSeekClient, LlmError, MaterialContext,
     PersonalizedAssignment, PersonalizedRubric,
 };
 use crate::services::material_vectorization_service::MaterialVectorizationService;
+use crate::services::KnowledgeAssetService;
 use crate::services::student_context_service::{StudentContextError, StudentContextService};
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -128,6 +132,7 @@ impl AssignmentPersonalizationService {
             Some(context) => context.to_vec(),
             None => {
                 self.retrieve_material_context(
+                    assignment.teacher_id,
                     assignment.class_section_id,
                     &assignment.body,
                     &assignment.material_ids,
@@ -195,6 +200,7 @@ impl AssignmentPersonalizationService {
         let total = enrollments.len();
         let material_context = self
             .retrieve_material_context(
+                assignment.teacher_id,
                 assignment.class_section_id,
                 &assignment.body,
                 &assignment.material_ids,
@@ -293,6 +299,28 @@ impl AssignmentPersonalizationService {
 
     async fn retrieve_material_context(
         &self,
+        teacher_id: TeacherId,
+        class_section_id: ClassSectionId,
+        assignment_body: &str,
+        material_ids: &[uuid::Uuid],
+    ) -> Vec<MaterialContext> {
+        let mut class_context = self
+            .retrieve_class_material_context(class_section_id, assignment_body, material_ids)
+            .await;
+        let governed_context = self
+            .retrieve_governed_knowledge_context(teacher_id, assignment_body)
+            .await;
+        tracing::info!(
+            class_material_chunk_count = class_context.len(),
+            governed_knowledge_chunk_count = governed_context.len(),
+            "Prepared assignment generation context"
+        );
+        class_context.extend(governed_context);
+        class_context
+    }
+
+    async fn retrieve_class_material_context(
+        &self,
         class_section_id: ClassSectionId,
         assignment_body: &str,
         material_ids: &[uuid::Uuid],
@@ -302,13 +330,11 @@ impl AssignmentPersonalizationService {
         {
             Ok(service) if service.is_available() => service,
             Ok(_) => {
-                tracing::debug!("Vector retrieval is unavailable; continuing without RAG context");
+                tracing::debug!("Class-material vector retrieval is unavailable");
                 return Vec::new();
             }
             Err(_) => {
-                tracing::debug!(
-                    "Vector retrieval could not initialize; continuing without RAG context"
-                );
+                tracing::debug!("Class-material vector retrieval could not initialize");
                 return Vec::new();
             }
         };
@@ -322,25 +348,78 @@ impl AssignmentPersonalizationService {
             )
             .await
         {
-            Ok(results) => {
-                tracing::info!(
-                    result_count = results.len(),
-                    material_filter_count = material_ids.len(),
-                    "Retrieved authorized local vector context"
-                );
-                results
-                    .into_iter()
-                    .map(|result| MaterialContext {
-                        chunk_text: result.chunk_text,
-                        material_title: result.material_title,
-                        relevance_score: result.score,
-                    })
-                    .collect()
+            Ok(results) => results
+                .into_iter()
+                .map(|result| MaterialContext {
+                    chunk_text: result.chunk_text,
+                    material_title: result.material_title,
+                    relevance_score: result.score,
+                })
+                .collect(),
+            Err(_) => {
+                tracing::warn!("Authorized class-material retrieval failed; continuing without it");
+                Vec::new()
+            }
+        }
+    }
+
+    async fn retrieve_governed_knowledge_context(
+        &self,
+        teacher_id: TeacherId,
+        assignment_body: &str,
+    ) -> Vec<MaterialContext> {
+        let teacher_user_id = match sqlx::query_scalar::<_, uuid::Uuid>(
+            "SELECT user_id FROM teachers WHERE id = $1",
+        )
+        .bind::<uuid::Uuid>(teacher_id.into())
+        .fetch_optional(&*self.pool)
+        .await
+        {
+            Ok(Some(user_id)) => user_id,
+            Ok(None) => {
+                tracing::warn!("Assignment teacher no longer resolves to a teacher record");
+                return Vec::new();
             }
             Err(_) => {
-                tracing::warn!(
-                    "Authorized vector retrieval failed; continuing without RAG context"
-                );
+                tracing::warn!("Unable to resolve assignment teacher for governed knowledge retrieval");
+                return Vec::new();
+            }
+        };
+        let repository = KnowledgeAssetRepository::new(Arc::clone(&self.pool));
+        let asset_ids = match repository
+            .list_enabled_asset_ids_for_teacher(teacher_user_id, "global", "")
+            .await
+        {
+            Ok(asset_ids) => asset_ids,
+            Err(_) => {
+                tracing::warn!("Unable to authorize enabled governed knowledge for assignment generation");
+                return Vec::new();
+            }
+        };
+        if asset_ids.is_empty() {
+            return Vec::new();
+        }
+        let service = match KnowledgeAssetService::new(Arc::clone(&self.pool)).await {
+            Ok(service) => service,
+            Err(_) => {
+                tracing::debug!("Governed knowledge vector retrieval could not initialize");
+                return Vec::new();
+            }
+        };
+        match service
+            .search_for_teacher(teacher_user_id, assignment_body, &asset_ids, "global", "", 5)
+            .await
+        {
+            Ok(results) => results
+                .into_iter()
+                .map(|result| MaterialContext {
+                    chunk_text: result.chunk_text,
+                    material_title: result.asset_title,
+                    relevance_score: result.score,
+                })
+                .collect(),
+            Err(_) => {
+                tracing::warn!("Authorized governed knowledge retrieval failed; continuing without it");
                 Vec::new()
             }
         }

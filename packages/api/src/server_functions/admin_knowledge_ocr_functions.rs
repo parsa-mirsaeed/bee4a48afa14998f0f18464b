@@ -55,7 +55,9 @@ pub async fn get_admin_knowledge_source_revision(
 ) -> Result<AdminKnowledgeSourceRevisionDto, ServerFnError> {
     #[cfg(feature = "server")]
     {
-        let (_user, pool) = authorize_platform_admin().await?;
+        let (user, pool) = authorize_platform_admin().await?;
+        let reviewer_id = Uuid::parse_str(&user.id)
+            .map_err(|_| ServerFnError::new("Invalid authenticated user ID"))?;
         let asset_id = Uuid::parse_str(&asset_id)
             .map_err(|_| ServerFnError::new("Invalid knowledge asset"))?;
         let row = sqlx::query(
@@ -95,12 +97,14 @@ pub async fn get_admin_knowledge_source_revision(
                 WHERE asset_id = $1
                   AND source_file_id = $2
                   AND lower(source_sha256) = lower($3)
+                  AND reviewed_by = $4
             )
             "#,
         )
         .bind(asset_id)
         .bind(source_file_id)
         .bind(&source_sha256)
+        .bind(reviewer_id)
         .fetch_one(&*pool)
         .await
         .unwrap_or(false);

@@ -18,6 +18,9 @@ use api::server_functions::dashboard_functions::{
     get_class_materials_for_teacher, get_teacher_assignments, ClassMaterialInfo,
     TeacherAssignmentInfo, TeacherAssignmentProgressState,
 };
+use api::server_functions::knowledge_functions::{
+    list_teacher_available_knowledge_assets, KnowledgeAssetSelectionDto,
+};
 use dioxus::prelude::*;
 
 #[component]
@@ -324,6 +327,9 @@ fn CreateAssignmentModal(on_close: EventHandler, on_created: EventHandler) -> El
             }
         }
     });
+    let governed_knowledge = use_resource(move || async move {
+        list_teacher_available_knowledge_assets("global".to_string(), String::new()).await
+    });
 
     let submit = move |_| {
         if busy() {
@@ -430,6 +436,7 @@ fn CreateAssignmentModal(on_close: EventHandler, on_created: EventHandler) -> El
                     if !class_id().is_empty() {
                         MaterialPicker { resource: materials, selected: material_ids }
                     }
+                    GovernedKnowledgeSummary { resource: governed_knowledge }
                     div { class: "flex justify-end gap-3",
                         button { class: "rounded-lg border border-gray-300 px-4 py-2 dark:border-gray-700", disabled: busy(), onclick: move |_| on_close.call(()), "{locale.t(\"common.cancel\")}" }
                         button { class: "rounded-lg bg-primary px-4 py-2 font-medium text-white disabled:opacity-50", disabled: busy(), onclick: submit,
@@ -495,6 +502,40 @@ fn MaterialPicker(
                                             }
                                         }
                                         span { "{item.title}" }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+            }
+        }
+    }
+}
+
+#[component]
+fn GovernedKnowledgeSummary(
+    resource: Resource<Result<Vec<KnowledgeAssetSelectionDto>, ServerFnError>>,
+) -> Element {
+    let locale = use_locale();
+    rsx! {
+        fieldset { class: "rounded-lg border border-blue-200 bg-blue-50/40 p-4 dark:border-blue-900 dark:bg-blue-950/20",
+            legend { class: "px-1 text-sm font-medium", "{locale.t(\"teacher.assignments.knowledge_legend\")}" }
+            p { class: "mb-2 text-xs text-gray-600 dark:text-gray-300", "{locale.t(\"teacher.assignments.knowledge_helper\")}" }
+            match resource.read().as_ref() {
+                None => rsx! { p { class: "text-sm text-gray-500", "{locale.t(\"teacher.assignments.knowledge_loading\")}" } },
+                Some(Err(_)) => rsx! { p { class: "text-sm text-red-600", "{locale.t(\"teacher.assignments.knowledge_load_error\")}" } },
+                Some(Ok(items)) => {
+                    let enabled = items.iter().filter(|item| item.enabled).collect::<Vec<_>>();
+                    if enabled.is_empty() {
+                        rsx! { p { class: "text-sm text-gray-500", "{locale.t(\"teacher.assignments.knowledge_empty\")}" } }
+                    } else {
+                        rsx! {
+                            ul { class: "space-y-1 text-sm text-gray-800 dark:text-gray-200",
+                                for item in enabled {
+                                    li { class: "flex items-center gap-2",
+                                        span { class: "material-icons-outlined text-base text-green-600", aria_hidden: "true", "check_circle" }
+                                        span { "{item.asset.title}" }
                                     }
                                 }
                             }

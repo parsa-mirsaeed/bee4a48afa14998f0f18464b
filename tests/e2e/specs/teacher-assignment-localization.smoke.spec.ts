@@ -41,6 +41,8 @@ for (const scenario of [
     dueLabel: 'Due date',
     instructionsLabel: 'Instructions',
     createDraft: 'Create draft',
+    classMaterials: 'Class materials (optional)',
+    schoolKnowledge: 'School knowledge for AI generation',
     status: 'Published',
   },
   {
@@ -53,6 +55,8 @@ for (const scenario of [
     dueLabel: 'تاریخ مهلت',
     instructionsLabel: 'دستورالعمل‌ها',
     createDraft: 'ایجاد پیش‌نویس',
+    classMaterials: 'منابع کلاس (اختیاری)',
+    schoolKnowledge: 'دانش مدرسه برای تولید با هوش مصنوعی',
     status: 'منتشرشده',
   },
 ]) {
@@ -90,8 +94,13 @@ for (const scenario of [
     await expect(dialog).toContainText(scenario.classLabel);
     await expect(dialog).toContainText(scenario.dueLabel);
     await expect(dialog).toContainText(scenario.instructionsLabel);
+    await expect(dialog).toContainText(scenario.schoolKnowledge);
+    await expect(dialog).not.toContainText('Governed class materials (optional)');
     await expect(dialog.getByRole('button', { name: scenario.createDraft, exact: true })).toBeVisible();
     await expect(dialog).not.toContainText('teacher.assignments.');
+    const classSelect = dialog.locator('select').first();
+    await classSelect.selectOption({ index: 1 });
+    await expect(dialog).toContainText(scenario.classMaterials);
     if (scenario.locale === 'fa') {
       await expect(dialog).not.toContainText('Create draft');
       await expect(dialog).not.toContainText('Select one of your classes');

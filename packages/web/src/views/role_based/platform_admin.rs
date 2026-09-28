@@ -19,6 +19,8 @@ use api::server_functions::knowledge_functions::{
     archive_admin_knowledge_asset, embed_admin_knowledge_asset, publish_admin_knowledge_asset,
 };
 use dioxus::prelude::*;
+#[cfg(target_arch = "wasm32")]
+use gloo_timers::future::TimeoutFuture;
 
 fn admin_t(key: &'static str, locale: Locale) -> String {
     platform_admin_translation(key, locale)
@@ -804,6 +806,11 @@ fn render_review_card(
                                             Ok(_) => {
                                                 notice.set(Some("platform_admin.notice.embedding_queued"));
                                                 assets.restart();
+                                                #[cfg(target_arch = "wasm32")]
+                                                for delay_ms in [500_u32, 1_000, 1_500, 2_500, 4_000, 6_000, 8_000, 10_000] {
+                                                    TimeoutFuture::new(delay_ms).await;
+                                                    assets.restart();
+                                                }
                                             }
                                             Err(_) => notice.set(Some("platform_admin.notice.embedding_failed")),
                                         }
