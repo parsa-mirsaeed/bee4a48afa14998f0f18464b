@@ -133,7 +133,9 @@ for (const scenario of [
     await expect(verifiedCard.getByText(scenario.vectorTitle, { exact: true })).toBeVisible();
     await expect(verifiedCard.getByText(scenario.vectorMethod, { exact: true })).toBeVisible();
     await expect(verifiedCard.getByText(scenario.vectorStatus, { exact: true })).toBeVisible();
-    await expect(verifiedCard.getByText(scenario.vectorNotStarted, { exact: true })).toBeVisible();
+    await expect(
+      verifiedCard.getByText(scenario.vectorNotStarted, { exact: true }).first(),
+    ).toBeVisible();
     const vectorMethod = verifiedCard.locator('select[id^="vector-profile-"]');
     await expect(vectorMethod).toBeVisible();
     await expect(vectorMethod.locator('option')).toHaveCount(2);
