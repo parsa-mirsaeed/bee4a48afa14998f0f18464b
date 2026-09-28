@@ -14,7 +14,11 @@ use tracing::{debug, error, warn};
 
 use crate::app_state::AppState;
 use crate::error::AppError;
+use crate::middleware::request_side_effects::{
+    PostCommitSideEffect, RequestSideEffects, RollbackSideEffect,
+};
 use crate::rls_context::{AuthorizedActor, AuthorizedTx};
+use crate::services::KnowledgeVectorStoreService;
 use crate::session_security::{
     access_cookie, append_cookie, append_session_removals, refresh_cookie, refresh_rate_limit_key,
     resolve_active_session, AuthRateLimiter, SessionValidationError, ACCESS_COOKIE_NAME,
@@ -274,18 +278,84 @@ async fn run_with_session(
     request
         .extensions_mut()
         .insert(Arc::new(tx.authorized_pool()));
+    let side_effects = Arc::new(RequestSideEffects::default());
+    request.extensions_mut().insert(Arc::clone(&side_effects));
 
-    let response = tx
+    let response = match tx
         .scope(next.run(request), |response| {
             !response.status().is_client_error() && !response.status().is_server_error()
         })
         .await
-        .map_err(|error| {
+    {
+        Ok(response) => {
+            if response.status().is_client_error() || response.status().is_server_error() {
+                run_rollback_side_effects(state, &side_effects).await;
+            } else {
+                run_post_commit_side_effects(&side_effects).await;
+            }
+            response
+        }
+        Err(error) => {
+            run_rollback_side_effects(state, &side_effects).await;
             error!(%error, "Failed to finalize authorized request transaction");
-            StatusCode::SERVICE_UNAVAILABLE
-        })?;
+            return Err(StatusCode::SERVICE_UNAVAILABLE);
+        }
+    };
 
     Ok(normalize_scoped_object_denial(&request_path, response).await)
+}
+
+async fn run_post_commit_side_effects(side_effects: &RequestSideEffects) {
+    for effect in side_effects.take_post_commit() {
+        match effect {
+            PostCommitSideEffect::DeleteKnowledgeVectors { asset_id } => {
+                match KnowledgeVectorStoreService::new().await {
+                    Ok(store) => {
+                        if let Err(error) = store.delete_asset(&asset_id.to_string()).await {
+                            error!(
+                                %asset_id,
+                                %error,
+                                "post-commit knowledge vector cleanup failed"
+                            );
+                        }
+                    }
+                    Err(error) => {
+                        error!(
+                            %asset_id,
+                            %error,
+                            "post-commit knowledge vector cleanup could not initialize"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+async fn run_rollback_side_effects(state: &AppState, side_effects: &RequestSideEffects) {
+    for effect in side_effects.take_rollback() {
+        match effect {
+            RollbackSideEffect::DeleteKnowledgeStorageObject {
+                object_key,
+                school_id,
+            } => {
+                if let Err(cleanup_error) =
+                    crate::handlers::knowledge_asset_upload::delete_storage_object(
+                        state,
+                        &object_key,
+                    )
+                    .await
+                {
+                    error!(
+                        %cleanup_error,
+                        %school_id,
+                        %object_key,
+                        "rollback knowledge storage cleanup failed; object may be orphaned"
+                    );
+                }
+            }
+        }
+    }
 }
 
 async fn token_user_id(state: &AppState, token: &str) -> Result<String, SessionValidationError> {

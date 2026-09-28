@@ -1,11 +1,11 @@
 use crate::app_state::AppState;
 use crate::domain::UserInfo;
+use crate::middleware::RequestSideEffects;
 use crate::repositories::{
     CreateKnowledgeSubmission, KnowledgeAssetEditRepository, KnowledgeAssetRepository,
     ReplaceManagerKnowledgeSource, RepositoryError,
 };
 use crate::rls_context::AuthorizedPool;
-use crate::services::KnowledgeVectorStoreService;
 use axum::{
     extract::{multipart::Field, Multipart},
     http::StatusCode,
@@ -48,6 +48,7 @@ pub async fn knowledge_upload_handler(
     Extension(state): Extension<AppState>,
     Extension(user): Extension<UserInfo>,
     Extension(pool): Extension<Arc<AuthorizedPool>>,
+    Extension(side_effects): Extension<Arc<RequestSideEffects>>,
     mut multipart: Multipart,
 ) -> Result<(StatusCode, Json<Value>), UploadRejection> {
     if user.role != "SchoolManager" {
@@ -74,15 +75,16 @@ pub async fn knowledge_upload_handler(
     let upload = parse_upload(&mut multipart).await?;
     let replacement_mode = upload.asset_id.is_some() || upload.expected_revision.is_some();
     if replacement_mode {
-        return replace_source(state, pool, school_id, upload).await;
+        return replace_source(state, pool, side_effects, school_id, upload).await;
     }
 
-    create_submission(state, pool, school_id, user_id, upload).await
+    create_submission(state, pool, side_effects, school_id, user_id, upload).await
 }
 
 async fn create_submission(
     state: AppState,
     pool: Arc<AuthorizedPool>,
+    side_effects: Arc<RequestSideEffects>,
     school_id: Uuid,
     user_id: Uuid,
     upload: ParsedKnowledgeUpload,
@@ -102,6 +104,7 @@ async fn create_submission(
 
     ensure_private_bucket(&state).await?;
     upload_storage_object(&state, &object_key, pdf_bytes).await?;
+    side_effects.delete_knowledge_storage_on_rollback(object_key.clone(), school_id);
 
     let repository = KnowledgeAssetRepository::new(pool);
     let create_result = repository
@@ -136,7 +139,6 @@ async fn create_submission(
         )),
         Err(error) => {
             error!(%error, school_id = %school_id, object_key = %object_key, "knowledge upload database persistence failed");
-            compensate_storage(&state, &object_key, school_id).await;
             Err(reject(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Unable to register uploaded PDF",
@@ -148,6 +150,7 @@ async fn create_submission(
 async fn replace_source(
     state: AppState,
     pool: Arc<AuthorizedPool>,
+    side_effects: Arc<RequestSideEffects>,
     school_id: Uuid,
     upload: ParsedKnowledgeUpload,
 ) -> Result<(StatusCode, Json<Value>), UploadRejection> {
@@ -193,6 +196,7 @@ async fn replace_source(
 
     ensure_private_bucket(&state).await?;
     upload_storage_object(&state, &object_key, pdf_bytes).await?;
+    side_effects.delete_knowledge_storage_on_rollback(object_key.clone(), school_id);
 
     let mutation = KnowledgeAssetEditRepository::new(pool)
         .replace_source(ReplaceManagerKnowledgeSource {
@@ -210,29 +214,12 @@ async fn replace_source(
 
     let mutation = match mutation {
         Ok(mutation) => mutation,
-        Err(error) => {
-            compensate_storage(&state, &object_key, school_id).await;
-            return Err(map_replacement_error(error));
-        }
+        Err(error) => return Err(map_replacement_error(error)),
     };
 
-    let vector_cleanup_succeeded = if mutation.vectors_invalidated {
-        match KnowledgeVectorStoreService::new().await {
-            Ok(store) => match store.delete_asset(&asset_id.to_string()).await {
-                Ok(()) => true,
-                Err(error) => {
-                    error!(%asset_id, %error, "replaced knowledge source vectors require deferred cleanup");
-                    false
-                }
-            },
-            Err(error) => {
-                error!(%asset_id, %error, "knowledge vector store unavailable during source replacement cleanup");
-                false
-            }
-        }
-    } else {
-        true
-    };
+    if mutation.vectors_invalidated {
+        side_effects.delete_knowledge_vectors_after_commit(asset_id);
+    }
 
     Ok((
         StatusCode::OK,
@@ -242,7 +229,7 @@ async fn replace_source(
             "asset_revision": mutation.asset_revision,
             "source_file_id": mutation.source_file_id,
             "vectors_invalidated": mutation.vectors_invalidated,
-            "vector_cleanup_succeeded": vector_cleanup_succeeded,
+            "vector_cleanup_scheduled": mutation.vectors_invalidated,
         })),
     ))
 }
@@ -549,7 +536,10 @@ async fn upload_storage_object(
     }
 }
 
-async fn delete_storage_object(state: &AppState, object_key: &str) -> Result<(), String> {
+pub(crate) async fn delete_storage_object(
+    state: &AppState,
+    object_key: &str,
+) -> Result<(), String> {
     let url = format!(
         "{}/storage/v1/object/{KNOWLEDGE_SOURCE_BUCKET}",
         state.supabase_config.url.trim_end_matches('/')
@@ -563,17 +553,6 @@ async fn delete_storage_object(state: &AppState, object_key: &str) -> Result<(),
         Ok(())
     } else {
         Err(format!("storage cleanup returned {}", response.status()))
-    }
-}
-
-async fn compensate_storage(state: &AppState, object_key: &str, school_id: Uuid) {
-    if let Err(cleanup_error) = delete_storage_object(state, object_key).await {
-        error!(
-            %cleanup_error,
-            school_id = %school_id,
-            object_key = %object_key,
-            "knowledge upload compensation failed; object may be orphaned"
-        );
     }
 }
 

@@ -5,11 +5,17 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 #[cfg(feature = "server")]
+use crate::dioxus_fullstack::extract;
+#[cfg(feature = "server")]
+use crate::middleware::RequestSideEffects;
+#[cfg(feature = "server")]
 use crate::repositories::{
     KnowledgeAssetEditRepository, RepositoryError, UpdateManagerKnowledgeMetadata,
 };
 #[cfg(feature = "server")]
-use crate::services::KnowledgeVectorStoreService;
+use axum::Extension;
+#[cfg(feature = "server")]
+use std::sync::Arc;
 #[cfg(feature = "server")]
 use uuid::Uuid;
 
@@ -48,7 +54,7 @@ pub struct KnowledgeAssetEditResult {
     pub asset_revision: i64,
     pub status: String,
     pub vectors_invalidated: bool,
-    pub vector_cleanup_succeeded: bool,
+    pub vector_cleanup_scheduled: bool,
 }
 
 #[cfg(feature = "server")]
@@ -138,29 +144,18 @@ pub async fn update_manager_knowledge_asset_metadata(
             .await
             .map_err(safe_edit_error)?;
 
-        let vector_cleanup_succeeded = if mutation.vectors_invalidated {
-            match KnowledgeVectorStoreService::new().await {
-                Ok(store) => match store.delete_asset(&asset_id.to_string()).await {
-                    Ok(()) => true,
-                    Err(error) => {
-                        tracing::error!(%asset_id, %error, "edited knowledge asset vectors require deferred cleanup");
-                        false
-                    }
-                },
-                Err(error) => {
-                    tracing::error!(%asset_id, %error, "knowledge vector store unavailable during edit cleanup");
-                    false
-                }
-            }
-        } else {
-            true
-        };
+        if mutation.vectors_invalidated {
+            let Extension(side_effects): Extension<Arc<RequestSideEffects>> = extract()
+                .await
+                .map_err(|_| ServerFnError::new("Request transaction finalization is unavailable"))?;
+            side_effects.delete_knowledge_vectors_after_commit(asset_id);
+        }
 
         Ok(KnowledgeAssetEditResult {
             asset_revision: mutation.asset_revision,
             status: mutation.status,
             vectors_invalidated: mutation.vectors_invalidated,
-            vector_cleanup_succeeded,
+            vector_cleanup_scheduled: mutation.vectors_invalidated,
         })
     }
     #[cfg(not(feature = "server"))]
