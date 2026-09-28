@@ -63,6 +63,8 @@ pub async fn list_admin_knowledge_assets_for_review(
         if user.role != "PlatformAdmin" {
             return Err(ServerFnError::new("Forbidden: insufficient role"));
         }
+        let reviewer_id = Uuid::parse_str(&user.id)
+            .map_err(|_| ServerFnError::new("Invalid authenticated user ID"))?;
 
         let assets = KnowledgeAssetRepository::new(pool.clone())
             .list_for_admin()
@@ -158,9 +160,11 @@ pub async fn list_admin_knowledge_assets_for_review(
             WHERE review.asset_id = ANY($1)
               AND review.source_file_id = source.id
               AND lower(review.source_sha256) = lower(source.sha256)
+              AND review.reviewed_by = $2
             "#,
         )
         .bind(&asset_ids)
+        .bind(reviewer_id)
         .fetch_all(&*pool)
         .await
         .map_err(|error| {
