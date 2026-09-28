@@ -57,6 +57,7 @@ server|admin/knowledge-assets/source-revision|PlatformAdminOnly|PlatformAdmin|pl
 server|admin/knowledge-assets/verified-ocr/source-bound|PlatformAdminOnly|PlatformAdmin|platform|knowledge_asset|write|large_payload|required|admin_knowledge_ocr_functions::save_admin_verified_ocr|-
 server|admin/knowledge-assets/ocr-text|PlatformAdminOnly|PlatformAdmin|platform|knowledge_asset|write|large_payload|required|knowledge_functions::attach_admin_ocr_text|-
 server|admin/knowledge-assets/embed|PlatformAdminOnly|PlatformAdmin|platform|knowledge_asset|write|expensive|required|knowledge_functions::embed_admin_knowledge_asset|-
+server|admin/knowledge-assets/embed-configured|PlatformAdminOnly|PlatformAdmin|platform|knowledge_asset|write|expensive|required|knowledge_functions::embed_admin_knowledge_asset_configured|-
 server|admin/knowledge-assets/publish|PlatformAdminOnly|PlatformAdmin|platform|knowledge_asset|write|standard|required|knowledge_functions::publish_admin_knowledge_asset|-
 server|admin/knowledge-assets/archive|PlatformAdminOnly|PlatformAdmin|platform|knowledge_asset|write|standard|required|knowledge_functions::archive_admin_knowledge_asset|-
 server|teacher/knowledge-assets/available|TeacherOnly|Teacher|session_school|teacher_context|read|bounded_list|none|knowledge_functions::list_teacher_available_knowledge_assets|-

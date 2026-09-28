@@ -15,6 +15,36 @@ pub struct ClaimedKnowledgeIngestionJob {
     pub attempts: i32,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EmbeddingJobConfiguration {
+    pub profile_id: String,
+    pub provider: String,
+    pub model: String,
+    pub vector_size: i32,
+    pub collection: String,
+    pub chunk_size: i32,
+    pub chunk_overlap: i32,
+}
+
+impl EmbeddingJobConfiguration {
+    fn validate(&self) -> RepositoryResult<()> {
+        if self.profile_id.trim().is_empty()
+            || self.provider.trim().is_empty()
+            || self.model.trim().is_empty()
+            || self.collection.trim().is_empty()
+            || self.vector_size <= 0
+            || !(100..=20_000).contains(&self.chunk_size)
+            || self.chunk_overlap < 0
+            || self.chunk_overlap > self.chunk_size / 2
+        {
+            return Err(RepositoryError::Validation(
+                "Embedding job configuration is invalid".into(),
+            ));
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EmbeddingFailureDisposition {
     Requeued,
@@ -34,12 +64,38 @@ impl KnowledgeIngestionJobRepository {
         }
     }
 
-    /// Queue an embedding job idempotently. A transaction-scoped advisory lock
-    /// serializes all lifecycle changes for this asset across application nodes.
+    /// Queue a legacy embedding job idempotently. New Platform Admin calls use
+    /// `enqueue_embedding_configured` so retries keep an immutable vectorization
+    /// contract; this compatibility path remains for older internal callers.
     pub async fn enqueue_embedding(
         &self,
         asset_id: Uuid,
         requested_by: Uuid,
+    ) -> RepositoryResult<Uuid> {
+        self.enqueue_embedding_inner(asset_id, requested_by, None)
+            .await
+    }
+
+    /// Queue an embedding job with the exact registered profile and chunking
+    /// contract selected by the administrator. The configuration is persisted on
+    /// the durable job so worker retries cannot silently change model, dimensions
+    /// or Qdrant collection after a deployment/configuration change.
+    pub async fn enqueue_embedding_configured(
+        &self,
+        asset_id: Uuid,
+        requested_by: Uuid,
+        configuration: &EmbeddingJobConfiguration,
+    ) -> RepositoryResult<Uuid> {
+        configuration.validate()?;
+        self.enqueue_embedding_inner(asset_id, requested_by, Some(configuration))
+            .await
+    }
+
+    async fn enqueue_embedding_inner(
+        &self,
+        asset_id: Uuid,
+        requested_by: Uuid,
+        configuration: Option<&EmbeddingJobConfiguration>,
     ) -> RepositoryResult<Uuid> {
         let mut tx = self.base.pool().begin().await?;
         Self::lock_asset(&mut *tx, asset_id).await?;
@@ -65,9 +121,10 @@ impl KnowledgeIngestionJobRepository {
             ));
         }
 
-        if let Some(existing_id) = sqlx::query_scalar::<_, Uuid>(
+        if let Some(existing) = sqlx::query(
             r#"
-            SELECT id
+            SELECT id, embedding_profile, embedding_provider, embedding_model,
+                   embedding_dimensions, embedding_collection, chunk_size, chunk_overlap
             FROM ingestion_jobs
             WHERE asset_id = $1
               AND stage = 'embed'
@@ -79,6 +136,22 @@ impl KnowledgeIngestionJobRepository {
         .fetch_optional(&mut *tx)
         .await?
         {
+            let existing_id: Uuid = existing.try_get("id")?;
+            if let Some(requested) = configuration {
+                let existing_configuration =
+                    Self::configuration_from_row(&existing)?.ok_or_else(|| {
+                        RepositoryError::Validation(
+                            "An active legacy embedding job has no persisted vectorization profile"
+                                .into(),
+                        )
+                    })?;
+                if &existing_configuration != requested {
+                    return Err(RepositoryError::Validation(
+                        "An active embedding job already uses a different vectorization profile"
+                            .into(),
+                    ));
+                }
+            }
             tx.commit().await?;
             return Ok(existing_id);
         }
@@ -90,22 +163,122 @@ impl KnowledgeIngestionJobRepository {
         .execute(&mut *tx)
         .await?;
 
+        let (
+            embedding_profile,
+            embedding_provider,
+            embedding_model,
+            embedding_dimensions,
+            embedding_collection,
+            chunk_size,
+            chunk_overlap,
+        ) = configuration
+            .map(|configuration| {
+                (
+                    Some(configuration.profile_id.clone()),
+                    Some(configuration.provider.clone()),
+                    Some(configuration.model.clone()),
+                    Some(configuration.vector_size),
+                    Some(configuration.collection.clone()),
+                    Some(configuration.chunk_size),
+                    Some(configuration.chunk_overlap),
+                )
+            })
+            .unwrap_or((None, None, None, None, None, None, None));
+
         let job_id = sqlx::query_scalar::<_, Uuid>(
             r#"
             INSERT INTO ingestion_jobs (
-                asset_id, stage, status, attempts, requested_by, available_at
+                asset_id, stage, status, attempts, requested_by, available_at,
+                embedding_profile, embedding_provider, embedding_model,
+                embedding_dimensions, embedding_collection, chunk_size, chunk_overlap
             )
-            VALUES ($1, 'embed', 'queued', 0, $2, NOW())
+            VALUES (
+                $1, 'embed', 'queued', 0, $2, NOW(),
+                $3, $4, $5, $6, $7, $8, $9
+            )
             RETURNING id
             "#,
         )
         .bind(asset_id)
         .bind(requested_by)
+        .bind(embedding_profile)
+        .bind(embedding_provider)
+        .bind(embedding_model)
+        .bind(embedding_dimensions)
+        .bind(embedding_collection)
+        .bind(chunk_size)
+        .bind(chunk_overlap)
         .fetch_one(&mut *tx)
         .await?;
 
         tx.commit().await?;
         Ok(job_id)
+    }
+
+    pub async fn get_embedding_job_configuration(
+        &self,
+        job_id: Uuid,
+    ) -> RepositoryResult<Option<EmbeddingJobConfiguration>> {
+        let row = sqlx::query(
+            r#"
+            SELECT embedding_profile, embedding_provider, embedding_model,
+                   embedding_dimensions, embedding_collection, chunk_size, chunk_overlap
+            FROM ingestion_jobs
+            WHERE id = $1 AND stage = 'embed'
+            "#,
+        )
+        .bind(job_id)
+        .fetch_optional(&*self.base.pool())
+        .await?
+        .ok_or_else(|| RepositoryError::NotFound {
+            entity: "IngestionJob".into(),
+            id: job_id.to_string(),
+        })?;
+
+        Self::configuration_from_row(&row)
+    }
+
+    fn configuration_from_row(
+        row: &sqlx::postgres::PgRow,
+    ) -> RepositoryResult<Option<EmbeddingJobConfiguration>> {
+        let profile_id: Option<String> = row.try_get("embedding_profile")?;
+        let Some(profile_id) = profile_id else {
+            return Ok(None);
+        };
+        let configuration =
+            EmbeddingJobConfiguration {
+                profile_id,
+                provider: row
+                    .try_get::<Option<String>, _>("embedding_provider")?
+                    .ok_or_else(|| {
+                        RepositoryError::Validation("Embedding job provider is missing".into())
+                    })?,
+                model: row
+                    .try_get::<Option<String>, _>("embedding_model")?
+                    .ok_or_else(|| {
+                        RepositoryError::Validation("Embedding job model is missing".into())
+                    })?,
+                vector_size: row
+                    .try_get::<Option<i32>, _>("embedding_dimensions")?
+                    .ok_or_else(|| {
+                        RepositoryError::Validation("Embedding job dimensions are missing".into())
+                    })?,
+                collection: row
+                    .try_get::<Option<String>, _>("embedding_collection")?
+                    .ok_or_else(|| {
+                        RepositoryError::Validation("Embedding job collection is missing".into())
+                    })?,
+                chunk_size: row
+                    .try_get::<Option<i32>, _>("chunk_size")?
+                    .ok_or_else(|| {
+                        RepositoryError::Validation("Embedding job chunk size is missing".into())
+                    })?,
+                chunk_overlap: row.try_get::<Option<i32>, _>("chunk_overlap")?.ok_or_else(
+                    || RepositoryError::Validation("Embedding job chunk overlap is missing".into()),
+                )?,
+            };
+        configuration.validate()?;
+        Ok(Some(configuration))
     }
 
     /// Atomically claim one available job. `SKIP LOCKED` allows multiple

@@ -144,7 +144,18 @@ BEGIN
     SELECT array_agg(required_name ORDER BY required_name)
     INTO missing_job_columns
     FROM (
-        VALUES ('requested_by'), ('available_at'), ('locked_at'), ('heartbeat_at')
+        VALUES
+            ('requested_by'),
+            ('available_at'),
+            ('locked_at'),
+            ('heartbeat_at'),
+            ('embedding_profile'),
+            ('embedding_provider'),
+            ('embedding_model'),
+            ('embedding_dimensions'),
+            ('embedding_collection'),
+            ('chunk_size'),
+            ('chunk_overlap')
     ) AS required(required_name)
     WHERE NOT EXISTS (
         SELECT 1 FROM information_schema.columns
@@ -197,6 +208,15 @@ BEGIN
           AND index_definition.indisunique
     ) THEN
         RAISE EXCEPTION 'Active embedding job index is not unique';
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conrelid = 'ingestion_jobs'::regclass
+          AND conname = 'ingestion_job_embedding_configuration'
+    ) THEN
+        RAISE EXCEPTION 'Missing embedding job configuration integrity constraint';
     END IF;
 
     IF NOT EXISTS (
@@ -307,8 +327,38 @@ BEGIN
     ) RETURNING id INTO asset_uuid;
 
     INSERT INTO ingestion_jobs (
-        asset_id, stage, status, requested_by, available_at
-    ) VALUES (asset_uuid, 'embed', 'queued', admin_uuid, NOW());
+        asset_id, stage, status, requested_by, available_at,
+        embedding_profile, embedding_provider, embedding_model,
+        embedding_dimensions, embedding_collection, chunk_size, chunk_overlap
+    ) VALUES (
+        asset_uuid, 'embed', 'queued', admin_uuid, NOW(),
+        'openai-v1', 'openai', 'text-embedding-3-small',
+        1536, 'edutalent_openai_v1', 1800, 200
+    );
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM ingestion_jobs
+        WHERE asset_id = asset_uuid
+          AND embedding_profile = 'openai-v1'
+          AND embedding_dimensions = 1536
+          AND embedding_collection = 'edutalent_openai_v1'
+          AND chunk_size = 1800
+          AND chunk_overlap = 200
+    ) THEN
+        RAISE EXCEPTION 'Configured embedding job did not preserve its vectorization contract';
+    END IF;
+
+    BEGIN
+        UPDATE ingestion_jobs
+        SET embedding_dimensions = 384
+        WHERE asset_id = asset_uuid
+          AND stage = 'embed'
+          AND status = 'queued';
+        RAISE EXCEPTION 'Embedding profile accepted mismatched vector dimensions';
+    EXCEPTION
+        WHEN check_violation THEN NULL;
+    END;
 
     BEGIN
         INSERT INTO ingestion_jobs (

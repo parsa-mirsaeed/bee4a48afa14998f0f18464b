@@ -2,7 +2,8 @@
 //! Application service for reviewed knowledge ingestion and filtered retrieval.
 
 use crate::repositories::{
-    KnowledgeAssetRepository, KnowledgeIngestionJobRepository, PersistedChunk, RepositoryError,
+    EmbeddingJobConfiguration, KnowledgeAssetRepository, KnowledgeIngestionJobRepository,
+    PersistedChunk, RepositoryError,
 };
 use crate::rls_context::AuthorizedPool;
 use crate::services::embedding_service::{
@@ -32,6 +33,8 @@ pub enum KnowledgeAssetError {
     EmptyText,
     #[error("At least one published and enabled knowledge asset is required")]
     NoEnabledAssets,
+    #[error("Embedding job configuration does not match the active deployment: {0}")]
+    EmbeddingConfigurationMismatch(String),
 }
 
 #[derive(Clone)]
@@ -90,12 +93,67 @@ impl KnowledgeAssetService {
         asset_id: Uuid,
         actor_id: Uuid,
     ) -> Result<usize, KnowledgeAssetError> {
+        let job_configuration = KnowledgeIngestionJobRepository::new(Arc::clone(&self.pool))
+            .get_embedding_job_configuration(job_id)
+            .await?;
+        let (chunk_size, chunk_overlap) = match job_configuration.as_ref() {
+            Some(configuration) => {
+                self.verify_job_configuration(configuration)?;
+                (
+                    configuration.chunk_size as usize,
+                    configuration.chunk_overlap as usize,
+                )
+            }
+            None => (
+                std::env::var("KNOWLEDGE_CHUNK_SIZE")
+                    .ok()
+                    .and_then(|value| value.parse().ok())
+                    .unwrap_or(1800usize),
+                std::env::var("KNOWLEDGE_CHUNK_OVERLAP")
+                    .ok()
+                    .and_then(|value| value.parse().ok())
+                    .unwrap_or(200usize),
+            ),
+        };
+
         let source = self.repository.get_for_embedding_current(asset_id).await?;
         if source.clean_text.trim().is_empty() {
             return Err(KnowledgeAssetError::EmptyText);
         }
-        self.embed_asset_inner(asset_id, actor_id, job_id, source)
-            .await
+        self.embed_asset_inner(
+            asset_id,
+            actor_id,
+            job_id,
+            source,
+            chunk_size,
+            chunk_overlap,
+        )
+        .await
+    }
+
+    fn verify_job_configuration(
+        &self,
+        configuration: &EmbeddingJobConfiguration,
+    ) -> Result<(), KnowledgeAssetError> {
+        let active = &self.embedding_config;
+        let matches_active = configuration.profile_id == active.profile.id
+            && configuration.provider == active.profile.provider.as_str()
+            && configuration.model == active.model
+            && configuration.vector_size as u64 == active.vector_size
+            && configuration.collection == active.collection_name;
+        if matches_active {
+            return Ok(());
+        }
+
+        Err(KnowledgeAssetError::EmbeddingConfigurationMismatch(format!(
+            "queued profile {} targets {} / {} dimensions, active profile is {} targeting {} / {} dimensions",
+            configuration.profile_id,
+            configuration.collection,
+            configuration.vector_size,
+            active.profile.id,
+            active.collection_name,
+            active.vector_size,
+        )))
     }
 
     async fn embed_asset_inner(
@@ -104,15 +162,9 @@ impl KnowledgeAssetService {
         actor_id: Uuid,
         job_id: Uuid,
         source: crate::repositories::AssetForEmbedding,
+        chunk_size: usize,
+        chunk_overlap: usize,
     ) -> Result<usize, KnowledgeAssetError> {
-        let chunk_size = std::env::var("KNOWLEDGE_CHUNK_SIZE")
-            .ok()
-            .and_then(|value| value.parse().ok())
-            .unwrap_or(1800usize);
-        let chunk_overlap = std::env::var("KNOWLEDGE_CHUNK_OVERLAP")
-            .ok()
-            .and_then(|value| value.parse().ok())
-            .unwrap_or(200usize);
         let chunks = chunk_document(
             &source.clean_text,
             chunk_size,
@@ -148,6 +200,9 @@ impl KnowledgeAssetService {
             "tags": source.asset.tags,
             "embedding_profile": self.embedding_config.profile.id,
             "embedding_collection": self.embedding_config.collection_name,
+            "embedding_dimensions": self.embedding_config.vector_size,
+            "chunk_size": chunk_size,
+            "chunk_overlap": chunk_overlap,
         });
 
         let vector_points = chunks

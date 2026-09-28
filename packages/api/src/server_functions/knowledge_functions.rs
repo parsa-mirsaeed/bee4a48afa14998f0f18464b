@@ -13,13 +13,15 @@ use crate::dioxus_fullstack::extract;
 use crate::domain::UserInfo;
 #[cfg(feature = "server")]
 use crate::repositories::{
-    CreateKnowledgeSubmission, KnowledgeAsset, KnowledgeAssetRepository,
+    CreateKnowledgeSubmission, EmbeddingJobConfiguration, KnowledgeAsset, KnowledgeAssetRepository,
     KnowledgeAssetWithSelection, KnowledgeIngestionJobRepository,
 };
 #[cfg(feature = "server")]
 use crate::rls_context::AuthorizedPool;
 #[cfg(feature = "server")]
-use crate::services::{KnowledgeAssetService, KnowledgeSearchResult};
+use crate::services::{
+    resolve_embedding_profile, EmbeddingConfig, KnowledgeAssetService, KnowledgeSearchResult,
+};
 #[cfg(feature = "server")]
 use axum::Extension;
 #[cfg(feature = "server")]
@@ -95,6 +97,12 @@ pub struct AttachOcrTextRequest {
     pub ocr_provider: String,
     #[serde(default)]
     pub expected_revision: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QueueKnowledgeEmbeddingRequest {
+    pub asset_id: String,
+    pub embedding_profile: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -307,20 +315,86 @@ pub async fn attach_admin_ocr_text(request: AttachOcrTextRequest) -> Result<bool
     Ok(false)
 }
 
+#[cfg(feature = "server")]
+fn embedding_job_configuration(
+    requested_profile: &str,
+) -> Result<EmbeddingJobConfiguration, ServerFnError> {
+    let requested = resolve_embedding_profile(requested_profile)
+        .map_err(|_| ServerFnError::new("Unsupported vectorization profile"))?;
+    let active = EmbeddingConfig::from_env()
+        .map_err(|_| ServerFnError::new("Vectorization is unavailable in this deployment"))?;
+    if requested.id != active.profile.id {
+        return Err(ServerFnError::new(
+            "Selected vectorization profile is not available in this deployment",
+        ));
+    }
+
+    let chunk_size = std::env::var("KNOWLEDGE_CHUNK_SIZE")
+        .ok()
+        .and_then(|value| value.parse::<i32>().ok())
+        .unwrap_or(1_800);
+    let chunk_overlap = std::env::var("KNOWLEDGE_CHUNK_OVERLAP")
+        .ok()
+        .and_then(|value| value.parse::<i32>().ok())
+        .unwrap_or(200);
+    if !(100..=20_000).contains(&chunk_size) || chunk_overlap < 0 || chunk_overlap > chunk_size / 2
+    {
+        return Err(ServerFnError::new(
+            "Vectorization chunk configuration is invalid",
+        ));
+    }
+
+    Ok(EmbeddingJobConfiguration {
+        profile_id: requested.id.to_string(),
+        provider: requested.provider.as_str().to_string(),
+        model: active.model,
+        vector_size: i32::try_from(active.vector_size)
+            .map_err(|_| ServerFnError::new("Vectorization dimensions are invalid"))?,
+        collection: active.collection_name,
+        chunk_size,
+        chunk_overlap,
+    })
+}
+
 #[server(endpoint = "admin/knowledge-assets/embed")]
 pub async fn embed_admin_knowledge_asset(asset_id: String) -> Result<String, ServerFnError> {
     #[cfg(feature = "server")]
     {
         let actor = authorize(&["PlatformAdmin"]).await?;
         let asset_id = parse_asset_id(&asset_id)?;
+        let active = EmbeddingConfig::from_env()
+            .map_err(|_| ServerFnError::new("Vectorization is unavailable in this deployment"))?;
+        let configuration = embedding_job_configuration(active.profile.id)?;
         let job_id = KnowledgeIngestionJobRepository::new(actor.pool)
-            .enqueue_embedding(asset_id, actor.user_id)
+            .enqueue_embedding_configured(asset_id, actor.user_id, &configuration)
             .await
             .map_err(|error| ServerFnError::new(error.to_string()))?;
         Ok(job_id.to_string())
     }
     #[cfg(not(feature = "server"))]
     Ok(String::new())
+}
+
+#[server(endpoint = "admin/knowledge-assets/embed-configured")]
+pub async fn embed_admin_knowledge_asset_configured(
+    request: QueueKnowledgeEmbeddingRequest,
+) -> Result<String, ServerFnError> {
+    #[cfg(feature = "server")]
+    {
+        let actor = authorize(&["PlatformAdmin"]).await?;
+        let asset_id = parse_asset_id(&request.asset_id)?;
+        let configuration = embedding_job_configuration(&request.embedding_profile)?;
+        let job_id = KnowledgeIngestionJobRepository::new(actor.pool)
+            .enqueue_embedding_configured(asset_id, actor.user_id, &configuration)
+            .await
+            .map_err(|error| ServerFnError::new(error.to_string()))?;
+        Ok(job_id.to_string())
+    }
+    #[cfg(not(feature = "server"))]
+    {
+        let _ = request;
+        Ok(String::new())
+    }
 }
 
 #[server(endpoint = "admin/knowledge-assets/publish")]
