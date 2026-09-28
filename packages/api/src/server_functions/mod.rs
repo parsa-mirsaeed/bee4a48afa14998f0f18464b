@@ -17,6 +17,7 @@ pub mod dashboard_functions;
 pub mod form_data;
 pub mod grade_presentation;
 pub mod invite_functions;
+pub mod knowledge_asset_edit_functions;
 pub mod knowledge_audit_functions;
 pub mod knowledge_functions;
 pub mod knowledge_readiness;

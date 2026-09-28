@@ -121,16 +121,44 @@ impl KnowledgeAssetRepository {
         .execute(&mut *tx)
         .await?;
 
-        let current_revision = sqlx::query_scalar::<_, Uuid>(
-            "SELECT revision FROM knowledge_ocr_texts WHERE asset_id = $1 FOR UPDATE",
+        let existing_ocr = sqlx::query(
+            r#"
+            SELECT revision, source_file_id, lower(source_sha256) AS source_sha256
+            FROM knowledge_ocr_texts
+            WHERE asset_id = $1
+            FOR UPDATE
+            "#,
         )
         .bind(asset_id)
         .fetch_optional(&mut *tx)
         .await?;
         let next_revision = Uuid::new_v4();
 
-        match current_revision {
-            Some(current_revision) if expected_revision == Some(current_revision) => {
+        match existing_ocr {
+            Some(row) => {
+                let current_revision: Uuid = row.try_get("revision")?;
+                let ocr_source_file_id: Option<Uuid> = row.try_get("source_file_id")?;
+                let ocr_source_sha256: Option<String> = row.try_get("source_sha256")?;
+                let ocr_is_current = ocr_source_file_id == Some(current_source_file_id)
+                    && ocr_source_sha256.as_deref() == Some(current_source_sha256.as_str());
+
+                if ocr_is_current {
+                    if expected_revision != Some(current_revision) {
+                        return Err(RepositoryError::Validation(
+                            "Verified OCR changed while it was being reviewed; refresh and try again"
+                                .into(),
+                        ));
+                    }
+                } else if expected_revision.is_some() {
+                    // The admin review read model deliberately hides OCR bound to
+                    // a superseded source. A stale tab that still carries an OCR
+                    // revision must not be allowed to rebind it to the new source.
+                    return Err(RepositoryError::Validation(
+                        "Verified OCR is stale for the current source; refresh and review the replacement source"
+                            .into(),
+                    ));
+                }
+
                 let updated = sqlx::query(
                     r#"
                     UPDATE knowledge_ocr_texts
@@ -162,12 +190,6 @@ impl KnowledgeAssetRepository {
                             .into(),
                     ));
                 }
-            }
-            Some(_) => {
-                return Err(RepositoryError::Validation(
-                    "Verified OCR changed while it was being reviewed; refresh and try again"
-                        .into(),
-                ));
             }
             None if expected_revision.is_some() => {
                 return Err(RepositoryError::Validation(

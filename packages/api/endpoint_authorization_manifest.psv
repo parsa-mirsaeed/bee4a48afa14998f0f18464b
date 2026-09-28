@@ -48,6 +48,8 @@ server|admin/knowledge-audit|PlatformAdminOnly|PlatformAdmin|platform|knowledge_
 server|manager/knowledge-submissions|Disabled|-|none|none|write|disabled|required|knowledge_functions::create_manager_knowledge_submission|2026-10-01
 server|manager/knowledge-submissions/list|SchoolManagerOnly|SchoolManager|session_school|school_knowledge|read|bounded_list|none|knowledge_functions::list_manager_knowledge_submissions|-
 server|manager/knowledge-storage/readiness|SchoolManagerOnly|SchoolManager|session_school|school_knowledge_storage|read|standard|none|knowledge_readiness::get_knowledge_storage_readiness|-
+server|manager/knowledge-assets/editable|SchoolManagerOnly|SchoolManager|session_school|school_knowledge_assets|read|bounded_list|none|knowledge_asset_edit_functions::list_manager_knowledge_assets_for_editing|-
+server|manager/knowledge-assets/update-metadata|SchoolManagerOnly|SchoolManager|session_school|school_knowledge_asset|write|bounded_payload|required|knowledge_asset_edit_functions::update_manager_knowledge_asset_metadata|-
 server|admin/knowledge-assets|PlatformAdminOnly|PlatformAdmin|platform|knowledge_assets|read|bounded_list|required|knowledge_functions::list_admin_knowledge_assets|-
 server|admin/knowledge-assets/review-list|PlatformAdminOnly|PlatformAdmin|platform|knowledge_assets|read|bounded_list|required|admin_knowledge_review_functions::list_admin_knowledge_assets_for_review|-
 server|admin/knowledge-assets/verified-ocr|PlatformAdminOnly|PlatformAdmin|platform|knowledge_asset|read|standard|required|admin_knowledge_review_functions::get_admin_verified_ocr|-
