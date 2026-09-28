@@ -93,10 +93,9 @@ impl KnowledgeAssetService {
         asset_id: Uuid,
         actor_id: Uuid,
     ) -> Result<usize, KnowledgeAssetError> {
-        let job_configuration =
-            KnowledgeIngestionJobRepository::new(Arc::clone(&self.pool))
-                .get_embedding_job_configuration(job_id)
-                .await?;
+        let job_configuration = KnowledgeIngestionJobRepository::new(Arc::clone(&self.pool))
+            .get_embedding_job_configuration(job_id)
+            .await?;
         let (chunk_size, chunk_overlap) = match job_configuration.as_ref() {
             Some(configuration) => {
                 self.verify_job_configuration(configuration)?;
