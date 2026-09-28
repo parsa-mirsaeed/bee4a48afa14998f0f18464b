@@ -13,8 +13,8 @@ use crate::dioxus_fullstack::extract;
 use crate::domain::UserInfo;
 #[cfg(feature = "server")]
 use crate::repositories::{
-    CreateKnowledgeSubmission, EmbeddingJobConfiguration, KnowledgeAsset,
-    KnowledgeAssetRepository, KnowledgeAssetWithSelection, KnowledgeIngestionJobRepository,
+    CreateKnowledgeSubmission, EmbeddingJobConfiguration, KnowledgeAsset, KnowledgeAssetRepository,
+    KnowledgeAssetWithSelection, KnowledgeIngestionJobRepository,
 };
 #[cfg(feature = "server")]
 use crate::rls_context::AuthorizedPool;
@@ -337,9 +337,7 @@ fn embedding_job_configuration(
         .ok()
         .and_then(|value| value.parse::<i32>().ok())
         .unwrap_or(200);
-    if !(100..=20_000).contains(&chunk_size)
-        || chunk_overlap < 0
-        || chunk_overlap > chunk_size / 2
+    if !(100..=20_000).contains(&chunk_size) || chunk_overlap < 0 || chunk_overlap > chunk_size / 2
     {
         return Err(ServerFnError::new(
             "Vectorization chunk configuration is invalid",
