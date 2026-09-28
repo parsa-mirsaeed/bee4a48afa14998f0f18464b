@@ -238,32 +238,45 @@ impl KnowledgeIngestionJobRepository {
         Self::configuration_from_row(&row)
     }
 
-    fn configuration_from_row(row: &sqlx::postgres::PgRow) -> RepositoryResult<Option<EmbeddingJobConfiguration>> {
+    fn configuration_from_row(
+        row: &sqlx::postgres::PgRow,
+    ) -> RepositoryResult<Option<EmbeddingJobConfiguration>> {
         let profile_id: Option<String> = row.try_get("embedding_profile")?;
         let Some(profile_id) = profile_id else {
             return Ok(None);
         };
-        let configuration = EmbeddingJobConfiguration {
-            profile_id,
-            provider: row
-                .try_get::<Option<String>, _>("embedding_provider")?
-                .ok_or_else(|| RepositoryError::Validation("Embedding job provider is missing".into()))?,
-            model: row
-                .try_get::<Option<String>, _>("embedding_model")?
-                .ok_or_else(|| RepositoryError::Validation("Embedding job model is missing".into()))?,
-            vector_size: row
-                .try_get::<Option<i32>, _>("embedding_dimensions")?
-                .ok_or_else(|| RepositoryError::Validation("Embedding job dimensions are missing".into()))?,
-            collection: row
-                .try_get::<Option<String>, _>("embedding_collection")?
-                .ok_or_else(|| RepositoryError::Validation("Embedding job collection is missing".into()))?,
-            chunk_size: row
-                .try_get::<Option<i32>, _>("chunk_size")?
-                .ok_or_else(|| RepositoryError::Validation("Embedding job chunk size is missing".into()))?,
-            chunk_overlap: row
-                .try_get::<Option<i32>, _>("chunk_overlap")?
-                .ok_or_else(|| RepositoryError::Validation("Embedding job chunk overlap is missing".into()))?,
-        };
+        let configuration =
+            EmbeddingJobConfiguration {
+                profile_id,
+                provider: row
+                    .try_get::<Option<String>, _>("embedding_provider")?
+                    .ok_or_else(|| {
+                        RepositoryError::Validation("Embedding job provider is missing".into())
+                    })?,
+                model: row
+                    .try_get::<Option<String>, _>("embedding_model")?
+                    .ok_or_else(|| {
+                        RepositoryError::Validation("Embedding job model is missing".into())
+                    })?,
+                vector_size: row
+                    .try_get::<Option<i32>, _>("embedding_dimensions")?
+                    .ok_or_else(|| {
+                        RepositoryError::Validation("Embedding job dimensions are missing".into())
+                    })?,
+                collection: row
+                    .try_get::<Option<String>, _>("embedding_collection")?
+                    .ok_or_else(|| {
+                        RepositoryError::Validation("Embedding job collection is missing".into())
+                    })?,
+                chunk_size: row
+                    .try_get::<Option<i32>, _>("chunk_size")?
+                    .ok_or_else(|| {
+                        RepositoryError::Validation("Embedding job chunk size is missing".into())
+                    })?,
+                chunk_overlap: row.try_get::<Option<i32>, _>("chunk_overlap")?.ok_or_else(
+                    || RepositoryError::Validation("Embedding job chunk overlap is missing".into()),
+                )?,
+            };
         configuration.validate()?;
         Ok(Some(configuration))
     }
