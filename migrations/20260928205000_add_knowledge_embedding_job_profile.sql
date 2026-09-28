@@ -42,11 +42,23 @@ BEGIN
                     AND embedding_collection IS NOT NULL
                     AND chunk_size IS NOT NULL
                     AND chunk_overlap IS NOT NULL
-                    AND embedding_profile IN ('openai-v1', 'local-bge-v1')
-                    AND embedding_provider IN ('openai', 'local')
-                    AND NULLIF(btrim(embedding_model), '') IS NOT NULL
-                    AND embedding_dimensions > 0
-                    AND NULLIF(btrim(embedding_collection), '') IS NOT NULL
+                    AND (
+                        (
+                            embedding_profile = 'openai-v1'
+                            AND embedding_provider = 'openai'
+                            AND embedding_model = 'text-embedding-3-small'
+                            AND embedding_dimensions = 1536
+                            AND embedding_collection = 'edutalent_openai_v1'
+                        )
+                        OR
+                        (
+                            embedding_profile = 'local-bge-v1'
+                            AND embedding_provider = 'local'
+                            AND embedding_model = 'BAAI/bge-small-en-v1.5'
+                            AND embedding_dimensions = 384
+                            AND embedding_collection = 'edutalent_materials_local_v1'
+                        )
+                    )
                     AND chunk_size BETWEEN 100 AND 20000
                     AND chunk_overlap >= 0
                     AND chunk_overlap <= chunk_size / 2
