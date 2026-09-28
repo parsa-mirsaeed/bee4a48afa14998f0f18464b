@@ -17,8 +17,8 @@ use crate::services::llm_service::{
     PersonalizedAssignment, PersonalizedRubric,
 };
 use crate::services::material_vectorization_service::MaterialVectorizationService;
-use crate::services::KnowledgeAssetService;
 use crate::services::student_context_service::{StudentContextError, StudentContextService};
+use crate::services::KnowledgeAssetService;
 use serde_json::{json, Value};
 use std::sync::Arc;
 use thiserror::Error;
@@ -325,19 +325,18 @@ impl AssignmentPersonalizationService {
         assignment_body: &str,
         material_ids: &[uuid::Uuid],
     ) -> Vec<MaterialContext> {
-        let vectorization_service = match MaterialVectorizationService::new(Arc::clone(&self.pool))
-            .await
-        {
-            Ok(service) if service.is_available() => service,
-            Ok(_) => {
-                tracing::debug!("Class-material vector retrieval is unavailable");
-                return Vec::new();
-            }
-            Err(_) => {
-                tracing::debug!("Class-material vector retrieval could not initialize");
-                return Vec::new();
-            }
-        };
+        let vectorization_service =
+            match MaterialVectorizationService::new(Arc::clone(&self.pool)).await {
+                Ok(service) if service.is_available() => service,
+                Ok(_) => {
+                    tracing::debug!("Class-material vector retrieval is unavailable");
+                    return Vec::new();
+                }
+                Err(_) => {
+                    tracing::debug!("Class-material vector retrieval could not initialize");
+                    return Vec::new();
+                }
+            };
         let material_filter = (!material_ids.is_empty()).then(|| material_ids.to_vec());
         match vectorization_service
             .search_relevant_chunks(
@@ -368,23 +367,24 @@ impl AssignmentPersonalizationService {
         teacher_id: TeacherId,
         assignment_body: &str,
     ) -> Vec<MaterialContext> {
-        let teacher_user_id = match sqlx::query_scalar::<_, uuid::Uuid>(
-            "SELECT user_id FROM teachers WHERE id = $1",
-        )
-        .bind::<uuid::Uuid>(teacher_id.into())
-        .fetch_optional(&*self.pool)
-        .await
-        {
-            Ok(Some(user_id)) => user_id,
-            Ok(None) => {
-                tracing::warn!("Assignment teacher no longer resolves to a teacher record");
-                return Vec::new();
-            }
-            Err(_) => {
-                tracing::warn!("Unable to resolve assignment teacher for governed knowledge retrieval");
-                return Vec::new();
-            }
-        };
+        let teacher_user_id =
+            match sqlx::query_scalar::<_, uuid::Uuid>("SELECT user_id FROM teachers WHERE id = $1")
+                .bind::<uuid::Uuid>(teacher_id.into())
+                .fetch_optional(&*self.pool)
+                .await
+            {
+                Ok(Some(user_id)) => user_id,
+                Ok(None) => {
+                    tracing::warn!("Assignment teacher no longer resolves to a teacher record");
+                    return Vec::new();
+                }
+                Err(_) => {
+                    tracing::warn!(
+                        "Unable to resolve assignment teacher for governed knowledge retrieval"
+                    );
+                    return Vec::new();
+                }
+            };
         let repository = KnowledgeAssetRepository::new(Arc::clone(&self.pool));
         let asset_ids = match repository
             .list_enabled_asset_ids_for_teacher(teacher_user_id, "global", "")
@@ -392,7 +392,9 @@ impl AssignmentPersonalizationService {
         {
             Ok(asset_ids) => asset_ids,
             Err(_) => {
-                tracing::warn!("Unable to authorize enabled governed knowledge for assignment generation");
+                tracing::warn!(
+                    "Unable to authorize enabled governed knowledge for assignment generation"
+                );
                 return Vec::new();
             }
         };
@@ -407,7 +409,14 @@ impl AssignmentPersonalizationService {
             }
         };
         match service
-            .search_for_teacher(teacher_user_id, assignment_body, &asset_ids, "global", "", 5)
+            .search_for_teacher(
+                teacher_user_id,
+                assignment_body,
+                &asset_ids,
+                "global",
+                "",
+                5,
+            )
             .await
         {
             Ok(results) => results
@@ -419,7 +428,9 @@ impl AssignmentPersonalizationService {
                 })
                 .collect(),
             Err(_) => {
-                tracing::warn!("Authorized governed knowledge retrieval failed; continuing without it");
+                tracing::warn!(
+                    "Authorized governed knowledge retrieval failed; continuing without it"
+                );
                 Vec::new()
             }
         }
