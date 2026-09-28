@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "server")]
 use crate::repositories::KnowledgeAssetRepository;
 #[cfg(feature = "server")]
+use crate::services::{EmbeddingConfig, EmbeddingProfile, LOCAL_BGE_V1, OPENAI_V1};
+#[cfg(feature = "server")]
 use sqlx::Row;
 #[cfg(feature = "server")]
 use std::collections::{HashMap, HashSet};
@@ -12,6 +14,36 @@ use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
 const KNOWLEDGE_SOURCE_BUCKET: &str = "edutalent-knowledge-sources";
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AdminKnowledgeVectorMethodDto {
+    pub profile_id: String,
+    pub provider: String,
+    pub model: String,
+    pub dimensions: u64,
+    pub collection: String,
+    pub available: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct AdminKnowledgeVectorizationDto {
+    pub methods: Vec<AdminKnowledgeVectorMethodDto>,
+    pub job_id: Option<String>,
+    pub job_status: Option<String>,
+    pub selected_profile: Option<String>,
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    pub dimensions: Option<i32>,
+    pub collection: Option<String>,
+    pub chunk_size: Option<i32>,
+    pub chunk_overlap: Option<i32>,
+    pub attempts: i32,
+    pub stored_chunks: i64,
+    pub last_error: Option<String>,
+    pub queued_at: Option<String>,
+    pub started_at: Option<String>,
+    pub finished_at: Option<String>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AdminKnowledgeReviewAssetDto {
@@ -29,6 +61,8 @@ pub struct AdminKnowledgeReviewAssetDto {
     pub has_verified_ocr: bool,
     #[serde(default)]
     pub has_source_review: bool,
+    #[serde(default)]
+    pub vectorization: AdminKnowledgeVectorizationDto,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -51,6 +85,29 @@ struct SourceReviewMetadata {
     mime_type: String,
     file_size_bytes: Option<i64>,
     sha256: Option<String>,
+}
+
+#[cfg(feature = "server")]
+fn method_dto(profile: EmbeddingProfile, active_profile: Option<&str>) -> AdminKnowledgeVectorMethodDto {
+    AdminKnowledgeVectorMethodDto {
+        profile_id: profile.id.to_string(),
+        provider: profile.provider.as_str().to_string(),
+        model: profile.model.to_string(),
+        dimensions: profile.vector_size,
+        collection: profile.collection.to_string(),
+        available: active_profile == Some(profile.id),
+    }
+}
+
+#[cfg(feature = "server")]
+fn vectorization_methods() -> Vec<AdminKnowledgeVectorMethodDto> {
+    let active_profile = EmbeddingConfig::from_env()
+        .ok()
+        .map(|config| config.profile.id.to_string());
+    [OPENAI_V1, LOCAL_BGE_V1]
+        .into_iter()
+        .map(|profile| method_dto(profile, active_profile.as_deref()))
+        .collect()
 }
 
 #[server(endpoint = "admin/knowledge-assets/review-list")]
@@ -173,6 +230,125 @@ pub async fn list_admin_knowledge_assets_for_review(
         })?;
         let reviewed_asset_ids = reviewed_source_rows.into_iter().collect::<HashSet<_>>();
 
+        let vector_rows = sqlx::query(
+            r#"
+            SELECT target.asset_id,
+                   job.id AS job_id,
+                   job.status::text AS job_status,
+                   job.embedding_profile,
+                   job.embedding_provider,
+                   job.embedding_model,
+                   job.embedding_dimensions,
+                   job.embedding_collection,
+                   job.chunk_size,
+                   job.chunk_overlap,
+                   COALESCE(job.attempts, 0) AS attempts,
+                   job.error_message,
+                   job.created_at AS queued_at,
+                   job.started_at,
+                   job.finished_at,
+                   (
+                       SELECT COUNT(*)::bigint
+                       FROM knowledge_chunks AS chunk
+                       WHERE chunk.asset_id = target.asset_id
+                   ) AS stored_chunks
+            FROM unnest($1::uuid[]) AS target(asset_id)
+            LEFT JOIN LATERAL (
+                SELECT id, status, embedding_profile, embedding_provider,
+                       embedding_model, embedding_dimensions, embedding_collection,
+                       chunk_size, chunk_overlap, attempts, error_message,
+                       created_at, started_at, finished_at
+                FROM ingestion_jobs
+                WHERE asset_id = target.asset_id
+                  AND stage = 'embed'
+                ORDER BY created_at DESC
+                LIMIT 1
+            ) AS job ON TRUE
+            "#,
+        )
+        .bind(&asset_ids)
+        .fetch_all(&*pool)
+        .await
+        .map_err(|error| {
+            tracing::error!(%error, "platform knowledge vectorization status lookup failed");
+            ServerFnError::new("Unable to load vectorization status")
+        })?;
+        let methods = vectorization_methods();
+        let mut vectorization_by_asset = HashMap::<Uuid, AdminKnowledgeVectorizationDto>::new();
+        for row in vector_rows {
+            let asset_id: Uuid = row.try_get("asset_id").map_err(|error| {
+                tracing::error!(%error, "platform vectorization asset ID decode failed");
+                ServerFnError::new("Unable to load vectorization status")
+            })?;
+            let queued_at = row
+                .try_get::<Option<chrono::DateTime<chrono::Utc>>, _>("queued_at")
+                .map_err(|error| {
+                    tracing::error!(%error, "platform vectorization queued time decode failed");
+                    ServerFnError::new("Unable to load vectorization status")
+                })?
+                .map(|value| value.to_rfc3339());
+            let started_at = row
+                .try_get::<Option<chrono::DateTime<chrono::Utc>>, _>("started_at")
+                .map_err(|error| {
+                    tracing::error!(%error, "platform vectorization start time decode failed");
+                    ServerFnError::new("Unable to load vectorization status")
+                })?
+                .map(|value| value.to_rfc3339());
+            let finished_at = row
+                .try_get::<Option<chrono::DateTime<chrono::Utc>>, _>("finished_at")
+                .map_err(|error| {
+                    tracing::error!(%error, "platform vectorization finish time decode failed");
+                    ServerFnError::new("Unable to load vectorization status")
+                })?
+                .map(|value| value.to_rfc3339());
+            vectorization_by_asset.insert(
+                asset_id,
+                AdminKnowledgeVectorizationDto {
+                    methods: methods.clone(),
+                    job_id: row
+                        .try_get::<Option<Uuid>, _>("job_id")
+                        .map_err(|_| ServerFnError::new("Unable to load vectorization status"))?
+                        .map(|id| id.to_string()),
+                    job_status: row
+                        .try_get("job_status")
+                        .map_err(|_| ServerFnError::new("Unable to load vectorization status"))?,
+                    selected_profile: row
+                        .try_get("embedding_profile")
+                        .map_err(|_| ServerFnError::new("Unable to load vectorization status"))?,
+                    provider: row
+                        .try_get("embedding_provider")
+                        .map_err(|_| ServerFnError::new("Unable to load vectorization status"))?,
+                    model: row
+                        .try_get("embedding_model")
+                        .map_err(|_| ServerFnError::new("Unable to load vectorization status"))?,
+                    dimensions: row
+                        .try_get("embedding_dimensions")
+                        .map_err(|_| ServerFnError::new("Unable to load vectorization status"))?,
+                    collection: row
+                        .try_get("embedding_collection")
+                        .map_err(|_| ServerFnError::new("Unable to load vectorization status"))?,
+                    chunk_size: row
+                        .try_get("chunk_size")
+                        .map_err(|_| ServerFnError::new("Unable to load vectorization status"))?,
+                    chunk_overlap: row
+                        .try_get("chunk_overlap")
+                        .map_err(|_| ServerFnError::new("Unable to load vectorization status"))?,
+                    attempts: row
+                        .try_get("attempts")
+                        .map_err(|_| ServerFnError::new("Unable to load vectorization status"))?,
+                    stored_chunks: row
+                        .try_get("stored_chunks")
+                        .map_err(|_| ServerFnError::new("Unable to load vectorization status"))?,
+                    last_error: row
+                        .try_get("error_message")
+                        .map_err(|_| ServerFnError::new("Unable to load vectorization status"))?,
+                    queued_at,
+                    started_at,
+                    finished_at,
+                },
+            );
+        }
+
         let mut source_by_asset = HashMap::<Uuid, SourceReviewMetadata>::new();
         for row in source_rows {
             let asset_id: Uuid = row.try_get("asset_id").map_err(|error| {
@@ -240,6 +416,12 @@ pub async fn list_admin_knowledge_assets_for_review(
                     file_size_bytes: source.and_then(|source| source.file_size_bytes),
                     has_verified_ocr,
                     has_source_review,
+                    vectorization: vectorization_by_asset
+                        .remove(&asset.id)
+                        .unwrap_or_else(|| AdminKnowledgeVectorizationDto {
+                            methods: methods.clone(),
+                            ..Default::default()
+                        }),
                 }
             })
             .collect())
