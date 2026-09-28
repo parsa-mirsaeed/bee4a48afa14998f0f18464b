@@ -10,8 +10,8 @@ use api::server_functions::admin_knowledge_ocr_functions::{
     get_admin_knowledge_source_revision, save_admin_verified_ocr, SaveAdminVerifiedOcrRequest,
 };
 use api::server_functions::admin_knowledge_review_functions::{
-    get_admin_verified_ocr, list_admin_knowledge_assets_for_review,
-    AdminKnowledgeReviewAssetDto, AdminKnowledgeVectorizationDto,
+    get_admin_verified_ocr, list_admin_knowledge_assets_for_review, AdminKnowledgeReviewAssetDto,
+    AdminKnowledgeVectorizationDto,
 };
 use api::server_functions::knowledge_audit_functions::{
     list_admin_knowledge_audit, KnowledgeAuditLogDto,
@@ -705,7 +705,12 @@ fn VectorizationPanel(
         .methods
         .iter()
         .find(|method| method.profile_id == selected_profile_value)
-        .or_else(|| item.vectorization.methods.iter().find(|method| method.available));
+        .or_else(|| {
+            item.vectorization
+                .methods
+                .iter()
+                .find(|method| method.available)
+        });
     let method_available = selected_method.is_some_and(|method| method.available);
     let model = item
         .vectorization
