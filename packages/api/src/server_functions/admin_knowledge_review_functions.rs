@@ -88,7 +88,10 @@ struct SourceReviewMetadata {
 }
 
 #[cfg(feature = "server")]
-fn method_dto(profile: EmbeddingProfile, active_profile: Option<&str>) -> AdminKnowledgeVectorMethodDto {
+fn method_dto(
+    profile: EmbeddingProfile,
+    active_profile: Option<&str>,
+) -> AdminKnowledgeVectorMethodDto {
     AdminKnowledgeVectorMethodDto {
         profile_id: profile.id.to_string(),
         provider: profile.provider.as_str().to_string(),
@@ -406,12 +409,12 @@ pub async fn list_admin_knowledge_assets_for_review(
                 });
                 let has_verified_ocr = ocr_asset_ids.contains(&asset.id);
                 let has_source_review = reviewed_asset_ids.contains(&asset.id);
-                let vectorization = vectorization_by_asset
-                    .remove(&asset.id)
-                    .unwrap_or_else(|| AdminKnowledgeVectorizationDto {
+                let vectorization = vectorization_by_asset.remove(&asset.id).unwrap_or_else(|| {
+                    AdminKnowledgeVectorizationDto {
                         methods: methods.clone(),
                         ..Default::default()
-                    });
+                    }
+                });
                 AdminKnowledgeReviewAssetDto {
                     asset: asset.into(),
                     school_name,
