@@ -766,7 +766,7 @@ fn VectorizationPanel(
                             option {
                                 value: "{method.profile_id}",
                                 disabled: !method.available,
-                                "{method.profile_id} · {method.model} · {method.dimensions}D — {if method.available { admin_t("platform_admin.vector.active_method", locale) } else { admin_t("platform_admin.vector.unavailable_method", locale) }}"
+                                "{method.profile_id} · {method.model} · {method.dimensions}D"
                             }
                         }
                     }
