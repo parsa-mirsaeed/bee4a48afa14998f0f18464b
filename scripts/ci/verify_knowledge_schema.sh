@@ -350,6 +350,17 @@ BEGIN
     END IF;
 
     BEGIN
+        UPDATE ingestion_jobs
+        SET embedding_dimensions = 384
+        WHERE asset_id = asset_uuid
+          AND stage = 'embed'
+          AND status = 'queued';
+        RAISE EXCEPTION 'Embedding profile accepted mismatched vector dimensions';
+    EXCEPTION
+        WHEN check_violation THEN NULL;
+    END;
+
+    BEGIN
         INSERT INTO ingestion_jobs (
             asset_id, stage, status, requested_by, available_at
         ) VALUES (asset_uuid, 'embed', 'running', admin_uuid, NOW());
