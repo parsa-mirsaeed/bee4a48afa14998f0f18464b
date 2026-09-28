@@ -57,6 +57,11 @@ for (const scenario of [
     languageLabel: 'Language',
     status: 'OCR verified',
     sourceReview: 'Review private PDF',
+    vectorTitle: 'Vectorization',
+    vectorMethod: 'Vectorization method',
+    vectorStatus: 'Vector status',
+    vectorNotStarted: 'Not started',
+    startVectorization: 'Start vectorization',
     updateOcr: 'Update verified OCR',
     provider: 'OCR provider / verification process',
     verifiedText: 'Verified source text',
@@ -83,6 +88,11 @@ for (const scenario of [
     languageLabel: 'زبان',
     status: 'OCR تأییدشده',
     sourceReview: 'بازبینی PDF خصوصی',
+    vectorTitle: 'بردارسازی',
+    vectorMethod: 'روش بردارسازی',
+    vectorStatus: 'وضعیت بردار',
+    vectorNotStarted: 'شروع نشده',
+    startVectorization: 'شروع بردارسازی',
     updateOcr: 'به‌روزرسانی OCR تأییدشده',
     provider: 'ارائه‌دهنده OCR / فرایند تأیید',
     verifiedText: 'متن تأییدشده منبع',
@@ -120,6 +130,16 @@ for (const scenario of [
     await expect(verifiedCard).not.toContainText(SCHOOL_A_ID);
     await expect(verifiedCard).not.toContainText('ocr_ready');
     await expect(verifiedCard.getByRole('link', { name: scenario.sourceReview, exact: true })).toBeVisible();
+    await expect(verifiedCard.getByText(scenario.vectorTitle, { exact: true })).toBeVisible();
+    await expect(verifiedCard.getByText(scenario.vectorMethod, { exact: true })).toBeVisible();
+    await expect(verifiedCard.getByText(scenario.vectorStatus, { exact: true })).toBeVisible();
+    await expect(verifiedCard.getByText(scenario.vectorNotStarted, { exact: true })).toBeVisible();
+    const vectorMethod = verifiedCard.locator('select[id^="vector-profile-"]');
+    await expect(vectorMethod).toBeVisible();
+    await expect(vectorMethod.locator('option')).toHaveCount(2);
+    await expect(
+      verifiedCard.getByRole('button', { name: scenario.startVectorization, exact: true }),
+    ).toBeVisible();
     await expectNoRawAdminChrome(body);
 
     await verifiedCard.getByRole('button', { name: scenario.updateOcr, exact: true }).click();
@@ -147,6 +167,8 @@ for (const scenario of [
       await expect(body).not.toContainText('Governed knowledge review');
       await expect(body).not.toContainText('Review private PDF');
       await expect(body).not.toContainText('Update verified OCR');
+      await expect(body).not.toContainText('Vectorization method');
+      await expect(body).not.toContainText('Start vectorization');
       await expect(body).not.toContainText('Source document');
     }
   });
