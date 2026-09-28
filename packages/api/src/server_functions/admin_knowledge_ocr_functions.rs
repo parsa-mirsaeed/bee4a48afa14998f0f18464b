@@ -19,6 +19,8 @@ pub struct AdminKnowledgeSourceRevisionDto {
     pub asset_id: String,
     pub source_file_id: String,
     pub source_sha256: String,
+    #[serde(default)]
+    pub has_source_review: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -78,18 +80,39 @@ pub async fn get_admin_knowledge_source_revision(
         })?
         .ok_or_else(|| ServerFnError::new("The governed source revision is unavailable"))?;
 
+        let source_file_id: Uuid = row
+            .try_get("source_file_id")
+            .map_err(|_| ServerFnError::new("Unable to load the governed source revision"))?;
+        let source_sha256: String = row
+            .try_get("source_sha256")
+            .map_err(|_| ServerFnError::new("Unable to load the governed source revision"))?;
+
+        let has_source_review = sqlx::query_scalar::<_, bool>(
+            r#"
+            SELECT EXISTS (
+                SELECT 1
+                FROM knowledge_source_reviews
+                WHERE asset_id = $1
+                  AND source_file_id = $2
+                  AND lower(source_sha256) = lower($3)
+            )
+            "#,
+        )
+        .bind(asset_id)
+        .bind(source_file_id)
+        .bind(&source_sha256)
+        .fetch_one(&*pool)
+        .await
+        .unwrap_or(false);
+
         Ok(AdminKnowledgeSourceRevisionDto {
             asset_id: row
                 .try_get::<Uuid, _>("asset_id")
                 .map_err(|_| ServerFnError::new("Unable to load the governed source revision"))?
                 .to_string(),
-            source_file_id: row
-                .try_get::<Uuid, _>("source_file_id")
-                .map_err(|_| ServerFnError::new("Unable to load the governed source revision"))?
-                .to_string(),
-            source_sha256: row
-                .try_get("source_sha256")
-                .map_err(|_| ServerFnError::new("Unable to load the governed source revision"))?,
+            source_file_id: source_file_id.to_string(),
+            source_sha256,
+            has_source_review,
         })
     }
     #[cfg(not(feature = "server"))]

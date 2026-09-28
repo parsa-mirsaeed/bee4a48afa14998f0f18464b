@@ -27,6 +27,8 @@ pub struct AdminKnowledgeReviewAssetDto {
     pub original_filename: Option<String>,
     pub file_size_bytes: Option<i64>,
     pub has_verified_ocr: bool,
+    #[serde(default)]
+    pub has_source_review: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -145,6 +147,28 @@ pub async fn list_admin_knowledge_assets_for_review(
         })?;
         let ocr_asset_ids = ocr_rows.into_iter().collect::<HashSet<_>>();
 
+        let reviewed_source_rows = sqlx::query_scalar::<_, Uuid>(
+            r#"
+            SELECT review.asset_id
+            FROM knowledge_source_reviews AS review
+            JOIN knowledge_assets AS asset ON asset.id = review.asset_id
+            JOIN knowledge_source_files AS source
+              ON source.id = asset.current_source_file_id
+             AND source.asset_id = asset.id
+            WHERE review.asset_id = ANY($1)
+              AND review.source_file_id = source.id
+              AND lower(review.source_sha256) = lower(source.sha256)
+            "#,
+        )
+        .bind(&asset_ids)
+        .fetch_all(&*pool)
+        .await
+        .map_err(|error| {
+            tracing::error!(%error, "platform knowledge source review lookup failed");
+            ServerFnError::new("Unable to load governed source review status")
+        })?;
+        let reviewed_asset_ids = reviewed_source_rows.into_iter().collect::<HashSet<_>>();
+
         let mut source_by_asset = HashMap::<Uuid, SourceReviewMetadata>::new();
         for row in source_rows {
             let asset_id: Uuid = row.try_get("asset_id").map_err(|error| {
@@ -201,6 +225,7 @@ pub async fn list_admin_knowledge_assets_for_review(
                             })
                 });
                 let has_verified_ocr = ocr_asset_ids.contains(&asset.id);
+                let has_source_review = reviewed_asset_ids.contains(&asset.id);
                 AdminKnowledgeReviewAssetDto {
                     asset: asset.into(),
                     school_name,
@@ -210,6 +235,7 @@ pub async fn list_admin_knowledge_assets_for_review(
                         .map(|source| source.original_filename.clone()),
                     file_size_bytes: source.and_then(|source| source.file_size_bytes),
                     has_verified_ocr,
+                    has_source_review,
                 }
             })
             .collect())
