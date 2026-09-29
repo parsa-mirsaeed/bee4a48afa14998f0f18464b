@@ -71,6 +71,9 @@ export EMBEDDING_MODEL="BAAI/bge-small-en-v1.5"
 export EMBEDDING_VECTOR_SIZE="384"
 export QDRANT_COLLECTION="edutalent_materials_local_v1"
 export QDRANT_VECTOR_SIZE="384"
+# Keep the real worker dormant after its startup empty-queue probe so the
+# browser test can deterministically drive queued -> embedded in-place.
+export KNOWLEDGE_JOB_POLL_MS="600000"
 export IP="127.0.0.1"
 export PORT="8080"
 export RUN_MIGRATIONS="false"
