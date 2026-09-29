@@ -26,9 +26,17 @@ function resetVectorizationFixture(): void {
     BEGIN;
     DELETE FROM knowledge_chunks WHERE asset_id = '${VERIFIED_ASSET_ID}';
     DELETE FROM ingestion_jobs WHERE asset_id = '${VERIFIED_ASSET_ID}' AND stage = 'embed';
+
+    -- Respect the production lifecycle trigger while returning the shared browser
+    -- fixture to OCR-ready. An embedded asset may only re-enter OCR through the
+    -- legal embedded -> embedding_pending -> ocr_ready recovery path.
+    UPDATE knowledge_assets
+    SET status = 'embedding_pending', failure_reason = NULL, reviewed_by = NULL, published_at = NULL
+    WHERE id = '${VERIFIED_ASSET_ID}' AND status = 'embedded';
+
     UPDATE knowledge_assets
     SET status = 'ocr_ready', failure_reason = NULL, reviewed_by = NULL, published_at = NULL
-    WHERE id = '${VERIFIED_ASSET_ID}';
+    WHERE id = '${VERIFIED_ASSET_ID}' AND status = 'embedding_pending';
     COMMIT;
   `);
 }
