@@ -892,6 +892,10 @@ fn render_review_card(
     let can_edit_ocr = matches!(status, "submitted" | "ocr_pending" | "ocr_ready" | "failed");
     let can_embed = status == "ocr_ready" || (status == "failed" && item.has_verified_ocr);
     let can_publish = status == "embedded";
+    // Keep the publication control mounted throughout the governed pre-publication
+    // lifecycle. This avoids losing the action when vectorization updates the card
+    // in-place from ocr_ready -> embedding_pending -> embedded.
+    let show_publish_action = !matches!(status, "published" | "archived");
     let can_archive = status != "archived";
     let (stage_title, next_step) =
         platform_admin_lifecycle_guidance(status, item.has_verified_ocr, locale);
@@ -1010,14 +1014,18 @@ fn render_review_card(
                         }
                     }
                 }
-                if can_publish {
+                if show_publish_action {
                     {
                         let publish_id = asset.id.clone();
                         rsx! {
                             button {
-                                class: "rounded-lg bg-green-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50",
-                                disabled: busy(),
+                                key: "publish-action-{asset.id}",
+                                class: "rounded-lg bg-green-600 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:bg-gray-300 disabled:text-gray-500 dark:disabled:bg-gray-700 dark:disabled:text-gray-400",
+                                disabled: busy() || !can_publish,
                                 onclick: move |_| {
+                                    if busy() || !can_publish {
+                                        return;
+                                    }
                                     let asset_id = publish_id.clone();
                                     busy.set(true);
                                     notice.set(None);
