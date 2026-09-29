@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { test, expect, type Page, type Locator } from '@playwright/test';
 import { enforceOfflineAllowlist, assertNoUnexpectedOrigins } from '../fixtures/network-policy';
 import { watchConsole, assertNoConsoleErrors } from '../fixtures/console-guard';
@@ -7,6 +8,107 @@ const PASSWORD = 'e2e-password';
 const ADMIN = 'e2e-admin@example.test';
 const SCHOOL_A_ID = 'a0000000-0000-0000-0000-0000000000a1';
 const VERIFIED_ASSET_ID = 'f3000000-0000-0000-0000-0000000000a2';
+
+function runFixtureSql(sql: string): string {
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) {
+    throw new Error('DATABASE_URL is required for the governed browser fixture');
+  }
+  return execFileSync(
+    'psql',
+    [databaseUrl, '-v', 'ON_ERROR_STOP=1', '-Atqc', sql],
+    { encoding: 'utf8' },
+  ).trim();
+}
+
+function resetVectorizationFixture(): void {
+  runFixtureSql(`
+    BEGIN;
+    DELETE FROM knowledge_chunks WHERE asset_id = '${VERIFIED_ASSET_ID}';
+    DELETE FROM ingestion_jobs WHERE asset_id = '${VERIFIED_ASSET_ID}' AND stage = 'embed';
+
+    -- Respect the production lifecycle trigger while returning the shared browser
+    -- fixture to OCR-ready. An embedded asset may only re-enter OCR through the
+    -- legal embedded -> embedding_pending -> ocr_ready recovery path.
+    UPDATE knowledge_assets
+    SET status = 'embedding_pending', failure_reason = NULL, reviewed_by = NULL, published_at = NULL
+    WHERE id = '${VERIFIED_ASSET_ID}' AND status = 'embedded';
+
+    UPDATE knowledge_assets
+    SET status = 'ocr_ready', failure_reason = NULL, reviewed_by = NULL, published_at = NULL
+    WHERE id = '${VERIFIED_ASSET_ID}' AND status = 'embedding_pending';
+    COMMIT;
+  `);
+}
+
+async function completeQueuedVectorizationFixture(): Promise<void> {
+  await expect.poll(
+    () =>
+      runFixtureSql(`
+        SELECT status::text
+        FROM ingestion_jobs
+        WHERE asset_id = '${VERIFIED_ASSET_ID}' AND stage = 'embed'
+        ORDER BY created_at DESC
+        LIMIT 1
+      `),
+    { timeout: 15_000 },
+  ).toBe('queued');
+
+  runFixtureSql(`
+    BEGIN;
+    UPDATE ingestion_jobs
+    SET status = 'running',
+        attempts = attempts + 1,
+        started_at = COALESCE(started_at, NOW()),
+        locked_at = NOW(),
+        heartbeat_at = NOW()
+    WHERE id = (
+      SELECT id
+      FROM ingestion_jobs
+      WHERE asset_id = '${VERIFIED_ASSET_ID}' AND stage = 'embed' AND status = 'queued'
+      ORDER BY created_at DESC
+      LIMIT 1
+    );
+
+    DELETE FROM knowledge_chunks WHERE asset_id = '${VERIFIED_ASSET_ID}';
+
+    INSERT INTO knowledge_chunks (
+      asset_id, chunk_index, text, token_count, embedding_provider,
+      embedding_model, vector_id, metadata_json
+    )
+    SELECT
+      asset_id,
+      0,
+      'E2E deterministic vectorized text',
+      4,
+      embedding_provider,
+      embedding_model,
+      'knowledge:' || asset_id::text || ':0',
+      jsonb_build_object(
+        'embedding_profile', embedding_profile,
+        'embedding_collection', embedding_collection,
+        'embedding_dimensions', embedding_dimensions,
+        'chunk_size', chunk_size,
+        'chunk_overlap', chunk_overlap
+      )
+    FROM ingestion_jobs
+    WHERE asset_id = '${VERIFIED_ASSET_ID}' AND stage = 'embed' AND status = 'running'
+    ORDER BY created_at DESC
+    LIMIT 1;
+
+    UPDATE knowledge_assets
+    SET status = 'embedded', reviewed_by = 'b0000000-0000-0000-0000-0000000000a0'
+    WHERE id = '${VERIFIED_ASSET_ID}' AND status = 'embedding_pending';
+
+    UPDATE ingestion_jobs
+    SET status = 'succeeded',
+        finished_at = NOW(),
+        locked_at = NULL,
+        heartbeat_at = NULL
+    WHERE asset_id = '${VERIFIED_ASSET_ID}' AND stage = 'embed' AND status = 'running';
+    COMMIT;
+  `);
+}
 
 async function openAdminRoute(
   page: Page,
@@ -44,6 +146,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 test.afterEach(() => {
+  resetVectorizationFixture();
   assertNoUnexpectedOrigins();
   assertNoConsoleErrors();
 });
@@ -61,7 +164,10 @@ for (const scenario of [
     vectorMethod: 'Vectorization method',
     vectorStatus: 'Vector status',
     vectorNotStarted: 'Not started',
+    vectorStored: 'Stored successfully',
+    publicationStage: 'Step 3 · Publication',
     startVectorization: 'Start vectorization',
+    publish: 'Publish',
     updateOcr: 'Update verified OCR',
     provider: 'OCR provider / verification process',
     verifiedText: 'Verified source text',
@@ -92,7 +198,10 @@ for (const scenario of [
     vectorMethod: 'روش بردارسازی',
     vectorStatus: 'وضعیت بردار',
     vectorNotStarted: 'شروع نشده',
+    vectorStored: 'با موفقیت ذخیره شد',
+    publicationStage: 'مرحله ۳ · انتشار',
     startVectorization: 'شروع بردارسازی',
+    publish: 'انتشار',
     updateOcr: 'به‌روزرسانی OCR تأییدشده',
     provider: 'ارائه‌دهنده OCR / فرایند تأیید',
     verifiedText: 'متن تأییدشده منبع',
@@ -139,9 +248,18 @@ for (const scenario of [
     const vectorMethod = verifiedCard.locator('select[id^="vector-profile-"]');
     await expect(vectorMethod).toBeVisible();
     await expect(vectorMethod.locator('option')).toHaveCount(2);
-    await expect(
-      verifiedCard.getByRole('button', { name: scenario.startVectorization, exact: true }),
-    ).toBeVisible();
+    const startVectorization = verifiedCard.getByRole('button', {
+      name: scenario.startVectorization,
+      exact: true,
+    });
+    await expect(startVectorization).toBeVisible();
+    await expect(startVectorization).toBeEnabled();
+    const pendingPublish = verifiedCard.getByRole('button', {
+      name: scenario.publish,
+      exact: true,
+    });
+    await expect(pendingPublish).toBeVisible();
+    await expect(pendingPublish).toBeDisabled();
     await expectNoRawAdminChrome(body);
 
     await verifiedCard.getByRole('button', { name: scenario.updateOcr, exact: true }).click();
@@ -155,6 +273,19 @@ for (const scenario of [
     await expect(dialog).not.toContainText(/platform_admin\.[a-z0-9_.]+/i);
     await dialog.getByRole('button', { name: scenario.cancel, exact: true }).click();
     await expect(dialog).toHaveCount(0);
+
+    // Reproduce the real regression path: the mounted card starts at ocr_ready,
+    // queues vectorization through the product endpoint, and is then completed
+    // deterministically in PostgreSQL because browser proof intentionally runs
+    // without Qdrant/provider services. The existing client polling must update
+    // the same card in place and enable its already-mounted Publish control.
+    await startVectorization.click();
+    await completeQueuedVectorizationFixture();
+    await expect(
+      verifiedCard.getByText(scenario.vectorStored, { exact: true }).first(),
+    ).toBeVisible({ timeout: 15_000 });
+    await expect(verifiedCard.getByText(scenario.publicationStage, { exact: true })).toBeVisible();
+    await expect(pendingPublish).toBeEnabled();
 
     const publishedCard = page.locator('article').filter({
       has: page.getByText('E2E Published Asset', { exact: true }),

@@ -60,6 +60,20 @@ export SUPABASE_AUDIENCE="authenticated"
 export SUPABASE_JWT_ISSUER="http://127.0.0.1:9100/auth/v1"
 export SUPABASE_PUBLISHABLE_KEY="e2e-publishable"
 export SUPABASE_SECRET_KEY="e2e-server-only"
+# Browser proof never starts the AI gateway or embedding worker, but governed
+# vectorization UI must be able to exercise the real enqueue endpoint. Provide
+# a valid internal-only active profile; the test deterministically completes
+# the queued job in PostgreSQL without making any provider/network request.
+export AI_GATEWAY_URL="http://ai-gateway:8090"
+export AI_GATEWAY_INTERNAL_TOKEN="e2e-browser-proof-token-0123456789abcdef"
+export EMBEDDING_PROFILE="local-bge-v1"
+export EMBEDDING_MODEL="BAAI/bge-small-en-v1.5"
+export EMBEDDING_VECTOR_SIZE="384"
+export QDRANT_COLLECTION="edutalent_materials_local_v1"
+export QDRANT_VECTOR_SIZE="384"
+# Keep the real worker dormant after its startup empty-queue probe so the
+# browser test can deterministically drive queued -> embedded in-place.
+export KNOWLEDGE_JOB_POLL_MS="600000"
 export IP="127.0.0.1"
 export PORT="8080"
 export RUN_MIGRATIONS="false"
