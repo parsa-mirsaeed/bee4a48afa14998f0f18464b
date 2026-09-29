@@ -62,6 +62,7 @@ for (const scenario of [
     vectorStatus: 'Vector status',
     vectorNotStarted: 'Not started',
     startVectorization: 'Start vectorization',
+    publish: 'Publish',
     updateOcr: 'Update verified OCR',
     provider: 'OCR provider / verification process',
     verifiedText: 'Verified source text',
@@ -93,6 +94,7 @@ for (const scenario of [
     vectorStatus: 'وضعیت بردار',
     vectorNotStarted: 'شروع نشده',
     startVectorization: 'شروع بردارسازی',
+    publish: 'انتشار',
     updateOcr: 'به‌روزرسانی OCR تأییدشده',
     provider: 'ارائه‌دهنده OCR / فرایند تأیید',
     verifiedText: 'متن تأییدشده منبع',
@@ -142,6 +144,23 @@ for (const scenario of [
     await expect(
       verifiedCard.getByRole('button', { name: scenario.startVectorization, exact: true }),
     ).toBeVisible();
+    const pendingPublish = verifiedCard.getByRole('button', {
+      name: scenario.publish,
+      exact: true,
+    });
+    await expect(pendingPublish).toBeVisible();
+    await expect(pendingPublish).toBeDisabled();
+
+    const embeddedCard = page.locator('article').filter({
+      has: page.getByText('E2E Embedded Asset', { exact: true }),
+    });
+    await expect(embeddedCard).toBeVisible();
+    const readyPublish = embeddedCard.getByRole('button', {
+      name: scenario.publish,
+      exact: true,
+    });
+    await expect(readyPublish).toBeVisible();
+    await expect(readyPublish).toBeEnabled();
     await expectNoRawAdminChrome(body);
 
     await verifiedCard.getByRole('button', { name: scenario.updateOcr, exact: true }).click();
