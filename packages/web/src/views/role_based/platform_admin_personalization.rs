@@ -172,9 +172,14 @@ fn ScopeRetryButton(
 pub fn PlatformPersonalizationSection() -> Element {
     let locale = use_locale().current();
     let mut selected_school = use_signal(|| None::<(String, String)>);
+    // Explicit refresh generation makes the school-selection fetch deterministic.
+    // Relying only on implicit resource dependency tracking can leave the resource
+    // at its initial empty result when a school is selected after first render.
+    let mut teacher_refresh_generation = use_signal(|| 0_u64);
     let mut overview =
         use_resource(move || async move { get_admin_personalization_overview().await });
     let mut teachers = use_resource(move || {
+        let _generation = teacher_refresh_generation();
         let selected = selected_school();
         async move {
             match selected {
@@ -197,7 +202,8 @@ pub fn PlatformPersonalizationSection() -> Element {
                             onclick: move |_| {
                                 overview.restart();
                                 if selected_school().is_some() {
-                                    teachers.restart();
+                                    teacher_refresh_generation
+                                        .set(teacher_refresh_generation().saturating_add(1));
                                 }
                             },
                             {t("platform_admin.personalization.refresh", locale)}
@@ -261,14 +267,14 @@ pub fn PlatformPersonalizationSection() -> Element {
                                             on_saved: move |_| {
                                                 overview.restart();
                                                 if selected_school().is_some() {
-                                                    teachers.restart();
+                                                    teacher_refresh_generation
+                                                        .set(teacher_refresh_generation().saturating_add(1));
                                                 }
                                             },
                                             on_manage_teachers: move |selection| {
-                                                // The teacher resource already reacts to
-                                                // selected_school. An immediate explicit restart
-                                                // can race this signal update and reload None.
                                                 selected_school.set(Some(selection));
+                                                teacher_refresh_generation
+                                                    .set(teacher_refresh_generation().saturating_add(1));
                                             },
                                         }
                                     }
@@ -315,7 +321,8 @@ pub fn PlatformPersonalizationSection() -> Element {
                                                         ),
                                                         on_retried: move |_| overview.restart(),
                                                         on_saved: move |_| {
-                                                            teachers.restart();
+                                                            teacher_refresh_generation
+                                                                .set(teacher_refresh_generation().saturating_add(1));
                                                             overview.restart();
                                                         },
                                                     }
