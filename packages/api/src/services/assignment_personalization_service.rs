@@ -541,6 +541,7 @@ fn llm_initialization_error_code(error: &LlmError) -> &'static str {
         LlmError::RequestFailed(_) => "gateway_unreachable",
         LlmError::RateLimited { .. } => "rate_limited",
         LlmError::TemporarilyUnavailable => "temporarily_unavailable",
+        LlmError::ConfigurationUnavailable => "provider_unconfigured",
         LlmError::SecretInPrompt => "secret_in_prompt",
         LlmError::PromptTooLarge => "prompt_too_large",
         LlmError::ApiError { .. } | LlmError::ParseError(_) | LlmError::InvalidResponse(_) => {
@@ -566,7 +567,8 @@ fn controlled_personalization_message(error: &PersonalizationError) -> &'static 
             LlmError::RateLimited { .. }
             | LlmError::TemporarilyUnavailable
             | LlmError::RequestFailed(_)
-            | LlmError::MissingApiKey,
+            | LlmError::MissingApiKey
+            | LlmError::ConfigurationUnavailable,
         ) => "AI service temporarily unavailable",
         _ => "Personalization could not be generated",
     }
