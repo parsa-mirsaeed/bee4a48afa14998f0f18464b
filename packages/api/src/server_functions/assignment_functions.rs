@@ -232,8 +232,9 @@ pub async fn get_personalized_assignment(
                     .map_err(repository_error)?;
                 match repository.find_custom_for_teacher(actor, id).await {
                     Ok(item) => Ok(Some(custom_assignment_to_response(item))),
-                    Err(RepositoryError::NotFound { .. })
-                    | Err(RepositoryError::Unauthorized) => Ok(None),
+                    Err(RepositoryError::NotFound { .. }) | Err(RepositoryError::Unauthorized) => {
+                        Ok(None)
+                    }
                     Err(error) => Err(repository_error(error)),
                 }
             }
@@ -244,8 +245,9 @@ pub async fn get_personalized_assignment(
                     .map_err(repository_error)?;
                 let item = match repository.find_custom_for_student(actor, id).await {
                     Ok(item) => item,
-                    Err(RepositoryError::NotFound { .. })
-                    | Err(RepositoryError::Unauthorized) => return Ok(None),
+                    Err(RepositoryError::NotFound { .. }) | Err(RepositoryError::Unauthorized) => {
+                        return Ok(None)
+                    }
                     Err(error) => return Err(repository_error(error)),
                 };
                 let delivery = repository
