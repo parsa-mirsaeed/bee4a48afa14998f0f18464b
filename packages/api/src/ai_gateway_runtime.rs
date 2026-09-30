@@ -1333,6 +1333,27 @@ mod tests {
         }
     }
 
+    fn chat_request() -> GatewayChatRequest {
+        GatewayChatRequest {
+            model: DEEPSEEK_CHAT_V1.model.to_string(),
+            messages: vec![
+                GatewayChatMessage {
+                    role: "system".to_string(),
+                    content: "Return valid JSON only.".to_string(),
+                },
+                GatewayChatMessage {
+                    role: "user".to_string(),
+                    content: "{\"assignment\":\"adapt this\"}".to_string(),
+                },
+            ],
+            max_tokens: 512,
+            temperature: 0.2,
+            response_format: Some(crate::ai_gateway_protocol::GatewayResponseFormat {
+                format_type: "json_object".to_string(),
+            }),
+        }
+    }
+
     #[test]
     fn external_origins_are_fixed() {
         assert!(exact_external_url(OPENAI_BASE_URL, OPENAI_BASE_URL).is_ok());
@@ -1614,5 +1635,76 @@ mod tests {
                 "invalid_provider_response"
             );
         }
+    }
+
+    async fn spawn_chat_mock() -> Url {
+        let app = Router::new().route(
+            "/v1/chat/completions",
+            post(|| async move {
+                (
+                    StatusCode::OK,
+                    Json(serde_json::json!({
+                        "model": DEEPSEEK_CHAT_V1.model,
+                        "choices": [{
+                            "index": 0,
+                            "message": {
+                                "role": "assistant",
+                                "content": "{\"personalized_title\":\"Adapted\"}"
+                            },
+                            "finish_reason": "stop"
+                        }],
+                        "usage": {
+                            "prompt_tokens": 20,
+                            "completion_tokens": 5,
+                            "total_tokens": 25
+                        }
+                    })),
+                )
+            }),
+        );
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind chat mock");
+        let address = listener.local_addr().expect("chat mock address");
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.expect("serve chat mock");
+        });
+        Url::parse(&format!("http://{address}/v1/")).expect("chat mock url")
+    }
+
+    #[tokio::test]
+    async fn local_embedding_mode_can_use_connected_personalization_llm() {
+        let provider = spawn_chat_mock().await;
+        let mut config = Config::test(provider.clone());
+        config.mode = Mode::Offline;
+        config.embedding_profile = LOCAL_BGE_V1;
+        config.embedding_provider = Provider {
+            base_url: Url::parse(LOCAL_TEI_BASE_URL).expect("local TEI url"),
+            api_key: None,
+            model: LOCAL_BGE_V1.model.to_string(),
+        };
+        config.llm_mode = LlmMode::Connected;
+        config.llm_profile = DEEPSEEK_CHAT_V1;
+        config.llm_provider = Some(Provider {
+            base_url: provider,
+            api_key: Some("test-llm-key-abcdefghijklmnopqrstuvwxyz".to_string()),
+            model: DEEPSEEK_CHAT_V1.model.to_string(),
+        });
+
+        let state = AppState::new(config).expect("state");
+        let response = state
+            .chat(&context(), chat_request())
+            .await
+            .expect("connected LLM must work with local embeddings");
+
+        assert_eq!(response.model, DEEPSEEK_CHAT_V1.model);
+        assert_eq!(response.choices.len(), 1);
+    }
+
+    #[test]
+    fn llm_mode_is_independent_and_explicit() {
+        assert_eq!(LlmMode::parse("connected").unwrap(), LlmMode::Connected);
+        assert_eq!(LlmMode::parse("disabled").unwrap(), LlmMode::Disabled);
+        assert!(LlmMode::parse("offline").is_err());
     }
 }
