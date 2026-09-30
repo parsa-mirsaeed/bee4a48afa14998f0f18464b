@@ -196,14 +196,19 @@ impl Config {
         // Chat generation is an independent capability from embedding. A deployment
         // may keep local BGE/Qdrant embeddings while using the controlled external
         // LLM profile for assignment personalization.
-        let llm_mode = LlmMode::parse(&env_value(
-            "AI_LLM_MODE",
-            if mode == Mode::Connected {
-                "connected"
+        let llm_mode_setting = env::var("AI_LLM_MODE").unwrap_or_default();
+        let llm_mode = if llm_mode_setting.trim().is_empty() {
+            if env::var("LLM_API_KEY")
+                .ok()
+                .is_some_and(|value| !value.trim().is_empty())
+            {
+                LlmMode::Connected
             } else {
-                "disabled"
-            },
-        ))?;
+                LlmMode::Disabled
+            }
+        } else {
+            LlmMode::parse(&llm_mode_setting)?
+        };
         let llm_profile = resolve_llm_profile(&env_value("LLM_PROFILE", DEEPSEEK_CHAT_V1.id))
             .map_err(|error| StartupError::InvalidConfig(error.to_string()))?;
         let configured_llm_model = env_value("LLM_MODEL", llm_profile.model);
