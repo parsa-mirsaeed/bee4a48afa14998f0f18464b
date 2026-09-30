@@ -213,8 +213,9 @@ for (const locale of ['en', 'fa'] as const) {
     await page.keyboard.press('Escape');
     await expect(dialog).toHaveCount(0);
 
-    dialog = await openFixture('E2E Personalized Ready');
+    dialog = await openFixture('E2E Personalization Source Ready');
     await expect(dialog.getByText(copy.readyTitle, { exact: true })).toBeVisible();
+    await expect(dialog).toContainText('E2E Personalized Ready');
     await expect(dialog).toContainText('E2E GENERATED PERSONALIZED CONTENT');
     await expect(dialog).not.toContainText('READY SOURCE MUST NOT BE SHOWN');
     await expect(dialog.getByRole('button', { name: copy.openSubmission, exact: true })).toBeVisible();
