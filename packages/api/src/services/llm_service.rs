@@ -38,6 +38,8 @@ pub enum LlmError {
     RateLimited { retry_after_seconds: u64 },
     #[error("AI service temporarily unavailable")]
     TemporarilyUnavailable,
+    #[error("AI personalization provider is not configured")]
+    ConfigurationUnavailable,
     #[error("Invalid response structure: {0}")]
     InvalidResponse(String),
     #[error("Prompt contains credential-shaped or secret configuration data")]
@@ -490,9 +492,11 @@ impl ExternalLlmClient {
                 "provider_rate_limited" | "quota_exceeded" => Err(LlmError::RateLimited {
                     retry_after_seconds: retry_after,
                 }),
+                "llm_disabled" | "provider_unconfigured" => {
+                    Err(LlmError::ConfigurationUnavailable)
+                }
                 "ai_temporarily_unavailable"
                 | "circuit_open"
-                | "provider_unconfigured"
                 | "gateway_shutting_down"
                 | "invalid_provider_response"
                 | "provider_response_too_large"
