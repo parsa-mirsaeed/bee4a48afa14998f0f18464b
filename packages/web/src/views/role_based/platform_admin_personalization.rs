@@ -2,11 +2,12 @@ use crate::i18n::{platform_admin_translation, use_locale, Locale};
 use crate::views::role_based::components::DashboardSection;
 use api::server_functions::admin_personalization_functions::{
     get_admin_personalization_overview, list_admin_personalization_teachers,
-    retry_admin_personalization_job, set_admin_school_personalization_policy,
-    set_admin_teacher_personalization_policy, AdminPersonalizationJobDto,
-    AdminPersonalizationMethodDto, AdminSchoolPersonalizationPolicyDto,
-    AdminTeacherPersonalizationPolicyDto, SetAdminSchoolPersonalizationPolicyRequest,
-    SetAdminTeacherPersonalizationPolicyRequest,
+    retry_admin_personalization_failed_scope, retry_admin_personalization_job,
+    set_admin_school_personalization_policy, set_admin_teacher_personalization_policy,
+    AdminPersonalizationJobDto, AdminPersonalizationMethodDto,
+    AdminPersonalizationScopeSummaryDto, AdminSchoolPersonalizationPolicyDto,
+    AdminTeacherPersonalizationPolicyDto, RetryAdminPersonalizationScopeRequest,
+    SetAdminSchoolPersonalizationPolicyRequest, SetAdminTeacherPersonalizationPolicyRequest,
 };
 use dioxus::prelude::*;
 
@@ -81,6 +82,92 @@ fn failure_label(code: Option<&str>, locale: Locale) -> String {
     t(key, locale)
 }
 
+fn scope_summary(
+    summaries: &[AdminPersonalizationScopeSummaryDto],
+    school_id: Option<&str>,
+    teacher_user_id: Option<&str>,
+    assignment_id: Option<&str>,
+) -> Option<AdminPersonalizationScopeSummaryDto> {
+    summaries
+        .iter()
+        .find(|summary| {
+            summary.school_id.as_deref() == school_id
+                && summary.teacher_user_id.as_deref() == teacher_user_id
+                && summary.assignment_id.as_deref() == assignment_id
+        })
+        .cloned()
+}
+
+#[component]
+fn QueueSummaryStrip(summary: Option<AdminPersonalizationScopeSummaryDto>) -> Element {
+    let locale = use_locale().current();
+    let Some(summary) = summary else {
+        return rsx! {};
+    };
+
+    rsx! {
+        dl { class: "grid grid-cols-2 gap-2 text-sm sm:grid-cols-3 xl:grid-cols-6",
+            CompactField { label: t("platform_admin.personalization.total", locale), value: summary.total.to_string() }
+            CompactField { label: stage_label("queued", locale), value: summary.queued.to_string() }
+            CompactField { label: stage_label("running", locale), value: summary.running.to_string() }
+            CompactField { label: stage_label("succeeded", locale), value: summary.succeeded.to_string() }
+            CompactField { label: stage_label("failed", locale), value: summary.failed.to_string() }
+            CompactField { label: stage_label("cancelled", locale), value: summary.cancelled.to_string() }
+        }
+    }
+}
+
+#[component]
+fn ScopeRetryButton(
+    school_id: Option<String>,
+    teacher_user_id: Option<String>,
+    assignment_id: Option<String>,
+    on_retried: EventHandler<u64>,
+) -> Element {
+    let locale = use_locale().current();
+    let mut busy = use_signal(|| false);
+    let mut error = use_signal(|| false);
+
+    rsx! {
+        div {
+            button {
+                r#type: "button",
+                class: "rounded-lg border border-gray-300 px-3 py-2 text-sm font-semibold disabled:opacity-50 dark:border-gray-700",
+                disabled: busy(),
+                onclick: move |_| {
+                    if busy() {
+                        return;
+                    }
+                    busy.set(true);
+                    error.set(false);
+                    let request = RetryAdminPersonalizationScopeRequest {
+                        school_id: school_id.clone(),
+                        teacher_user_id: teacher_user_id.clone(),
+                        assignment_id: assignment_id.clone(),
+                    };
+                    spawn(async move {
+                        match retry_admin_personalization_failed_scope(request).await {
+                            Ok(count) => on_retried.call(count),
+                            Err(_) => error.set(true),
+                        }
+                        busy.set(false);
+                    });
+                },
+                if busy() {
+                    {t("platform_admin.personalization.retrying", locale)}
+                } else {
+                    {t("platform_admin.personalization.retry_failed_scope", locale)}
+                }
+            }
+            if error() {
+                p { class: "mt-2 text-xs text-red-600", role: "alert",
+                    {t("platform_admin.personalization.retry_scope_error", locale)}
+                }
+            }
+        }
+    }
+}
+
 #[component]
 pub fn PlatformPersonalizationSection() -> Element {
     let locale = use_locale().current();
@@ -137,6 +224,23 @@ pub fn PlatformPersonalizationSection() -> Element {
                         Some(Ok(data)) => rsx! {
                             CapabilityPanel { capability: data.capability.clone() }
 
+                            section { class: "et-ui-card space-y-3 p-5",
+                                div { class: "flex flex-wrap items-center justify-between gap-3",
+                                    h2 { class: "text-lg font-semibold text-gray-900 dark:text-white",
+                                        {t("platform_admin.personalization.queue_summary", locale)}
+                                    }
+                                    ScopeRetryButton {
+                                        school_id: None,
+                                        teacher_user_id: None,
+                                        assignment_id: None,
+                                        on_retried: move |_| overview.restart(),
+                                    }
+                                }
+                                QueueSummaryStrip {
+                                    summary: scope_summary(&data.summaries, None, None, None),
+                                }
+                            }
+
                             section { class: "space-y-3",
                                 h2 { class: "text-lg font-semibold text-gray-900 dark:text-white",
                                     {t("platform_admin.personalization.schools", locale)}
@@ -147,6 +251,13 @@ pub fn PlatformPersonalizationSection() -> Element {
                                             key: "{policy.school_id}-{policy.policy_version}",
                                             policy: policy.clone(),
                                             methods: data.methods.clone(),
+                                            summary: scope_summary(
+                                                &data.summaries,
+                                                Some(policy.school_id.as_str()),
+                                                None,
+                                                None,
+                                            ),
+                                            on_retried: move |_| overview.restart(),
                                             on_saved: move |_| {
                                                 overview.restart();
                                                 if selected_school().is_some() {
@@ -194,6 +305,13 @@ pub fn PlatformPersonalizationSection() -> Element {
                                                         key: "{item.teacher_id}-{item.override_version}-{item.effective_version}-{item.effective_enabled}-{item.effective_paused}-{item.effective_llm_profile_id}-{item.effective_delivery_policy}",
                                                         policy: item.clone(),
                                                         methods: data.methods.clone(),
+                                                        summary: scope_summary(
+                                                            &data.summaries,
+                                                            Some(item.school_id.as_str()),
+                                                            Some(item.teacher_user_id.as_str()),
+                                                            None,
+                                                        ),
+                                                        on_retried: move |_| overview.restart(),
                                                         on_saved: move |_| {
                                                             teachers.restart();
                                                             overview.restart();
@@ -220,6 +338,12 @@ pub fn PlatformPersonalizationSection() -> Element {
                                             PersonalizationJobCard {
                                                 key: "{job.job_id}",
                                                 job: job.clone(),
+                                                assignment_summary: scope_summary(
+                                                    &data.summaries,
+                                                    Some(job.school_id.as_str()),
+                                                    Some(job.teacher_user_id.as_str()),
+                                                    Some(job.assignment_id.as_str()),
+                                                ),
                                                 on_retried: move |_| overview.restart(),
                                             }
                                         }
@@ -276,6 +400,8 @@ fn CapabilityPanel(
 fn SchoolPolicyCard(
     policy: AdminSchoolPersonalizationPolicyDto,
     methods: Vec<AdminPersonalizationMethodDto>,
+    summary: Option<AdminPersonalizationScopeSummaryDto>,
+    on_retried: EventHandler<u64>,
     on_saved: EventHandler,
     on_manage_teachers: EventHandler<(String, String)>,
 ) -> Element {
@@ -308,6 +434,16 @@ fn SchoolPolicyCard(
                     class: "rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium dark:border-gray-700",
                     onclick: move |_| on_manage_teachers.call((school_id.clone(), school_name.clone())),
                     {t("platform_admin.personalization.manage_teachers", locale)}
+                }
+            }
+
+            div { class: "mt-4 space-y-3",
+                QueueSummaryStrip { summary }
+                ScopeRetryButton {
+                    school_id: Some(policy.school_id.clone()),
+                    teacher_user_id: None,
+                    assignment_id: None,
+                    on_retried,
                 }
             }
 
@@ -398,6 +534,8 @@ fn SchoolPolicyCard(
 fn TeacherPolicyCard(
     policy: AdminTeacherPersonalizationPolicyDto,
     methods: Vec<AdminPersonalizationMethodDto>,
+    summary: Option<AdminPersonalizationScopeSummaryDto>,
+    on_retried: EventHandler<u64>,
     on_saved: EventHandler,
 ) -> Element {
     let locale = use_locale().current();
@@ -432,6 +570,16 @@ fn TeacherPolicyCard(
                     policy.effective_llm_profile_id,
                     delivery_label(&policy.effective_delivery_policy, locale),
                 )}
+            }
+
+            div { class: "mt-4 space-y-3",
+                QueueSummaryStrip { summary }
+                ScopeRetryButton {
+                    school_id: Some(policy.school_id.clone()),
+                    teacher_user_id: Some(policy.teacher_user_id.clone()),
+                    assignment_id: None,
+                    on_retried,
+                }
             }
 
             label { class: "mt-4 block text-sm",
@@ -535,7 +683,11 @@ fn TeacherPolicyCard(
 }
 
 #[component]
-fn PersonalizationJobCard(job: AdminPersonalizationJobDto, on_retried: EventHandler) -> Element {
+fn PersonalizationJobCard(
+    job: AdminPersonalizationJobDto,
+    assignment_summary: Option<AdminPersonalizationScopeSummaryDto>,
+    on_retried: EventHandler,
+) -> Element {
     let locale = use_locale().current();
     let mut busy = use_signal(|| false);
     let mut error = use_signal(|| false);
@@ -589,6 +741,16 @@ fn PersonalizationJobCard(job: AdminPersonalizationJobDto, on_retried: EventHand
                 CompactField {
                     label: t("platform_admin.personalization.tokens", locale),
                     value: format!("{prompt_tokens} / {completion_tokens} / {total_tokens}"),
+                }
+            }
+
+            div { class: "mt-4 space-y-3",
+                QueueSummaryStrip { summary: assignment_summary }
+                ScopeRetryButton {
+                    school_id: Some(job.school_id.clone()),
+                    teacher_user_id: Some(job.teacher_user_id.clone()),
+                    assignment_id: Some(job.assignment_id.clone()),
+                    on_retried: move |_| on_retried.call(()),
                 }
             }
 
