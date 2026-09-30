@@ -58,7 +58,7 @@ read_env() {
   awk -F= -v key="${key}" '$1 == key { sub(/^[^=]*=/, ""); print; exit }' "${file}"
 }
 
-for key in APP_DOMAIN SUPABASE_DOMAIN ADMIN_DOMAIN ADMIN_ALLOWED_CIDRS TLS_CERT_FILE TLS_KEY_FILE DATABASE_APP_USER DATABASE_APP_PASSWORD QDRANT_API_KEY AI_GATEWAY_INTERNAL_TOKEN AI_GATEWAY_MODE EMBEDDING_PROFILE EMBEDDING_MODEL EMBEDDING_VECTOR_SIZE QDRANT_COLLECTION QDRANT_VECTOR_SIZE; do
+for key in APP_DOMAIN SUPABASE_DOMAIN ADMIN_DOMAIN ADMIN_ALLOWED_CIDRS TLS_CERT_FILE TLS_KEY_FILE DATABASE_APP_USER DATABASE_APP_PASSWORD QDRANT_API_KEY AI_GATEWAY_INTERNAL_TOKEN AI_GATEWAY_MODE EMBEDDING_PROFILE EMBEDDING_MODEL EMBEDDING_VECTOR_SIZE QDRANT_COLLECTION QDRANT_VECTOR_SIZE LLM_PROFILE LLM_MODEL AI_LLM_BASE_URL; do
   value="$(read_env "${APP_ENV}" "${key}")"
   if [[ -z "${value}" || "${value}" == *example.invalid* || "${value}" == *replace* ]]; then
     echo "${key} is missing or contains a placeholder in ${APP_ENV}." >&2
@@ -134,16 +134,41 @@ case "${embedding_profile}" in
       echo "Connected embeddings must use the approved OpenAI origin." >&2
       exit 1
     }
-    [[ "$(read_env "${APP_ENV}" AI_LLM_BASE_URL)" == "https://api.deepseek.com/v1/" ]] || {
-      echo "Connected LLM requests must use the approved LLM origin." >&2
+    openai_key="$(read_env "${APP_ENV}" OPENAI_API_KEY)"
+    [[ "${#openai_key}" -ge 24 && "${openai_key}" != *replace* ]] || {
+      echo "Connected embeddings require OPENAI_API_KEY." >&2
       exit 1
     }
-    for key in OPENAI_API_KEY LLM_API_KEY; do
-      value="$(read_env "${APP_ENV}" "${key}")"
-      [[ "${#value}" -ge 24 && "${value}" != *replace* ]] || { echo "Connected mode requires ${key}." >&2; exit 1; }
-    done
     ;;
   *) echo "Unsupported EMBEDDING_PROFILE=${embedding_profile}" >&2; exit 1 ;;
+esac
+
+llm_profile="$(read_env "${APP_ENV}" LLM_PROFILE)"
+llm_model="$(read_env "${APP_ENV}" LLM_MODEL)"
+llm_origin="$(read_env "${APP_ENV}" AI_LLM_BASE_URL)"
+llm_mode="$(read_env "${APP_ENV}" AI_LLM_MODE)"
+llm_key="$(read_env "${APP_ENV}" LLM_API_KEY)"
+[[ "${llm_profile}|${llm_model}|${llm_origin}" == "deepseek-chat-v1|deepseek-chat|https://api.deepseek.com/v1/" ]] || {
+  echo "Assignment personalization LLM profile values do not match the controlled registry." >&2
+  exit 1
+}
+case "${llm_mode}" in
+  "")
+    if [[ -n "${llm_key}" ]]; then
+      [[ "${#llm_key}" -ge 24 && "${llm_key}" != *replace* ]] || {
+        echo "Automatic connected personalization requires a safe LLM_API_KEY." >&2
+        exit 1
+      }
+    fi
+    ;;
+  connected)
+    [[ "${#llm_key}" -ge 24 && "${llm_key}" != *replace* ]] || {
+      echo "AI_LLM_MODE=connected requires LLM_API_KEY." >&2
+      exit 1
+    }
+    ;;
+  disabled) ;;
+  *) echo "AI_LLM_MODE must be blank, connected, or disabled." >&2; exit 1 ;;
 esac
 
 for key in POSTGRES_PASSWORD JWT_SECRET SUPABASE_PUBLISHABLE_KEY SUPABASE_SECRET_KEY DASHBOARD_PASSWORD SECRET_KEY_BASE REALTIME_DB_ENC_KEY VAULT_ENC_KEY PG_META_CRYPTO_KEY; do
