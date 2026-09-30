@@ -19,7 +19,7 @@ use {
     },
     crate::repositories::{
         AssignmentPersonalizationJobRepository, AuthorizedAssignmentRepository, AuthorizedStudent,
-        AuthorizedTeacher, RepositoryError,
+        AuthorizedTeacher, RepositoryError, StudentPersonalizationDelivery,
     },
     axum::Extension,
     uuid::Uuid,
@@ -49,6 +49,10 @@ pub struct PersonalizedAssignmentResponse {
     pub body: String,
     pub is_personalized: bool,
     pub personalization: Option<PersonalizationDetails>,
+    /// Truthful content-delivery state. Student clients must not infer
+    /// personalization success from the presence of a custom-assignment row.
+    pub delivery_state: String,
+    pub delivery_policy: String,
     pub status: String,
     pub due_at: DateTime<Utc>,
     pub assigned_at: DateTime<Utc>,
@@ -220,28 +224,37 @@ pub async fn get_personalized_assignment(
         let repository = AuthorizedAssignmentRepository::new(state.services.pool.clone());
         let user_id = parse_uuid(&user.id, "authenticated user")?;
 
-        let result = match user.role.as_str() {
+        match user.role.as_str() {
             "Teacher" => {
                 let actor = repository
                     .resolve_active_teacher(user_id, &user.role)
                     .await
                     .map_err(repository_error)?;
-                repository.find_custom_for_teacher(actor, id).await
+                match repository.find_custom_for_teacher(actor, id).await {
+                    Ok(item) => Ok(Some(custom_assignment_to_response(item))),
+                    Err(RepositoryError::NotFound { .. })
+                    | Err(RepositoryError::Unauthorized) => Ok(None),
+                    Err(error) => Err(repository_error(error)),
+                }
             }
             "Student" => {
                 let actor = repository
                     .resolve_active_student(user_id, &user.role)
                     .await
                     .map_err(repository_error)?;
-                repository.find_custom_for_student(actor, id).await
+                let item = match repository.find_custom_for_student(actor, id).await {
+                    Ok(item) => item,
+                    Err(RepositoryError::NotFound { .. })
+                    | Err(RepositoryError::Unauthorized) => return Ok(None),
+                    Err(error) => return Err(repository_error(error)),
+                };
+                let delivery = repository
+                    .personalization_delivery_for_student(actor, id)
+                    .await
+                    .map_err(repository_error)?;
+                Ok(Some(student_custom_assignment_to_response(item, delivery)))
             }
-            _ => return Err(ServerFnError::new("Forbidden: insufficient privileges")),
-        };
-
-        match result {
-            Ok(item) => Ok(Some(custom_assignment_to_response(item))),
-            Err(RepositoryError::NotFound { .. }) | Err(RepositoryError::Unauthorized) => Ok(None),
-            Err(error) => Err(repository_error(error)),
+            _ => Err(ServerFnError::new("Forbidden: insufficient privileges")),
         }
     }
 
@@ -278,16 +291,20 @@ pub async fn get_my_assignments() -> Result<Vec<PersonalizedAssignmentResponse>,
     #[cfg(feature = "server")]
     {
         let (repository, actor) = authorized_student().await?;
-        repository
+        let items = repository
             .list_for_student(actor, 100, 0)
             .await
-            .map(|items| {
-                items
-                    .into_iter()
-                    .map(custom_assignment_to_response)
-                    .collect()
-            })
-            .map_err(repository_error)
+            .map_err(repository_error)?;
+        let mut responses = Vec::with_capacity(items.len());
+        for item in items {
+            let id = item.id;
+            let delivery = repository
+                .personalization_delivery_for_student(actor, id)
+                .await
+                .map_err(repository_error)?;
+            responses.push(student_custom_assignment_to_response(item, delivery));
+        }
+        Ok(responses)
     }
 
     #[cfg(not(feature = "server"))]
@@ -428,6 +445,7 @@ fn custom_assignment_to_response(
     item: CustomAssignmentWithDetails,
 ) -> PersonalizedAssignmentResponse {
     let (title, body, personalization) = personalized_content(&item);
+    let is_personalized = personalization.is_some();
     PersonalizedAssignmentResponse {
         id: item.id.to_string(),
         assignment_id: item.assignment_id.to_string(),
@@ -435,8 +453,49 @@ fn custom_assignment_to_response(
         student_name: item.student_name,
         title,
         body,
-        is_personalized: personalization.is_some(),
+        is_personalized,
         personalization,
+        delivery_state: if is_personalized {
+            "ready".to_string()
+        } else {
+            "source".to_string()
+        },
+        delivery_policy: "teacher_source".to_string(),
+        status: format!("{:?}", item.status),
+        due_at: item.due_at,
+        assigned_at: item.assigned_at,
+    }
+}
+
+#[cfg(feature = "server")]
+fn student_custom_assignment_to_response(
+    item: CustomAssignmentWithDetails,
+    delivery: StudentPersonalizationDelivery,
+) -> PersonalizedAssignmentResponse {
+    let (title, body, personalization) = match delivery.delivery_state.as_str() {
+        "ready" => personalized_content(&item),
+        "fallback_original" => (
+            item.assignment_title.clone(),
+            item.assignment_body.clone(),
+            None,
+        ),
+        // Preparing/unavailable states intentionally return no teacher source
+        // body. The student UI renders an explicit localized delivery state.
+        _ => (String::new(), String::new(), None),
+    };
+    let is_personalized = delivery.delivery_state == "ready" && personalization.is_some();
+
+    PersonalizedAssignmentResponse {
+        id: item.id.to_string(),
+        assignment_id: item.assignment_id.to_string(),
+        student_id: item.student_id.to_string(),
+        student_name: item.student_name,
+        title,
+        body,
+        is_personalized,
+        personalization,
+        delivery_state: delivery.delivery_state,
+        delivery_policy: delivery.delivery_policy,
         status: format!("{:?}", item.status),
         due_at: item.due_at,
         assigned_at: item.assigned_at,
