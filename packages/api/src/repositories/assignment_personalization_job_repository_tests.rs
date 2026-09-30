@@ -989,7 +989,6 @@ async fn student_delivery_truth_hides_source_until_policy_allows_fallback() {
     );
 }
 
-
 #[cfg(feature = "server")]
 #[tokio::test]
 async fn platform_admin_scope_summaries_and_bulk_retry_are_exact_and_bounded() {
@@ -1093,5 +1092,8 @@ async fn platform_admin_scope_summaries_and_bulk_retry_are_exact_and_bounded() {
     .fetch_all(&*fixture.pool)
     .await
     .expect("read retried states");
-    assert_eq!(states, vec![("queued".to_string(), 0), ("queued".to_string(), 0)]);
+    assert_eq!(
+        states,
+        vec![("queued".to_string(), 0), ("queued".to_string(), 0)]
+    );
 }
