@@ -254,7 +254,9 @@ SET status = 'running',
     attempt_count = 1,
     started_at = NOW() - INTERVAL '10 seconds',
     lease_owner = 'f9000000-0000-0000-0000-000000000001',
-    heartbeat_at = NOW(),
+    -- Keep this synthetic running state outside stale-recovery during a long
+    -- browser suite without disabling the real worker.
+    heartbeat_at = NOW() + INTERVAL '1 hour',
     completed_at = NULL,
     last_error_code = NULL,
     last_error_summary = NULL
