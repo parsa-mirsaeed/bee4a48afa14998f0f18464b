@@ -805,3 +805,200 @@ async fn platform_admin_policy_is_authorized_audited_and_snapshotted_into_new_jo
         "school and teacher policy writes must be audited"
     );
 }
+
+
+#[cfg(feature = "server")]
+#[tokio::test]
+async fn student_delivery_truth_hides_source_until_policy_allows_fallback() {
+    let _queue_guard = QUEUE_TEST_LOCK.lock().await;
+    let fixture = queue_fixture(1).await;
+    let student_id = fixture.student_ids[0];
+    let student_user: Uuid = sqlx::query_scalar("SELECT user_id FROM students WHERE id = $1")
+        .bind(student_id)
+        .fetch_one(&*fixture.pool)
+        .await
+        .expect("read student user");
+    let custom_assignment_id: Uuid = sqlx::query_scalar(
+        "SELECT id FROM custom_assignments WHERE assignment_id = $1 AND student_id = $2",
+    )
+    .bind(fixture.assignment_id)
+    .bind(student_id)
+    .fetch_one(&*fixture.pool)
+    .await
+    .expect("read custom assignment");
+
+    let authorized_pool = AuthorizedPool::new();
+    let preparing = run_as(
+        fixture.pool.as_ref(),
+        actor(student_user, "Student", fixture.school_id),
+        sqlx::query(
+            r#"
+            SELECT delivery_state, delivery_policy
+            FROM public.get_student_assignment_personalization_delivery($1)
+            "#,
+        )
+        .bind(custom_assignment_id)
+        .fetch_one(&authorized_pool),
+    )
+    .await
+    .expect("read preparing delivery state");
+    assert_eq!(preparing.get::<String, _>("delivery_state"), "preparing");
+    assert_eq!(
+        preparing.get::<String, _>("delivery_policy"),
+        DELIVERY_REQUIRE_PERSONALIZED
+    );
+
+    let hidden_queue_count: i64 = run_as(
+        fixture.pool.as_ref(),
+        actor(student_user, "Student", fixture.school_id),
+        sqlx::query_scalar(
+            "SELECT COUNT(*) FROM assignment_personalization_jobs WHERE assignment_id = $1",
+        )
+        .bind(fixture.assignment_id)
+        .fetch_one(&authorized_pool),
+    )
+    .await
+    .expect("student direct queue read");
+    assert_eq!(
+        hidden_queue_count, 0,
+        "student delivery truth must not grant direct operational queue visibility"
+    );
+
+    sqlx::query(
+        r#"
+        UPDATE assignment_personalization_jobs
+        SET status = 'failed',
+            processing_stage = 'failed',
+            completed_at = NOW(),
+            last_error_code = 'gateway_unavailable',
+            last_error_summary = 'AI gateway is temporarily unavailable'
+        WHERE assignment_id = $1
+        "#,
+    )
+    .bind(fixture.assignment_id)
+    .execute(&*fixture.pool)
+    .await
+    .expect("fail required-personalization job");
+
+    let unavailable = run_as(
+        fixture.pool.as_ref(),
+        actor(student_user, "Student", fixture.school_id),
+        sqlx::query(
+            "SELECT delivery_state FROM public.get_student_assignment_personalization_delivery($1)",
+        )
+        .bind(custom_assignment_id)
+        .fetch_one(&authorized_pool),
+    )
+    .await
+    .expect("read unavailable delivery state");
+    assert_eq!(
+        unavailable.get::<String, _>("delivery_state"),
+        "unavailable"
+    );
+
+    let platform_role = role_id(&fixture.pool, "PlatformAdmin").await;
+    let suffix = Uuid::new_v4().simple().to_string();
+    let platform_admin = insert_user(
+        &fixture.pool,
+        &suffix,
+        "Delivery Policy Platform Admin",
+        platform_role,
+        fixture.school_id,
+    )
+    .await;
+    let policy_repository =
+        AssignmentPersonalizationPolicyRepository::new(fixture.pool.clone());
+    run_as(
+        fixture.pool.as_ref(),
+        actor(platform_admin, "PlatformAdmin", fixture.school_id),
+        policy_repository.set_school_policy(
+            platform_admin,
+            fixture.school_id,
+            true,
+            false,
+            "deepseek-chat-v1",
+            DELIVERY_ALLOW_ORIGINAL_FALLBACK,
+        ),
+    )
+    .await
+    .expect("enable explicit original fallback policy");
+
+    let assignment = run_as(
+        fixture.pool.as_ref(),
+        actor(fixture.teacher_user, "Teacher", fixture.school_id),
+        fixture.repository.create_for_teacher(
+            fixture.teacher,
+            CreateAssignmentRequest {
+                class_section_id: fixture.class_section_id.into(),
+                subject_id: fixture.subject_id.into(),
+                lecture_id: None,
+                lecture_title: None,
+                lecture_number: None,
+                title: "Explicit fallback fixture".into(),
+                body: "Teacher source is visible only when policy explicitly permits fallback."
+                    .into(),
+                due_at: Utc::now() + Duration::days(9),
+                material_ids: None,
+            },
+        ),
+    )
+    .await
+    .expect("create fallback assignment");
+    let fallback_assignment_id: Uuid = assignment.id.into();
+    run_as(
+        fixture.pool.as_ref(),
+        actor(fixture.teacher_user, "Teacher", fixture.school_id),
+        fixture
+            .repository
+            .publish_for_teacher(fixture.teacher, assignment.id),
+    )
+    .await
+    .expect("publish fallback assignment");
+
+    let fallback_custom_id: Uuid = sqlx::query_scalar(
+        "SELECT id FROM custom_assignments WHERE assignment_id = $1 AND student_id = $2",
+    )
+    .bind(fallback_assignment_id)
+    .bind(student_id)
+    .fetch_one(&*fixture.pool)
+    .await
+    .expect("read fallback custom assignment");
+    sqlx::query(
+        r#"
+        UPDATE assignment_personalization_jobs
+        SET status = 'failed',
+            processing_stage = 'failed',
+            completed_at = NOW(),
+            last_error_code = 'provider_unconfigured',
+            last_error_summary = 'AI personalization provider is not configured'
+        WHERE assignment_id = $1
+        "#,
+    )
+    .bind(fallback_assignment_id)
+    .execute(&*fixture.pool)
+    .await
+    .expect("fail fallback-eligible job");
+
+    let fallback = run_as(
+        fixture.pool.as_ref(),
+        actor(student_user, "Student", fixture.school_id),
+        sqlx::query(
+            r#"
+            SELECT delivery_state, delivery_policy
+            FROM public.get_student_assignment_personalization_delivery($1)
+            "#,
+        )
+        .bind(fallback_custom_id)
+        .fetch_one(&authorized_pool),
+    )
+    .await
+    .expect("read explicit fallback delivery state");
+    assert_eq!(
+        fallback.get::<String, _>("delivery_state"),
+        "fallback_original"
+    );
+    assert_eq!(
+        fallback.get::<String, _>("delivery_policy"),
+        DELIVERY_ALLOW_ORIGINAL_FALLBACK
+    );
+}
