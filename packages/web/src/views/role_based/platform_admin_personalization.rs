@@ -60,9 +60,7 @@ fn delivery_label(value: &str, locale: Locale) -> String {
 
 fn failure_label(code: Option<&str>, locale: Locale) -> String {
     let key = match code {
-        Some("gateway_unavailable") => {
-            "platform_admin.personalization.failure.gateway_unavailable"
-        }
+        Some("gateway_unavailable") => "platform_admin.personalization.failure.gateway_unavailable",
         Some("provider_unconfigured") => {
             "platform_admin.personalization.failure.provider_unconfigured"
         }
