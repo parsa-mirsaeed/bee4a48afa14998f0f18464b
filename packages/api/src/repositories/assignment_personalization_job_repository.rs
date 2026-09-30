@@ -374,6 +374,100 @@ impl AssignmentPersonalizationJobRepository {
         Ok(())
     }
 
+    pub async fn update_stage(
+        &self,
+        job_id: Uuid,
+        lease_owner: Uuid,
+        stage: &str,
+    ) -> RepositoryResult<()> {
+        if !matches!(
+            stage,
+            "authorizing"
+                | "building_student_context"
+                | "retrieving_context"
+                | "ai_gateway"
+                | "provider"
+                | "validating_response"
+                | "saving"
+        ) {
+            return Err(RepositoryError::Validation(
+                "Unsupported assignment personalization processing stage".to_string(),
+            ));
+        }
+        let result = sqlx::query(
+            r#"
+            UPDATE assignment_personalization_jobs
+            SET processing_stage = $3,
+                heartbeat_at = NOW()
+            WHERE id = $1
+              AND status = 'running'
+              AND lease_owner = $2
+            "#,
+        )
+        .bind(job_id)
+        .bind(lease_owner)
+        .bind(stage)
+        .execute(&*self.base.pool())
+        .await?;
+        if result.rows_affected() != 1 {
+            return Err(RepositoryError::Validation(
+                "Personalization job lease is no longer active".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    pub async fn complete_with_diagnostics(
+        &self,
+        job_id: Uuid,
+        lease_owner: Uuid,
+        diagnostics: &PersonalizationExecutionDiagnostics,
+    ) -> RepositoryResult<()> {
+        let result = sqlx::query(
+            r#"
+            UPDATE assignment_personalization_jobs
+            SET status = 'succeeded',
+                completed_at = NOW(),
+                lease_owner = NULL,
+                heartbeat_at = NULL,
+                last_error_code = NULL,
+                last_error_summary = NULL,
+                processing_stage = 'ready',
+                talent_profile_present = $3,
+                teacher_report_count = $4,
+                performance_context_present = $5,
+                class_material_chunk_count = $6,
+                governed_knowledge_chunk_count = $7,
+                prompt_tokens = $8,
+                completion_tokens = $9,
+                total_tokens = $10,
+                generated_content_changed = $11
+            WHERE id = $1
+              AND status = 'running'
+              AND lease_owner = $2
+            "#,
+        )
+        .bind(job_id)
+        .bind(lease_owner)
+        .bind(diagnostics.talent_profile_present)
+        .bind(diagnostics.teacher_report_count)
+        .bind(diagnostics.performance_context_present)
+        .bind(diagnostics.class_material_chunk_count)
+        .bind(diagnostics.governed_knowledge_chunk_count)
+        .bind(diagnostics.prompt_tokens)
+        .bind(diagnostics.completion_tokens)
+        .bind(diagnostics.total_tokens)
+        .bind(diagnostics.generated_content_changed)
+        .execute(&*self.base.pool())
+        .await?;
+        if result.rows_affected() != 1 {
+            return Err(RepositoryError::Validation(
+                "Personalization job lease changed before completion".into(),
+            ));
+        }
+        Ok(())
+    }
+
     pub async fn complete(&self, job_id: Uuid, lease_owner: Uuid) -> RepositoryResult<()> {
         let result = sqlx::query(
             r#"
@@ -383,7 +477,8 @@ impl AssignmentPersonalizationJobRepository {
                 lease_owner = NULL,
                 heartbeat_at = NULL,
                 last_error_code = NULL,
-                last_error_summary = NULL
+                last_error_summary = NULL,
+                processing_stage = 'ready'
             WHERE id = $1
               AND status = 'running'
               AND lease_owner = $2
@@ -414,7 +509,8 @@ impl AssignmentPersonalizationJobRepository {
                 lease_owner = NULL,
                 heartbeat_at = NULL,
                 last_error_code = 'authorization_revoked',
-                last_error_summary = 'Assignment personalization authorization is no longer valid'
+                last_error_summary = 'Assignment personalization authorization is no longer valid',
+                processing_stage = 'cancelled'
             WHERE id = $1
               AND status = 'running'
               AND lease_owner = $2
@@ -466,7 +562,8 @@ impl AssignmentPersonalizationJobRepository {
                     lease_owner = NULL,
                     heartbeat_at = NULL,
                     last_error_code = $4,
-                    last_error_summary = $5
+                    last_error_summary = $5,
+                    processing_stage = 'queued'
                 WHERE id = $1
                   AND status = 'running'
                   AND lease_owner = $2
@@ -490,7 +587,8 @@ impl AssignmentPersonalizationJobRepository {
                 lease_owner = NULL,
                 heartbeat_at = NULL,
                 last_error_code = $3,
-                last_error_summary = $4
+                last_error_summary = $4,
+                processing_stage = 'failed'
             WHERE id = $1
               AND status = 'running'
               AND lease_owner = $2
