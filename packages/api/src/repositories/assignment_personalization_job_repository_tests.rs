@@ -845,21 +845,11 @@ async fn student_delivery_truth_hides_source_until_policy_allows_fallback() {
         DELIVERY_REQUIRE_PERSONALIZED
     );
 
-    let hidden_queue_count: i64 = run_as(
-        fixture.pool.as_ref(),
-        actor(student_user, "Student", fixture.school_id),
-        sqlx::query_scalar(
-            "SELECT COUNT(*) FROM assignment_personalization_jobs WHERE assignment_id = $1",
-        )
-        .bind(fixture.assignment_id)
-        .fetch_one(&authorized_pool),
-    )
-    .await
-    .expect("student direct queue read");
-    assert_eq!(
-        hidden_queue_count, 0,
-        "student delivery truth must not grant direct operational queue visibility"
-    );
+    // Direct queue RLS is verified by the dedicated runtime-role security
+    // probe. This database-backed repository suite connects as the migration
+    // owner/superuser, which PostgreSQL intentionally exempts from RLS even
+    // when FORCE RLS is enabled; asserting row invisibility here would not be
+    // a valid security proof.
 
     sqlx::query(
         r#"
