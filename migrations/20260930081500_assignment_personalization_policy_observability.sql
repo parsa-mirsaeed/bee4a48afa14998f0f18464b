@@ -738,6 +738,14 @@ ON public.assignment_personalization_policy_audit
 FOR SELECT
 USING (public.get_role() = 'PlatformAdmin');
 
+CREATE POLICY assignment_personalization_policy_audit_admin_insert
+ON public.assignment_personalization_policy_audit
+FOR INSERT
+WITH CHECK (
+    public.get_role() = 'PlatformAdmin'
+    AND actor_id = public.get_user_id()
+);
+
 CREATE OR REPLACE FUNCTION public.audit_assignment_personalization_school_policy()
 RETURNS TRIGGER
 LANGUAGE plpgsql
