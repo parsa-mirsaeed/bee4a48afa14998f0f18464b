@@ -19,8 +19,21 @@ DECLARE
     bounded_limit INTEGER := LEAST(GREATEST(COALESCE(p_limit, 100), 1), 100);
 BEGIN
     IF public.get_role() <> 'PlatformAdmin'
-       OR public.get_user_id() IS NULL THEN
+       OR public.get_user_id() IS NULL
+       OR COALESCE(public.get_elevated_operation(), FALSE) THEN
         RAISE EXCEPTION 'PlatformAdmin personalization retry context required'
+            USING ERRCODE = '42501';
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM public.users AS actor
+        JOIN public.roles AS actor_role ON actor_role.id = actor.role_id
+        WHERE actor.id = public.get_user_id()
+          AND actor.is_active = TRUE
+          AND actor_role.name::text = 'PlatformAdmin'
+    ) THEN
+        RAISE EXCEPTION 'Active PlatformAdmin actor required'
             USING ERRCODE = '42501';
     END IF;
 
@@ -66,6 +79,12 @@ BEGIN
     RETURN retried;
 END
 $$;
+
+REVOKE ALL
+ON FUNCTION public.retry_assignment_personalization_jobs_admin(
+    UUID, UUID, UUID, UUID, INTEGER
+)
+FROM PUBLIC;
 
 COMMENT ON FUNCTION public.retry_assignment_personalization_jobs_admin(
     UUID, UUID, UUID, UUID, INTEGER
