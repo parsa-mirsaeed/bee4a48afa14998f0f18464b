@@ -163,7 +163,7 @@ pub fn PlatformPersonalizationSection() -> Element {
                                 section { class: "space-y-3",
                                     div { class: "flex flex-wrap items-center justify-between gap-2",
                                         h2 { class: "text-lg font-semibold text-gray-900 dark:text-white",
-                                            "{t("platform_admin.personalization.teachers", locale)} · {school_name}"
+                                            {format!("{} · {}", t("platform_admin.personalization.teachers", locale), school_name)}
                                         }
                                         button {
                                             r#type: "button",
@@ -254,7 +254,7 @@ fn CapabilityPanel(
                     {t("platform_admin.personalization.capability", locale)}
                 }
                 span { class: "rounded-full px-2.5 py-1 text-xs font-semibold {gateway_class}",
-                    "{t("platform_admin.personalization.gateway", locale)}: {gateway_state}"
+                    {format!("{}: {}", t("platform_admin.personalization.gateway", locale), gateway_state)}
                 }
             }
             dl { class: "mt-4 grid grid-cols-1 gap-3 text-sm sm:grid-cols-2 xl:grid-cols-6",
@@ -297,7 +297,7 @@ fn SchoolPolicyCard(
                 div {
                     h3 { class: "font-semibold text-gray-900 dark:text-white", "{policy.school_name}" }
                     p { class: "mt-1 text-xs text-gray-500",
-                        "{t("platform_admin.personalization.effective", locale)} · v{policy.policy_version}"
+                        {format!("{} · v{}", t("platform_admin.personalization.effective", locale), policy.policy_version)}
                     }
                 }
                 button {
@@ -422,7 +422,13 @@ fn TeacherPolicyCard(
         article { class: "et-ui-card p-5",
             h3 { class: "font-semibold text-gray-900 dark:text-white", "{policy.teacher_name}" }
             p { class: "mt-1 text-xs text-gray-500",
-                "{t("platform_admin.personalization.effective", locale)}: {policy.effective_scope} · {policy.effective_llm_profile_id} · {delivery_label(&policy.effective_delivery_policy, locale)}"
+                {format!(
+                    "{}: {} · {} · {}",
+                    t("platform_admin.personalization.effective", locale),
+                    policy.effective_scope,
+                    policy.effective_llm_profile_id,
+                    delivery_label(&policy.effective_delivery_policy, locale),
+                )}
             }
 
             label { class: "mt-4 block text-sm",
@@ -551,15 +557,15 @@ fn PersonalizationJobCard(job: AdminPersonalizationJobDto, on_retried: EventHand
                     h3 { class: "font-semibold text-gray-900 dark:text-white", "{job.assignment_title}" }
                     p { class: "mt-1 text-sm text-gray-500", "{job.school_name} · {job.teacher_name}" }
                     p { class: "mt-1 text-xs text-gray-500", dir: "ltr",
-                        "{t("platform_admin.personalization.student_ref", locale)}: {job.student_reference}"
+                        {format!("{}: {}", t("platform_admin.personalization.student_ref", locale), job.student_reference)}
                     }
                 }
                 div { class: "flex flex-wrap gap-2",
                     span { class: "rounded-full bg-gray-100 px-2.5 py-1 text-xs font-semibold dark:bg-gray-800",
-                        "{t("platform_admin.personalization.status", locale)}: {stage_label(&job.status, locale)}"
+                        {format!("{}: {}", t("platform_admin.personalization.status", locale), stage_label(&job.status, locale))}
                     }
                     span { class: "rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-800 dark:bg-blue-900/20 dark:text-blue-200",
-                        "{t("platform_admin.personalization.stage", locale)}: {stage_label(&job.processing_stage, locale)}"
+                        {format!("{}: {}", t("platform_admin.personalization.stage", locale), stage_label(&job.processing_stage, locale))}
                     }
                 }
             }
