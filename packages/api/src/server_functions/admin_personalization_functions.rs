@@ -205,8 +205,7 @@ pub async fn get_admin_personalization_overview(
     #[cfg(feature = "server")]
     {
         let (actor_id, pool) = platform_admin_context().await?;
-        let policy_repository =
-            AssignmentPersonalizationPolicyRepository::new(pool.clone());
+        let policy_repository = AssignmentPersonalizationPolicyRepository::new(pool.clone());
         let job_repository = AssignmentPersonalizationJobRepository::new(pool);
 
         let schools = policy_repository
@@ -339,8 +338,7 @@ pub async fn retry_admin_personalization_job(job_id: String) -> Result<(), Serve
     #[cfg(feature = "server")]
     {
         let (actor_id, pool) = platform_admin_context().await?;
-        let job_id =
-            Uuid::parse_str(&job_id).map_err(|_| ServerFnError::new("Invalid job ID"))?;
+        let job_id = Uuid::parse_str(&job_id).map_err(|_| ServerFnError::new("Invalid job ID"))?;
         AssignmentPersonalizationJobRepository::new(pool)
             .retry_for_platform_admin(actor_id, job_id)
             .await
