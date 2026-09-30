@@ -89,8 +89,7 @@ impl LlmConfig {
         let base_url =
             env::var("AI_GATEWAY_URL").unwrap_or_else(|_| INTERNAL_GATEWAY_ORIGIN.to_string());
         validate_internal_gateway_url(&base_url)?;
-        let profile = env::var("LLM_PROFILE")
-            .unwrap_or_else(|_| DEEPSEEK_CHAT_V1.id.to_string());
+        let profile = env::var("LLM_PROFILE").unwrap_or_else(|_| DEEPSEEK_CHAT_V1.id.to_string());
         let resolved_profile = resolve_llm_profile(&profile)
             .map_err(|error| LlmError::InvalidResponse(error.to_string()))?;
         let model = env::var("LLM_MODEL").unwrap_or_else(|_| resolved_profile.model.to_string());
@@ -492,9 +491,7 @@ impl ExternalLlmClient {
                 "provider_rate_limited" | "quota_exceeded" => Err(LlmError::RateLimited {
                     retry_after_seconds: retry_after,
                 }),
-                "llm_disabled" | "provider_unconfigured" => {
-                    Err(LlmError::ConfigurationUnavailable)
-                }
+                "llm_disabled" | "provider_unconfigured" => Err(LlmError::ConfigurationUnavailable),
                 "ai_temporarily_unavailable"
                 | "circuit_open"
                 | "gateway_shutting_down"
