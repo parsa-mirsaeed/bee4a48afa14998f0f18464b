@@ -4,10 +4,10 @@ use api::server_functions::admin_personalization_functions::{
     get_admin_personalization_overview, list_admin_personalization_teachers,
     retry_admin_personalization_failed_scope, retry_admin_personalization_job,
     set_admin_school_personalization_policy, set_admin_teacher_personalization_policy,
-    AdminPersonalizationJobDto, AdminPersonalizationMethodDto,
-    AdminPersonalizationScopeSummaryDto, AdminSchoolPersonalizationPolicyDto,
-    AdminTeacherPersonalizationPolicyDto, RetryAdminPersonalizationScopeRequest,
-    SetAdminSchoolPersonalizationPolicyRequest, SetAdminTeacherPersonalizationPolicyRequest,
+    AdminPersonalizationJobDto, AdminPersonalizationMethodDto, AdminPersonalizationScopeSummaryDto,
+    AdminSchoolPersonalizationPolicyDto, AdminTeacherPersonalizationPolicyDto,
+    RetryAdminPersonalizationScopeRequest, SetAdminSchoolPersonalizationPolicyRequest,
+    SetAdminTeacherPersonalizationPolicyRequest,
 };
 use dioxus::prelude::*;
 
