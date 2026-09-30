@@ -14,7 +14,6 @@ const CREATED_TEACHER_EMAIL = 'e2e-pr1-teacher@example.test';
 const PARENT_EMAIL = 'e2e-pr1-parent@example.test';
 const EMPTY_CLASS = 'E2E Empty Class A';
 const GUIDED_ASSIGNMENT = 'E2E Guided Publish Draft';
-const STUDENT_SUBMISSION = 'E2E PR1 persisted student submission';
 
 type CreationRole = 'Student' | 'Teacher' | 'Parent';
 
@@ -190,26 +189,26 @@ test('manager provisions Student Teacher Parent and guided publish persists @smo
   await expect(publishedCard).toContainText('0/1 submitted');
   await endSession(page);
 
-  // The newly-created Student authenticates with the generated credential,
-  // submits real work, and sees the same persisted submission after a new login.
+  // The newly-created Student authenticates with the generated credential.
+  // Browser acceptance runs with the personalization provider intentionally
+  // unavailable, so publication must remain truthful: the student sees an
+  // explicit preparation/unavailable state and never receives the teacher's
+  // source text or a work action as though personalization had succeeded.
   await signIn(page, STUDENT_EMAIL, studentPassword);
-  let studentCard = await openStudentAssignmentCard(page);
+  const studentCard = await openStudentAssignmentCard(page);
   await expect(studentCard).toContainText('Pending');
   await studentCard.getByRole('button', { name: 'Start assignment', exact: true }).click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Open my submission', exact: true }).click();
-  const workDialog = page.getByRole('dialog');
-  await expect(workDialog).toContainText('My submission');
-  await workDialog.getByLabel('My submission', { exact: true }).fill(STUDENT_SUBMISSION);
-  await workDialog.getByRole('button', { name: 'Submit work', exact: true }).click();
-  await expect(studentCard).toContainText('Submitted');
-  await endSession(page);
-
-  await signIn(page, STUDENT_EMAIL, studentPassword);
-  studentCard = await openStudentAssignmentCard(page);
-  await expect(studentCard).toContainText('Submitted');
-  await studentCard.getByRole('button', { name: 'View submission', exact: true }).click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Open my submission', exact: true }).click();
-  await expect(page.getByRole('dialog').getByLabel('My submission', { exact: true })).toHaveValue(STUDENT_SUBMISSION);
+  const deliveryDialog = page.getByRole('dialog');
+  await expect(deliveryDialog).toBeVisible();
+  await expect(deliveryDialog.getByRole('status')).toContainText(
+    /Your assignment is being prepared|Personalized assignment is temporarily unavailable/,
+  );
+  await expect(deliveryDialog).not.toContainText(
+    'Must remain draft until an active student is enrolled.',
+  );
+  await expect(
+    deliveryDialog.getByRole('button', { name: 'Open my submission', exact: true }),
+  ).toHaveCount(0);
   await endSession(page);
 
   // A newly-created Teacher can authenticate with the one-time credential and
