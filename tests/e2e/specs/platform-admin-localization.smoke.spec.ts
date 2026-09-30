@@ -324,6 +324,7 @@ for (const scenario of [
             running: 'در حال اجرا',
             ready: 'آماده',
             retrieving: 'در حال بازیابی زمینه آموزشی',
+            queuedAt: 'زمان ورود به صف',
             failed: 'ناموفق',
             failure: 'دروازه هوش مصنوعی موقتاً در دسترس نیست',
           }
@@ -340,6 +341,7 @@ for (const scenario of [
             running: 'Running',
             ready: 'Ready',
             retrieving: 'Retrieving learning context',
+            queuedAt: 'Queued at',
             failed: 'Failed',
             failure: 'AI gateway is temporarily unavailable',
           };
@@ -374,6 +376,7 @@ for (const scenario of [
     });
     await expect(failedJob).toBeVisible();
     await expect(failedJob).toContainText(copy.failed);
+    await expect(failedJob).toContainText(copy.queuedAt);
     await expect(failedJob).toContainText(copy.failure);
     await expect(failedJob.getByRole('button', { name: copy.retryFailedScope, exact: true })).toBeVisible();
 
