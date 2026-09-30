@@ -241,8 +241,7 @@ impl AssignmentPersonalizationPolicyRepository {
         delivery_policy: &str,
     ) -> RepositoryResult<SchoolPersonalizationPolicy> {
         self.require_platform_admin(actor_id).await?;
-        let canonical_profile_id =
-            Self::validate_policy_values(llm_profile_id, delivery_policy)?;
+        let canonical_profile_id = Self::validate_policy_values(llm_profile_id, delivery_policy)?;
 
         sqlx::query(
             r#"
@@ -330,16 +329,15 @@ impl AssignmentPersonalizationPolicyRepository {
             None
         };
 
-        let canonical_school = sqlx::query_scalar::<_, Uuid>(
-            "SELECT school_id FROM teachers WHERE id = $1",
-        )
-        .bind(teacher_id)
-        .fetch_optional(&*self.base.pool())
-        .await?
-        .ok_or_else(|| RepositoryError::NotFound {
-            entity: "Teacher".to_string(),
-            id: teacher_id.to_string(),
-        })?;
+        let canonical_school =
+            sqlx::query_scalar::<_, Uuid>("SELECT school_id FROM teachers WHERE id = $1")
+                .bind(teacher_id)
+                .fetch_optional(&*self.base.pool())
+                .await?
+                .ok_or_else(|| RepositoryError::NotFound {
+                    entity: "Teacher".to_string(),
+                    id: teacher_id.to_string(),
+                })?;
 
         sqlx::query(
             r#"
