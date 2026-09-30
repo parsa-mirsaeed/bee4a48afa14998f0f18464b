@@ -98,6 +98,42 @@ pub struct PersonalizationQueueSummary {
     pub last_completed_at: Option<DateTime<Utc>>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdminPersonalizationJobRecord {
+    pub job_id: Uuid,
+    pub school_id: Uuid,
+    pub school_name: String,
+    pub teacher_user_id: Uuid,
+    pub teacher_name: String,
+    pub assignment_id: Uuid,
+    pub assignment_title: String,
+    pub student_reference: String,
+    pub status: String,
+    pub processing_stage: String,
+    pub attempt_count: i32,
+    pub llm_profile_id: String,
+    pub llm_provider: String,
+    pub model_name: String,
+    pub policy_scope: String,
+    pub policy_version: i32,
+    pub delivery_policy: String,
+    pub last_error_code: Option<String>,
+    pub last_error_summary: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub started_at: Option<DateTime<Utc>>,
+    pub completed_at: Option<DateTime<Utc>>,
+    pub heartbeat_at: Option<DateTime<Utc>>,
+    pub talent_profile_present: Option<bool>,
+    pub teacher_report_count: Option<i32>,
+    pub performance_context_present: Option<bool>,
+    pub class_material_chunk_count: Option<i32>,
+    pub governed_knowledge_chunk_count: Option<i32>,
+    pub prompt_tokens: Option<i32>,
+    pub completion_tokens: Option<i32>,
+    pub total_tokens: Option<i32>,
+    pub generated_content_changed: Option<bool>,
+}
+
 #[derive(Clone)]
 pub struct AssignmentPersonalizationJobRepository {
     base: BaseRepository,
@@ -108,6 +144,170 @@ impl AssignmentPersonalizationJobRepository {
         Self {
             base: BaseRepository::new(pool),
         }
+    }
+
+    async fn require_platform_admin(&self, actor_id: Uuid) -> RepositoryResult<()> {
+        let allowed = sqlx::query_scalar::<_, bool>(
+            r#"
+            SELECT public.get_role() = 'PlatformAdmin'
+               AND public.get_user_id() = $1
+            "#,
+        )
+        .bind(actor_id)
+        .fetch_one(&*self.base.pool())
+        .await?;
+        if !allowed {
+            return Err(RepositoryError::Unauthorized);
+        }
+        Ok(())
+    }
+
+    pub async fn list_for_platform_admin(
+        &self,
+        actor_id: Uuid,
+        school_id: Option<Uuid>,
+        teacher_user_id: Option<Uuid>,
+        limit: i64,
+    ) -> RepositoryResult<Vec<AdminPersonalizationJobRecord>> {
+        self.require_platform_admin(actor_id).await?;
+        let rows = sqlx::query(
+            r#"
+            SELECT
+                job.id AS job_id,
+                job.school_id,
+                school.name AS school_name,
+                job.requested_by AS teacher_user_id,
+                teacher_user.name AS teacher_name,
+                job.assignment_id,
+                assignment.title AS assignment_title,
+                LEFT(job.student_id::text, 8) AS student_reference,
+                job.status,
+                job.processing_stage,
+                job.attempt_count,
+                job.llm_profile_id,
+                job.llm_provider,
+                job.model_name,
+                job.policy_scope,
+                job.policy_version,
+                job.delivery_policy,
+                job.last_error_code,
+                job.last_error_summary,
+                job.created_at,
+                job.started_at,
+                job.completed_at,
+                job.heartbeat_at,
+                job.talent_profile_present,
+                job.teacher_report_count,
+                job.performance_context_present,
+                job.class_material_chunk_count,
+                job.governed_knowledge_chunk_count,
+                job.prompt_tokens,
+                job.completion_tokens,
+                job.total_tokens,
+                job.generated_content_changed
+            FROM assignment_personalization_jobs AS job
+            JOIN schools AS school ON school.id = job.school_id
+            JOIN users AS teacher_user ON teacher_user.id = job.requested_by
+            JOIN assignments AS assignment ON assignment.id = job.assignment_id
+            WHERE ($2::uuid IS NULL OR job.school_id = $2)
+              AND ($3::uuid IS NULL OR job.requested_by = $3)
+            ORDER BY job.created_at DESC, job.id
+            LIMIT $4
+            "#,
+        )
+        .bind(actor_id)
+        .bind(school_id)
+        .bind(teacher_user_id)
+        .bind(limit.clamp(1, 500))
+        .fetch_all(&*self.base.pool())
+        .await?;
+
+        rows.into_iter()
+            .map(|row| {
+                Ok(AdminPersonalizationJobRecord {
+                    job_id: row.try_get("job_id")?,
+                    school_id: row.try_get("school_id")?,
+                    school_name: row.try_get("school_name")?,
+                    teacher_user_id: row.try_get("teacher_user_id")?,
+                    teacher_name: row.try_get("teacher_name")?,
+                    assignment_id: row.try_get("assignment_id")?,
+                    assignment_title: row.try_get("assignment_title")?,
+                    student_reference: row.try_get("student_reference")?,
+                    status: row.try_get("status")?,
+                    processing_stage: row.try_get("processing_stage")?,
+                    attempt_count: row.try_get("attempt_count")?,
+                    llm_profile_id: row.try_get("llm_profile_id")?,
+                    llm_provider: row.try_get("llm_provider")?,
+                    model_name: row.try_get("model_name")?,
+                    policy_scope: row.try_get("policy_scope")?,
+                    policy_version: row.try_get("policy_version")?,
+                    delivery_policy: row.try_get("delivery_policy")?,
+                    last_error_code: row.try_get("last_error_code")?,
+                    last_error_summary: row.try_get("last_error_summary")?,
+                    created_at: row.try_get("created_at")?,
+                    started_at: row.try_get("started_at")?,
+                    completed_at: row.try_get("completed_at")?,
+                    heartbeat_at: row.try_get("heartbeat_at")?,
+                    talent_profile_present: row.try_get("talent_profile_present")?,
+                    teacher_report_count: row.try_get("teacher_report_count")?,
+                    performance_context_present: row.try_get("performance_context_present")?,
+                    class_material_chunk_count: row.try_get("class_material_chunk_count")?,
+                    governed_knowledge_chunk_count: row
+                        .try_get("governed_knowledge_chunk_count")?,
+                    prompt_tokens: row.try_get("prompt_tokens")?,
+                    completion_tokens: row.try_get("completion_tokens")?,
+                    total_tokens: row.try_get("total_tokens")?,
+                    generated_content_changed: row.try_get("generated_content_changed")?,
+                })
+            })
+            .collect()
+    }
+
+    pub async fn retry_for_platform_admin(
+        &self,
+        actor_id: Uuid,
+        job_id: Uuid,
+    ) -> RepositoryResult<()> {
+        self.require_platform_admin(actor_id).await?;
+        let result = sqlx::query(
+            r#"
+            UPDATE assignment_personalization_jobs AS job
+            SET status = 'queued',
+                attempt_count = 0,
+                available_at = NOW(),
+                lease_owner = NULL,
+                heartbeat_at = NULL,
+                completed_at = NULL,
+                last_error_code = NULL,
+                last_error_summary = NULL,
+                processing_stage = 'queued'
+            FROM assignments AS assignment,
+                 custom_assignments AS custom_assignment,
+                 LATERAL public.resolve_assignment_personalization_policy(
+                     job.school_id,
+                     job.requested_by
+                 ) AS effective
+            WHERE job.id = $1
+              AND job.status IN ('failed', 'cancelled')
+              AND assignment.id = job.assignment_id
+              AND assignment.status = 'Published'::assignment_status
+              AND custom_assignment.assignment_id = job.assignment_id
+              AND custom_assignment.student_id = job.student_id
+              AND custom_assignment.prompt_ctx IS NULL
+              AND effective.enabled
+              AND NOT effective.paused
+            "#,
+        )
+        .bind(job_id)
+        .execute(&*self.base.pool())
+        .await?;
+
+        if result.rows_affected() != 1 {
+            return Err(RepositoryError::Validation(
+                "Personalization job is not eligible for admin retry".to_string(),
+            ));
+        }
+        Ok(())
     }
 
     /// Explicit teacher retry remains durable. The target is re-authorized in
