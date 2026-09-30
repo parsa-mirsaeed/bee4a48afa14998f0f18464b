@@ -274,9 +274,9 @@ impl AssignmentPersonalizationPolicyRepository {
         .execute(&*self.base.pool())
         .await?;
 
-        let mut policies = self.list_school_policies(actor_id).await?;
-        policies
-            .drain(..)
+        self.list_school_policies(actor_id)
+            .await?
+            .into_iter()
             .find(|policy| policy.school_id == school_id)
             .ok_or_else(|| RepositoryError::NotFound {
                 entity: "SchoolPersonalizationPolicy".to_string(),
