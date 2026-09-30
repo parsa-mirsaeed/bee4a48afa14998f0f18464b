@@ -647,7 +647,6 @@ async fn explicit_retry_reuses_the_stable_job_identity() {
     assert_eq!(row.get::<i32, _>("attempt_count"), 0);
 }
 
-
 #[cfg(feature = "server")]
 #[tokio::test]
 async fn platform_admin_policy_is_authorized_audited_and_snapshotted_into_new_jobs() {
@@ -663,8 +662,7 @@ async fn platform_admin_policy_is_authorized_audited_and_snapshotted_into_new_jo
         fixture.school_id,
     )
     .await;
-    let policy_repository =
-        AssignmentPersonalizationPolicyRepository::new(fixture.pool.clone());
+    let policy_repository = AssignmentPersonalizationPolicyRepository::new(fixture.pool.clone());
 
     let unauthorized = run_as(
         fixture.pool.as_ref(),
@@ -806,7 +804,6 @@ async fn platform_admin_policy_is_authorized_audited_and_snapshotted_into_new_jo
     );
 }
 
-
 #[cfg(feature = "server")]
 #[tokio::test]
 async fn student_delivery_truth_hides_source_until_policy_allows_fallback() {
@@ -906,8 +903,7 @@ async fn student_delivery_truth_hides_source_until_policy_allows_fallback() {
         fixture.school_id,
     )
     .await;
-    let policy_repository =
-        AssignmentPersonalizationPolicyRepository::new(fixture.pool.clone());
+    let policy_repository = AssignmentPersonalizationPolicyRepository::new(fixture.pool.clone());
     run_as(
         fixture.pool.as_ref(),
         actor(platform_admin, "PlatformAdmin", fixture.school_id),
