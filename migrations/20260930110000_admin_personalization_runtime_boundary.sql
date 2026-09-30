@@ -160,7 +160,7 @@ RETURNS TRIGGER
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = pg_catalog, public
-AS $
+AS $admin_override$
 DECLARE
     canonical_school UUID;
 BEGIN
@@ -182,7 +182,7 @@ BEGIN
 
     RETURN NEW;
 END
-$;
+$admin_override$;
 
 REVOKE ALL
 ON FUNCTION public.validate_assignment_personalization_teacher_override()
