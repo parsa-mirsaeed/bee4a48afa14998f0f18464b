@@ -6,6 +6,8 @@ use uuid::Uuid;
 pub const ASSIGNMENT_PERSONALIZATION_MODEL: &str = "deepseek-chat";
 pub const ASSIGNMENT_PERSONALIZATION_PROFILE: &str = "assignment_personalization_v1";
 pub const ASSIGNMENT_PERSONALIZATION_PROFILE_VERSION: i32 = 1;
+pub const ASSIGNMENT_PERSONALIZATION_LLM_PROFILE: &str = "deepseek-chat-v1";
+pub const ASSIGNMENT_PERSONALIZATION_LLM_PROVIDER: &str = "deepseek";
 
 #[derive(Debug, Clone)]
 pub struct ClaimedAssignmentPersonalizationJob {
@@ -18,7 +20,25 @@ pub struct ClaimedAssignmentPersonalizationJob {
     pub model_name: String,
     pub profile_name: String,
     pub profile_version: i32,
+    pub llm_profile_id: String,
+    pub llm_provider: String,
+    pub policy_scope: String,
+    pub policy_version: i32,
+    pub delivery_policy: String,
     pub lease_owner: Uuid,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PersonalizationExecutionDiagnostics {
+    pub talent_profile_present: bool,
+    pub teacher_report_count: i32,
+    pub performance_context_present: bool,
+    pub class_material_chunk_count: i32,
+    pub governed_knowledge_chunk_count: i32,
+    pub prompt_tokens: Option<i32>,
+    pub completion_tokens: Option<i32>,
+    pub total_tokens: Option<i32>,
+    pub generated_content_changed: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
