@@ -127,8 +127,8 @@ impl AssignmentPersonalizationService {
         provider: &str,
         model: &str,
     ) -> Result<(), PersonalizationError> {
-        let expected = resolve_llm_profile(profile_id)
-            .map_err(|_| LlmError::ConfigurationUnavailable)?;
+        let expected =
+            resolve_llm_profile(profile_id).map_err(|_| LlmError::ConfigurationUnavailable)?;
         let client = self
             .llm_client
             .as_ref()
