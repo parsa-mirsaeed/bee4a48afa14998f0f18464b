@@ -80,8 +80,11 @@ impl AssignmentPersonalizationPolicyRepository {
         Ok(())
     }
 
-    fn validate_policy_values(profile_id: &str, delivery_policy: &str) -> RepositoryResult<()> {
-        resolve_llm_profile(profile_id)
+    fn validate_policy_values(
+        profile_id: &str,
+        delivery_policy: &str,
+    ) -> RepositoryResult<&'static str> {
+        let profile = resolve_llm_profile(profile_id)
             .map_err(|error| RepositoryError::Validation(error.to_string()))?;
         if !matches!(
             delivery_policy,
@@ -91,7 +94,7 @@ impl AssignmentPersonalizationPolicyRepository {
                 "Unsupported assignment personalization delivery policy".to_string(),
             ));
         }
-        Ok(())
+        Ok(profile.id)
     }
 
     pub async fn list_school_policies(
@@ -238,7 +241,8 @@ impl AssignmentPersonalizationPolicyRepository {
         delivery_policy: &str,
     ) -> RepositoryResult<SchoolPersonalizationPolicy> {
         self.require_platform_admin(actor_id).await?;
-        Self::validate_policy_values(llm_profile_id, delivery_policy)?;
+        let canonical_profile_id =
+            Self::validate_policy_values(llm_profile_id, delivery_policy)?;
 
         sqlx::query(
             r#"
@@ -265,7 +269,7 @@ impl AssignmentPersonalizationPolicyRepository {
         .bind(school_id)
         .bind(enabled)
         .bind(paused)
-        .bind(llm_profile_id)
+        .bind(canonical_profile_id)
         .bind(delivery_policy)
         .bind(actor_id)
         .execute(&*self.base.pool())
@@ -309,19 +313,22 @@ impl AssignmentPersonalizationPolicyRepository {
                     .to_string(),
             ));
         }
-        if let Some(profile) = llm_profile_id_override {
+        let canonical_profile_override = if let Some(profile) = llm_profile_id_override {
             let delivery = delivery_policy_override.unwrap_or(DELIVERY_REQUIRE_PERSONALIZED);
-            Self::validate_policy_values(profile, delivery)?;
-        } else if let Some(delivery) = delivery_policy_override {
-            if !matches!(
-                delivery,
-                DELIVERY_REQUIRE_PERSONALIZED | DELIVERY_ALLOW_ORIGINAL_FALLBACK
-            ) {
-                return Err(RepositoryError::Validation(
-                    "Unsupported assignment personalization delivery policy".to_string(),
-                ));
+            Some(Self::validate_policy_values(profile, delivery)?)
+        } else {
+            if let Some(delivery) = delivery_policy_override {
+                if !matches!(
+                    delivery,
+                    DELIVERY_REQUIRE_PERSONALIZED | DELIVERY_ALLOW_ORIGINAL_FALLBACK
+                ) {
+                    return Err(RepositoryError::Validation(
+                        "Unsupported assignment personalization delivery policy".to_string(),
+                    ));
+                }
             }
-        }
+            None
+        };
 
         let canonical_school = sqlx::query_scalar::<_, Uuid>(
             "SELECT school_id FROM teachers WHERE id = $1",
@@ -365,7 +372,7 @@ impl AssignmentPersonalizationPolicyRepository {
         .bind(mode)
         .bind(enabled_override)
         .bind(paused_override)
-        .bind(llm_profile_id_override)
+        .bind(canonical_profile_override)
         .bind(delivery_policy_override)
         .bind(actor_id)
         .execute(&*self.base.pool())
