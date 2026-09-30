@@ -360,6 +360,10 @@ fn classify_llm_failure(error: &LlmError) -> FailureAction {
                 retry_after_seconds: 10,
             }
         }
+        LlmError::ConfigurationUnavailable => FailureAction::Record {
+            kind: PersonalizationFailureKind::ConfigurationUnavailable,
+            retry_after_seconds: 0,
+        },
         LlmError::ParseError(_) | LlmError::InvalidResponse(_) | LlmError::ApiError { .. } => {
             FailureAction::Record {
                 kind: PersonalizationFailureKind::InvalidGatewayResponse,
