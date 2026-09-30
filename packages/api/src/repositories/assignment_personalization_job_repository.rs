@@ -153,6 +153,14 @@ impl AssignmentPersonalizationJobRepository {
                   AND student_user.school_id = teacher.school_id
                   AND student_user.is_active = TRUE
             ),
+            effective AS (
+                SELECT target.*, policy.*
+                FROM target
+                CROSS JOIN LATERAL public.resolve_assignment_personalization_policy(
+                    target.school_id,
+                    $3
+                ) AS policy
+            ),
             upserted AS (
                 INSERT INTO assignment_personalization_jobs (
                     school_id,
@@ -171,34 +179,53 @@ impl AssignmentPersonalizationJobRepository {
                     idempotency_key,
                     model_name,
                     profile_name,
-                    profile_version
+                    profile_version,
+                    llm_profile_id,
+                    llm_provider,
+                    policy_scope,
+                    policy_version,
+                    delivery_policy,
+                    processing_stage
                 )
                 SELECT
-                    target.school_id,
+                    effective.school_id,
                     $1,
                     $2,
-                    target.class_section_id,
+                    effective.class_section_id,
                     $3,
-                    'queued',
+                    CASE WHEN effective.enabled THEN 'queued' ELSE 'cancelled' END,
                     0,
                     NOW(),
                     NULL,
                     NULL,
-                    NULL,
-                    NULL,
-                    NULL,
+                    CASE WHEN effective.enabled THEN NULL ELSE 'policy_disabled' END,
+                    CASE
+                        WHEN effective.enabled THEN NULL
+                        ELSE 'Assignment personalization is disabled by policy'
+                    END,
+                    CASE WHEN effective.enabled THEN NULL ELSE NOW() END,
                     concat($1::text, ':', $2::text, ':assignment_personalization_v1:1'),
                     $4,
                     $5,
-                    $6
-                FROM target
-                WHERE target.prompt_ctx IS NULL
+                    $6,
+                    effective.llm_profile_id,
+                    $7,
+                    effective.policy_scope,
+                    effective.policy_version,
+                    effective.delivery_policy,
+                    CASE
+                        WHEN NOT effective.enabled THEN 'cancelled'
+                        WHEN effective.paused THEN 'paused'
+                        ELSE 'queued'
+                    END
+                FROM effective
+                WHERE effective.prompt_ctx IS NULL
                 ON CONFLICT (assignment_id, student_id, profile_name, profile_version)
                 DO UPDATE SET
                     status = CASE
                         WHEN assignment_personalization_jobs.status = 'succeeded'
                             THEN assignment_personalization_jobs.status
-                        ELSE 'queued'
+                        ELSE EXCLUDED.status
                     END,
                     attempt_count = CASE
                         WHEN assignment_personalization_jobs.status = 'succeeded'
@@ -223,22 +250,27 @@ impl AssignmentPersonalizationJobRepository {
                     last_error_code = CASE
                         WHEN assignment_personalization_jobs.status = 'succeeded'
                             THEN assignment_personalization_jobs.last_error_code
-                        ELSE NULL
+                        ELSE EXCLUDED.last_error_code
                     END,
                     last_error_summary = CASE
                         WHEN assignment_personalization_jobs.status = 'succeeded'
                             THEN assignment_personalization_jobs.last_error_summary
-                        ELSE NULL
+                        ELSE EXCLUDED.last_error_summary
                     END,
                     completed_at = CASE
                         WHEN assignment_personalization_jobs.status = 'succeeded'
                             THEN assignment_personalization_jobs.completed_at
-                        ELSE NULL
+                        ELSE EXCLUDED.completed_at
+                    END,
+                    processing_stage = CASE
+                        WHEN assignment_personalization_jobs.status = 'succeeded'
+                            THEN assignment_personalization_jobs.processing_stage
+                        ELSE EXCLUDED.processing_stage
                     END
                 RETURNING id
             )
-            SELECT target.custom_assignment_id
-            FROM target
+            SELECT effective.custom_assignment_id
+            FROM effective
             LEFT JOIN upserted ON TRUE
             LIMIT 1
             "#,
@@ -249,6 +281,7 @@ impl AssignmentPersonalizationJobRepository {
         .bind(ASSIGNMENT_PERSONALIZATION_MODEL)
         .bind(ASSIGNMENT_PERSONALIZATION_PROFILE)
         .bind(ASSIGNMENT_PERSONALIZATION_PROFILE_VERSION)
+        .bind(ASSIGNMENT_PERSONALIZATION_LLM_PROVIDER)
         .fetch_optional(&*self.base.pool())
         .await?
         .ok_or(RepositoryError::Unauthorized)?;
