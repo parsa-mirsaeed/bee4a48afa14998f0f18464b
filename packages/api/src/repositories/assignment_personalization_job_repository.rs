@@ -262,52 +262,13 @@ impl AssignmentPersonalizationJobRepository {
         self.require_platform_admin(actor_id).await?;
         let rows = sqlx::query(
             r#"
-            SELECT
-                job.id AS job_id,
-                job.school_id,
-                school.name AS school_name,
-                job.requested_by AS teacher_user_id,
-                teacher_user.name AS teacher_name,
-                job.assignment_id,
-                assignment.title AS assignment_title,
-                LEFT(job.student_id::text, 8) AS student_reference,
-                job.status,
-                job.processing_stage,
-                job.attempt_count,
-                job.llm_profile_id,
-                job.llm_provider,
-                job.model_name,
-                job.policy_scope,
-                job.policy_version,
-                job.delivery_policy,
-                job.last_error_code,
-                job.last_error_summary,
-                job.created_at,
-                job.started_at,
-                job.completed_at,
-                job.heartbeat_at,
-                job.talent_profile_present,
-                job.teacher_report_count,
-                job.performance_context_present,
-                job.class_material_chunk_count,
-                job.governed_knowledge_chunk_count,
-                job.prompt_tokens,
-                job.completion_tokens,
-                job.total_tokens,
-                job.generated_content_changed
-            FROM assignment_personalization_jobs AS job
-            JOIN schools AS school ON school.id = job.school_id
-            JOIN users AS teacher_user ON teacher_user.id = job.requested_by
-            JOIN assignments AS assignment ON assignment.id = job.assignment_id
-            WHERE ($1::uuid IS NULL OR job.school_id = $1)
-              AND ($2::uuid IS NULL OR job.requested_by = $2)
-            ORDER BY job.created_at DESC, job.id
-            LIMIT $3
+            SELECT *
+            FROM public.list_assignment_personalization_jobs_for_admin($1, $2, $3)
             "#,
         )
         .bind(school_id)
         .bind(teacher_user_id)
-        .bind(limit.clamp(1, 500))
+        .bind(limit.clamp(1, 500) as i32)
         .fetch_all(&*self.base.pool())
         .await?;
 
