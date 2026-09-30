@@ -53,16 +53,13 @@ struct WorkerStageReporter {
 #[async_trait]
 impl PersonalizationStageReporter for WorkerStageReporter {
     async fn report(&self, stage: &'static str) -> Result<(), PersonalizationError> {
-        let actor = AuthorizedActor::new(
-            self.job.requested_by,
-            "Teacher",
-            Some(self.job.school_id),
-        )
-        .map_err(|_| {
-            PersonalizationError::DatabaseError(
-                "Unable to establish personalization stage authorization".to_string(),
-            )
-        })?;
+        let actor =
+            AuthorizedActor::new(self.job.requested_by, "Teacher", Some(self.job.school_id))
+                .map_err(|_| {
+                    PersonalizationError::DatabaseError(
+                        "Unable to establish personalization stage authorization".to_string(),
+                    )
+                })?;
         let repository = AssignmentPersonalizationJobRepository::new(Arc::clone(&self.pool));
         match run_authorized(
             &self.raw_pool,
@@ -218,11 +215,7 @@ pub fn start_assignment_personalization_worker(
                     run_authorized(
                         &raw_pool,
                         actor,
-                        process_claimed_job(
-                            Arc::clone(&raw_pool),
-                            Arc::clone(&pool),
-                            &job,
-                        ),
+                        process_claimed_job(Arc::clone(&raw_pool), Arc::clone(&pool), &job),
                     )
                     .await
                 }
