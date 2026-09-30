@@ -94,6 +94,146 @@ INSERT INTO custom_assignments (
   ('f1000000-0000-0000-0000-0000000000b1', 'f0000000-0000-0000-0000-0000000000b1', 'c0000000-0000-0000-0000-0000000000b3', NOW() + INTERVAL '10 days', 'Submitted', NOW() - INTERVAL '1 day', NULL)
 ON CONFLICT DO NOTHING;
 
+-- Existing browser journeys represent assignments whose personalization is
+-- already ready. Persist a small deterministic payload so the delivery-truth
+-- contract does not turn unrelated submission/localization acceptance into a
+-- synthetic AI outage.
+UPDATE custom_assignments AS custom_assignment
+SET prompt_ctx = jsonb_build_object(
+    'personalized_assignment',
+    jsonb_build_object(
+      'title', assignment.title,
+      'body', assignment.body,
+      'scope', jsonb_build_object(
+        'type', 'default',
+        'deliverables', '[]'::jsonb
+      ),
+      'estimated_difficulty', 'medium',
+      'personalization_notes', 'E2E deterministic personalized fixture'
+    )
+)
+FROM assignments AS assignment
+WHERE assignment.id = custom_assignment.assignment_id
+  AND custom_assignment.id IN (
+    'f1000000-0000-0000-0000-0000000000a1',
+    'f1000000-0000-0000-0000-0000000000a2',
+    'f1000000-0000-0000-0000-0000000000a3',
+    'f1000000-0000-0000-0000-0000000000a4',
+    'f1000000-0000-0000-0000-0000000000b1'
+  );
+
+UPDATE assignment_personalization_jobs
+SET status = 'succeeded',
+    processing_stage = 'ready',
+    completed_at = COALESCE(completed_at, NOW()),
+    last_error_code = NULL,
+    last_error_summary = NULL
+WHERE assignment_id IN (
+  'f0000000-0000-0000-0000-0000000000a1',
+  'f0000000-0000-0000-0000-0000000000a2',
+  'f0000000-0000-0000-0000-0000000000a3',
+  'f0000000-0000-0000-0000-0000000000a4',
+  'f0000000-0000-0000-0000-0000000000b1'
+);
+
+-- Dedicated truth-state fixtures. These are intentionally separate from the
+-- existing stateful submission journeys.
+INSERT INTO assignments (
+  id, teacher_id, class_section_id, subject_id, title, body, due_at, status, published_at
+) VALUES
+  (
+    'f0000000-0000-0000-0000-0000000000c1',
+    'c0000000-0000-0000-0000-0000000000a2',
+    'e0000000-0000-0000-0000-0000000000a1',
+    'd0000000-0000-0000-0000-0000000000a1',
+    'E2E Personalization Preparing',
+    'PREPARING SOURCE MUST NOT BE SHOWN',
+    NOW() + INTERVAL '12 days',
+    'Published',
+    NOW()
+  ),
+  (
+    'f0000000-0000-0000-0000-0000000000c2',
+    'c0000000-0000-0000-0000-0000000000a2',
+    'e0000000-0000-0000-0000-0000000000a1',
+    'd0000000-0000-0000-0000-0000000000a1',
+    'E2E Personalization Unavailable',
+    'UNAVAILABLE SOURCE MUST NOT BE SHOWN',
+    NOW() + INTERVAL '13 days',
+    'Published',
+    NOW()
+  ),
+  (
+    'f0000000-0000-0000-0000-0000000000c3',
+    'c0000000-0000-0000-0000-0000000000a2',
+    'e0000000-0000-0000-0000-0000000000a1',
+    'd0000000-0000-0000-0000-0000000000a1',
+    'E2E Personalization Fallback',
+    'E2E FALLBACK ORIGINAL CONTENT',
+    NOW() + INTERVAL '14 days',
+    'Published',
+    NOW()
+  )
+ON CONFLICT (id) DO NOTHING;
+
+-- Preparing and unavailable jobs snapshot the default require-personalized
+-- school policy.
+INSERT INTO custom_assignments (
+  id, assignment_id, student_id, due_at, status
+) VALUES
+  (
+    'f1000000-0000-0000-0000-0000000000c1',
+    'f0000000-0000-0000-0000-0000000000c1',
+    'c0000000-0000-0000-0000-0000000000a3',
+    NOW() + INTERVAL '12 days',
+    'Assigned'
+  ),
+  (
+    'f1000000-0000-0000-0000-0000000000c2',
+    'f0000000-0000-0000-0000-0000000000c2',
+    'c0000000-0000-0000-0000-0000000000a3',
+    NOW() + INTERVAL '13 days',
+    'Assigned'
+  )
+ON CONFLICT DO NOTHING;
+
+UPDATE assignment_personalization_jobs
+SET status = 'failed',
+    processing_stage = 'failed',
+    completed_at = NOW(),
+    last_error_code = 'gateway_unavailable',
+    last_error_summary = 'AI gateway is temporarily unavailable'
+WHERE assignment_id = 'f0000000-0000-0000-0000-0000000000c2';
+
+-- Snapshot fallback as an explicit policy decision at enqueue time, then return
+-- the school default to require-personalized for subsequent fixtures.
+UPDATE assignment_personalization_school_policies
+SET delivery_policy = 'allow_original_fallback'
+WHERE school_id = 'a0000000-0000-0000-0000-0000000000a1';
+
+INSERT INTO custom_assignments (
+  id, assignment_id, student_id, due_at, status
+) VALUES (
+  'f1000000-0000-0000-0000-0000000000c3',
+  'f0000000-0000-0000-0000-0000000000c3',
+  'c0000000-0000-0000-0000-0000000000a3',
+  NOW() + INTERVAL '14 days',
+  'Assigned'
+)
+ON CONFLICT DO NOTHING;
+
+UPDATE assignment_personalization_jobs
+SET status = 'failed',
+    processing_stage = 'failed',
+    completed_at = NOW(),
+    last_error_code = 'provider_unconfigured',
+    last_error_summary = 'AI personalization provider is not configured'
+WHERE assignment_id = 'f0000000-0000-0000-0000-0000000000c3';
+
+UPDATE assignment_personalization_school_policies
+SET delivery_policy = 'require_personalized'
+WHERE school_id = 'a0000000-0000-0000-0000-0000000000a1';
+
 INSERT INTO submissions (
   id, custom_assignment_id, student_id, content, grade, grade_scale, graded_by,
   submitted_at
