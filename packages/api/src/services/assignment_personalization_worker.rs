@@ -640,6 +640,7 @@ mod tests {
             LlmConfig {
                 api_key: "abcdefghijklmnopqrstuvwxyz123456".to_string(),
                 base_url: "http://ai-gateway:8090".to_string(),
+                profile: "deepseek-chat-v1".to_string(),
                 model: "deepseek-chat".to_string(),
                 max_tokens: 1_024,
                 temperature: 0.2,
