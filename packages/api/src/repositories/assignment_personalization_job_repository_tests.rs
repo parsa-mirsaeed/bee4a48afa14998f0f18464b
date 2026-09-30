@@ -787,6 +787,7 @@ async fn platform_admin_policy_is_authorized_audited_and_snapshotted_into_new_jo
         "queued execution contract must be immutable even to direct database writes"
     );
 
+    let audit_pool = AuthorizedPool::new();
     let audit_count: i64 = run_as(
         fixture.pool.as_ref(),
         actor(platform_admin, "PlatformAdmin", fixture.school_id),
@@ -795,7 +796,7 @@ async fn platform_admin_policy_is_authorized_audited_and_snapshotted_into_new_jo
         )
         .bind(platform_admin)
         .bind(fixture.school_id)
-        .fetch_one(&AuthorizedPool::new()),
+        .fetch_one(&audit_pool),
     )
     .await
     .expect("read policy audit");
