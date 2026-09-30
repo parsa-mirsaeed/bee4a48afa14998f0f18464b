@@ -98,6 +98,19 @@ pub struct PersonalizationQueueSummary {
     pub last_completed_at: Option<DateTime<Utc>>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AdminPersonalizationScopeSummary {
+    pub school_id: Option<Uuid>,
+    pub teacher_user_id: Option<Uuid>,
+    pub assignment_id: Option<Uuid>,
+    pub queued: i64,
+    pub running: i64,
+    pub succeeded: i64,
+    pub failed: i64,
+    pub cancelled: i64,
+    pub total: i64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AdminPersonalizationJobRecord {
     pub job_id: Uuid,
@@ -160,6 +173,112 @@ impl AssignmentPersonalizationJobRepository {
             return Err(RepositoryError::Unauthorized);
         }
         Ok(())
+    }
+
+    pub async fn summaries_for_platform_admin(
+        &self,
+        actor_id: Uuid,
+    ) -> RepositoryResult<Vec<AdminPersonalizationScopeSummary>> {
+        self.require_platform_admin(actor_id).await?;
+        let rows = sqlx::query(
+            r#"
+            SELECT
+                school_id,
+                requested_by AS teacher_user_id,
+                assignment_id,
+                COUNT(*) FILTER (WHERE status = 'queued') AS queued,
+                COUNT(*) FILTER (WHERE status = 'running') AS running,
+                COUNT(*) FILTER (WHERE status = 'succeeded') AS succeeded,
+                COUNT(*) FILTER (WHERE status = 'failed') AS failed,
+                COUNT(*) FILTER (WHERE status = 'cancelled') AS cancelled,
+                COUNT(*) AS total
+            FROM assignment_personalization_jobs
+            GROUP BY GROUPING SETS (
+                (),
+                (school_id),
+                (school_id, requested_by),
+                (school_id, requested_by, assignment_id)
+            )
+            ORDER BY school_id NULLS FIRST, teacher_user_id NULLS FIRST, assignment_id NULLS FIRST
+            "#,
+        )
+        .fetch_all(&*self.base.pool())
+        .await?;
+
+        rows.into_iter()
+            .map(|row| {
+                Ok(AdminPersonalizationScopeSummary {
+                    school_id: row.try_get("school_id")?,
+                    teacher_user_id: row.try_get("teacher_user_id")?,
+                    assignment_id: row.try_get("assignment_id")?,
+                    queued: row.try_get("queued")?,
+                    running: row.try_get("running")?,
+                    succeeded: row.try_get("succeeded")?,
+                    failed: row.try_get("failed")?,
+                    cancelled: row.try_get("cancelled")?,
+                    total: row.try_get("total")?,
+                })
+            })
+            .collect()
+    }
+
+    pub async fn retry_failed_scope_for_platform_admin(
+        &self,
+        actor_id: Uuid,
+        school_id: Option<Uuid>,
+        teacher_user_id: Option<Uuid>,
+        assignment_id: Option<Uuid>,
+        limit: i64,
+    ) -> RepositoryResult<u64> {
+        self.require_platform_admin(actor_id).await?;
+        let result = sqlx::query(
+            r#"
+            WITH candidates AS (
+                SELECT job.id
+                FROM assignment_personalization_jobs AS job
+                JOIN assignments AS assignment
+                  ON assignment.id = job.assignment_id
+                JOIN custom_assignments AS custom_assignment
+                  ON custom_assignment.assignment_id = job.assignment_id
+                 AND custom_assignment.student_id = job.student_id
+                CROSS JOIN LATERAL public.resolve_assignment_personalization_policy(
+                    job.school_id,
+                    job.requested_by
+                ) AS effective
+                WHERE job.status IN ('failed', 'cancelled')
+                  AND assignment.status = 'Published'::assignment_status
+                  AND custom_assignment.prompt_ctx IS NULL
+                  AND effective.enabled
+                  AND NOT effective.paused
+                  AND ($1::uuid IS NULL OR job.school_id = $1)
+                  AND ($2::uuid IS NULL OR job.requested_by = $2)
+                  AND ($3::uuid IS NULL OR job.assignment_id = $3)
+                ORDER BY job.created_at, job.id
+                FOR UPDATE OF job SKIP LOCKED
+                LIMIT $4
+            )
+            UPDATE assignment_personalization_jobs AS job
+            SET status = 'queued',
+                attempt_count = 0,
+                available_at = NOW(),
+                lease_owner = NULL,
+                heartbeat_at = NULL,
+                completed_at = NULL,
+                last_error_code = NULL,
+                last_error_summary = NULL,
+                processing_stage = 'queued'
+            FROM candidates
+            WHERE job.id = candidates.id
+            "#,
+        )
+        .bind(school_id)
+        .bind(teacher_user_id)
+        .bind(assignment_id)
+        .bind(limit.clamp(1, 100))
+        .execute(&*self.base.pool())
+        .await?;
+
+        Ok(result.rows_affected())
     }
 
     pub async fn list_for_platform_admin(
