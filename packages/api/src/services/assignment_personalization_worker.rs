@@ -468,6 +468,11 @@ async fn claim_next_job(
             model_name,
             profile_name,
             profile_version,
+            llm_profile_id,
+            llm_provider,
+            policy_scope,
+            policy_version,
+            delivery_policy,
             lease_owner
         FROM public.claim_next_assignment_personalization_job($1)
         "#,
@@ -487,6 +492,11 @@ async fn claim_next_job(
             model_name: row.try_get("model_name")?,
             profile_name: row.try_get("profile_name")?,
             profile_version: row.try_get("profile_version")?,
+            llm_profile_id: row.try_get("llm_profile_id")?,
+            llm_provider: row.try_get("llm_provider")?,
+            policy_scope: row.try_get("policy_scope")?,
+            policy_version: row.try_get("policy_version")?,
+            delivery_policy: row.try_get("delivery_policy")?,
             lease_owner: row.try_get("lease_owner")?,
         })
     })
