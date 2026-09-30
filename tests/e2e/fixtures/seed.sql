@@ -173,6 +173,17 @@ INSERT INTO assignments (
     NOW() + INTERVAL '14 days',
     'Published',
     NOW()
+  ),
+  (
+    'f0000000-0000-0000-0000-0000000000c4',
+    'c0000000-0000-0000-0000-0000000000a2',
+    'e0000000-0000-0000-0000-0000000000a1',
+    'd0000000-0000-0000-0000-0000000000a1',
+    'E2E Personalization Running',
+    'RUNNING SOURCE MUST NOT BE SHOWN',
+    NOW() + INTERVAL '15 days',
+    'Published',
+    NOW()
   )
 ON CONFLICT (id) DO NOTHING;
 
@@ -194,6 +205,13 @@ INSERT INTO custom_assignments (
     'c0000000-0000-0000-0000-0000000000a3',
     NOW() + INTERVAL '13 days',
     'Assigned'
+  ),
+  (
+    'f1000000-0000-0000-0000-0000000000c4',
+    'f0000000-0000-0000-0000-0000000000c4',
+    'c0000000-0000-0000-0000-0000000000a3',
+    NOW() + INTERVAL '15 days',
+    'Assigned'
   )
 ON CONFLICT DO NOTHING;
 
@@ -204,6 +222,18 @@ SET status = 'failed',
     last_error_code = 'gateway_unavailable',
     last_error_summary = 'AI gateway is temporarily unavailable'
 WHERE assignment_id = 'f0000000-0000-0000-0000-0000000000c2';
+
+UPDATE assignment_personalization_jobs
+SET status = 'running',
+    processing_stage = 'retrieving_context',
+    attempt_count = 1,
+    started_at = NOW() - INTERVAL '10 seconds',
+    lease_owner = 'f9000000-0000-0000-0000-000000000001',
+    heartbeat_at = NOW(),
+    completed_at = NULL,
+    last_error_code = NULL,
+    last_error_summary = NULL
+WHERE assignment_id = 'f0000000-0000-0000-0000-0000000000c4';
 
 -- Snapshot fallback as an explicit policy decision at enqueue time, then return
 -- the school default to require-personalized for subsequent fixtures.
