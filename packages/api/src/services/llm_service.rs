@@ -20,7 +20,7 @@ use std::time::Duration;
 use thiserror::Error;
 use uuid::Uuid;
 
-const INTERNAL_GATEWAY_ORIGIN: &str = "http://ai-gateway:8090";
+pub(crate) const INTERNAL_GATEWAY_ORIGIN: &str = "http://ai-gateway:8090";
 
 #[derive(Debug, Error)]
 pub enum LlmError {
