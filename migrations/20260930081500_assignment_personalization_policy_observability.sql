@@ -750,7 +750,7 @@ CREATE OR REPLACE FUNCTION public.audit_assignment_personalization_school_policy
 RETURNS TRIGGER
 LANGUAGE plpgsql
 SET search_path = pg_catalog, public
-AS $
+AS $$
 DECLARE
     actor UUID := public.get_user_id();
 BEGIN
@@ -788,7 +788,7 @@ BEGIN
     );
     RETURN COALESCE(NEW, OLD);
 END
-$;
+$$;
 
 DROP TRIGGER IF EXISTS audit_assignment_personalization_school_policy
     ON public.assignment_personalization_school_policies;
@@ -802,7 +802,7 @@ CREATE OR REPLACE FUNCTION public.audit_assignment_personalization_teacher_overr
 RETURNS TRIGGER
 LANGUAGE plpgsql
 SET search_path = pg_catalog, public
-AS $
+AS $$
 DECLARE
     actor UUID := public.get_user_id();
 BEGIN
@@ -844,7 +844,7 @@ BEGIN
     );
     RETURN COALESCE(NEW, OLD);
 END
-$;
+$$;
 
 DROP TRIGGER IF EXISTS audit_assignment_personalization_teacher_override
     ON public.assignment_personalization_teacher_overrides;
