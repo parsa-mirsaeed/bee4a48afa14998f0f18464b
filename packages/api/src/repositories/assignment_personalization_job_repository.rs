@@ -209,13 +209,12 @@ impl AssignmentPersonalizationJobRepository {
             JOIN schools AS school ON school.id = job.school_id
             JOIN users AS teacher_user ON teacher_user.id = job.requested_by
             JOIN assignments AS assignment ON assignment.id = job.assignment_id
-            WHERE ($2::uuid IS NULL OR job.school_id = $2)
-              AND ($3::uuid IS NULL OR job.requested_by = $3)
+            WHERE ($1::uuid IS NULL OR job.school_id = $1)
+              AND ($2::uuid IS NULL OR job.requested_by = $2)
             ORDER BY job.created_at DESC, job.id
-            LIMIT $4
+            LIMIT $3
             "#,
         )
-        .bind(actor_id)
         .bind(school_id)
         .bind(teacher_user_id)
         .bind(limit.clamp(1, 500))
