@@ -151,6 +151,43 @@ REVOKE ALL
 ON FUNCTION public.assignment_personalization_teacher_school_for_admin(UUID)
 FROM PUBLIC;
 
+-- The teacher-override table itself has a narrow PlatformAdmin write policy, but
+-- its canonical-school validation trigger must inspect the teacher catalog that
+-- intentionally remains hidden from PlatformAdmin RLS. Recreate only that
+-- validator as SECURITY DEFINER and re-authorize the actor inside the boundary.
+CREATE OR REPLACE FUNCTION public.validate_assignment_personalization_teacher_override()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, public
+AS $
+DECLARE
+    canonical_school UUID;
+BEGIN
+    PERFORM public.assignment_personalization_assert_platform_admin();
+
+    SELECT teacher.school_id
+    INTO canonical_school
+    FROM public.teachers AS teacher
+    JOIN public.users AS teacher_user ON teacher_user.id = teacher.user_id
+    JOIN public.roles AS teacher_role ON teacher_role.id = teacher_user.role_id
+    WHERE teacher.id = NEW.teacher_id
+      AND teacher_user.is_active = TRUE
+      AND teacher_role.name::text = 'Teacher';
+
+    IF canonical_school IS NULL OR canonical_school <> NEW.school_id THEN
+        RAISE EXCEPTION 'Teacher override school does not match canonical teacher school'
+            USING ERRCODE = '23514';
+    END IF;
+
+    RETURN NEW;
+END
+$;
+
+REVOKE ALL
+ON FUNCTION public.validate_assignment_personalization_teacher_override()
+FROM PUBLIC;
+
 CREATE OR REPLACE FUNCTION public.list_assignment_personalization_jobs_for_admin(
     p_school_id UUID DEFAULT NULL,
     p_teacher_user_id UUID DEFAULT NULL,
