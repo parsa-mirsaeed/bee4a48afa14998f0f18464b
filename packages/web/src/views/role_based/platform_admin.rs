@@ -992,13 +992,17 @@ fn render_review_card(
                     rsx! {
                         div {
                             class: if can_publish {
-                                "rounded-xl border border-green-300 bg-green-50 p-3 dark:border-green-800 dark:bg-green-950/20"
+                                "rounded-xl border border-green-200 bg-green-50 p-3 dark:border-green-800 dark:bg-gray-900"
                             } else {
-                                "rounded-xl border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-900/40"
+                                "rounded-xl border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-900"
                             },
                             button {
                                 key: "publish-action-{asset.id}",
-                                class: "block min-h-11 w-full rounded-lg bg-green-600 px-4 py-2.5 text-center text-sm font-semibold text-white shadow-sm disabled:cursor-not-allowed disabled:bg-gray-300 disabled:text-gray-600 disabled:shadow-none dark:disabled:bg-gray-700 dark:disabled:text-gray-300",
+                                class: if can_publish {
+                                    "block w-full rounded-lg bg-green-500 px-4 py-2 text-center text-sm font-semibold text-white shadow-sm"
+                                } else {
+                                    "block w-full cursor-not-allowed rounded-lg bg-gray-200 px-4 py-2 text-center text-sm font-semibold text-gray-500 dark:bg-gray-900"
+                                },
                                 disabled: busy() || !can_publish,
                                 onclick: move |_| {
                                     if busy() || !can_publish {
