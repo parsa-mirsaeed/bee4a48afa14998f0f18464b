@@ -601,6 +601,14 @@ impl ExternalLlmClient {
         })
     }
 
+    pub fn profile_id(&self) -> &str {
+        &self.config.profile
+    }
+
+    pub fn model(&self) -> &str {
+        &self.config.model
+    }
+
     pub fn is_configured(&self) -> bool {
         self.config.api_key.len() >= 32
             && self.config.base_url == INTERNAL_GATEWAY_ORIGIN
