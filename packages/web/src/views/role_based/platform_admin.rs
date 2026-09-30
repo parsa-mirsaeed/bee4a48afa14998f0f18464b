@@ -986,7 +986,49 @@ fn render_review_card(
                     assets,
                 }
             }
-            div { class: "flex flex-wrap gap-2",
+            if show_publish_action {
+                {
+                    let publish_id = asset.id.clone();
+                    rsx! {
+                        div {
+                            class: if can_publish {
+                                "rounded-xl border border-green-200 bg-green-50 p-3 dark:border-green-800 dark:bg-gray-900"
+                            } else {
+                                "rounded-xl border border-gray-200 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-900"
+                            },
+                            button {
+                                key: "publish-action-{asset.id}",
+                                class: if can_publish {
+                                    "block w-full rounded-lg bg-green-500 px-4 py-2 text-center text-sm font-semibold text-white shadow-sm"
+                                } else {
+                                    "block w-full cursor-not-allowed rounded-lg bg-gray-200 px-4 py-2 text-center text-sm font-semibold text-gray-500 dark:bg-gray-900"
+                                },
+                                disabled: busy() || !can_publish,
+                                onclick: move |_| {
+                                    if busy() || !can_publish {
+                                        return;
+                                    }
+                                    let asset_id = publish_id.clone();
+                                    busy.set(true);
+                                    notice.set(None);
+                                    spawn(async move {
+                                        match publish_admin_knowledge_asset(asset_id).await {
+                                            Ok(_) => {
+                                                notice.set(Some("platform_admin.notice.published"));
+                                                assets.restart();
+                                            }
+                                            Err(_) => notice.set(Some("platform_admin.notice.publish_failed")),
+                                        }
+                                        busy.set(false);
+                                    });
+                                },
+                                {admin_t("platform_admin.action.publish", locale)}
+                            }
+                        }
+                    }
+                }
+            }
+            div { class: "flex flex-wrap items-center gap-2",
                 if can_edit_ocr {
                     button {
                         class: "rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium disabled:opacity-50 dark:border-gray-700",
@@ -1011,37 +1053,6 @@ fn render_review_card(
                             {admin_t("platform_admin.action.update_ocr", locale)}
                         } else {
                             {admin_t("platform_admin.action.attach_ocr", locale)}
-                        }
-                    }
-                }
-                if show_publish_action {
-                    {
-                        let publish_id = asset.id.clone();
-                        rsx! {
-                            button {
-                                key: "publish-action-{asset.id}",
-                                class: "rounded-lg bg-green-600 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:bg-gray-300 disabled:text-gray-500 dark:disabled:bg-gray-700 dark:disabled:text-gray-400",
-                                disabled: busy() || !can_publish,
-                                onclick: move |_| {
-                                    if busy() || !can_publish {
-                                        return;
-                                    }
-                                    let asset_id = publish_id.clone();
-                                    busy.set(true);
-                                    notice.set(None);
-                                    spawn(async move {
-                                        match publish_admin_knowledge_asset(asset_id).await {
-                                            Ok(_) => {
-                                                notice.set(Some("platform_admin.notice.published"));
-                                                assets.restart();
-                                            }
-                                            Err(_) => notice.set(Some("platform_admin.notice.publish_failed")),
-                                        }
-                                        busy.set(false);
-                                    });
-                                },
-                                {admin_t("platform_admin.action.publish", locale)}
-                            }
                         }
                     }
                 }
