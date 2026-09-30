@@ -1,11 +1,15 @@
 use crate::domain::{AssignmentId, StudentId};
 use crate::repositories::{
     AssignmentPersonalizationJobRepository, ClaimedAssignmentPersonalizationJob,
-    PersonalizationFailureDisposition, PersonalizationFailureKind, RepositoryError,
+    PersonalizationExecutionDiagnostics, PersonalizationFailureDisposition,
+    PersonalizationFailureKind, RepositoryError,
 };
 use crate::rls_context::{AuthorizedActor, AuthorizedPool, AuthorizedTx, RlsContextError};
 use crate::services::llm_service::LlmError;
-use crate::services::{AssignmentPersonalizationService, PersonalizationError};
+use crate::services::{
+    AssignmentPersonalizationService, PersonalizationError, PersonalizationStageReporter,
+};
+use async_trait::async_trait;
 use sqlx::{PgPool, Row};
 use std::future::Future;
 use std::sync::Arc;
@@ -37,6 +41,43 @@ enum FailureAction {
         kind: PersonalizationFailureKind,
         retry_after_seconds: u64,
     },
+}
+
+#[derive(Clone)]
+struct WorkerStageReporter {
+    raw_pool: Arc<PgPool>,
+    pool: Arc<AuthorizedPool>,
+    job: ClaimedAssignmentPersonalizationJob,
+}
+
+#[async_trait]
+impl PersonalizationStageReporter for WorkerStageReporter {
+    async fn report(&self, stage: &'static str) -> Result<(), PersonalizationError> {
+        let actor = AuthorizedActor::new(
+            self.job.requested_by,
+            "Teacher",
+            Some(self.job.school_id),
+        )
+        .map_err(|_| {
+            PersonalizationError::DatabaseError(
+                "Unable to establish personalization stage authorization".to_string(),
+            )
+        })?;
+        let repository = AssignmentPersonalizationJobRepository::new(Arc::clone(&self.pool));
+        match run_authorized(
+            &self.raw_pool,
+            actor,
+            repository.update_stage(self.job.id, self.job.lease_owner, stage),
+        )
+        .await
+        {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(error)) => Err(PersonalizationError::DatabaseError(error.to_string())),
+            Err(_) => Err(PersonalizationError::DatabaseError(
+                "Unable to persist personalization stage".to_string(),
+            )),
+        }
+    }
 }
 
 /// Start the durable assignment personalization worker.
@@ -177,7 +218,11 @@ pub fn start_assignment_personalization_worker(
                     run_authorized(
                         &raw_pool,
                         actor,
-                        process_claimed_job(Arc::clone(&pool), &job),
+                        process_claimed_job(
+                            Arc::clone(&raw_pool),
+                            Arc::clone(&pool),
+                            &job,
+                        ),
                     )
                     .await
                 }
@@ -221,6 +266,7 @@ pub fn start_assignment_personalization_worker(
 }
 
 async fn process_claimed_job(
+    raw_pool: Arc<PgPool>,
     pool: Arc<AuthorizedPool>,
     job: &ClaimedAssignmentPersonalizationJob,
 ) -> Result<(), WorkerProcessError> {
@@ -228,19 +274,44 @@ async fn process_claimed_job(
     repository.authorize_claimed_job(job).await?;
 
     let service = AssignmentPersonalizationService::new(Arc::clone(&pool))?;
-    service
-        .personalize_for_student(
+    service.validate_llm_execution_contract(
+        &job.llm_profile_id,
+        &job.llm_provider,
+        &job.model_name,
+    )?;
+
+    let reporter = WorkerStageReporter {
+        raw_pool,
+        pool: Arc::clone(&pool),
+        job: job.clone(),
+    };
+    let result = service
+        .personalize_for_student_with_reporter(
             AssignmentId::from(job.assignment_id),
             StudentId::from(job.student_id),
             None,
+            Some(&reporter),
         )
         .await?;
 
     // Re-check after the provider call and after the generated content has been
     // staged in this transaction. If authorization changed while AI was working,
-    // returning an error rolls back the generated content as well.
+    // returning an error rolls back the generated content and job completion.
     repository.authorize_claimed_job(job).await?;
-    repository.complete(job.id, job.lease_owner).await?;
+    let diagnostics = PersonalizationExecutionDiagnostics {
+        talent_profile_present: result.diagnostics.talent_profile_present,
+        teacher_report_count: result.diagnostics.teacher_report_count,
+        performance_context_present: result.diagnostics.performance_context_present,
+        class_material_chunk_count: result.diagnostics.class_material_chunk_count,
+        governed_knowledge_chunk_count: result.diagnostics.governed_knowledge_chunk_count,
+        prompt_tokens: result.diagnostics.prompt_tokens,
+        completion_tokens: result.diagnostics.completion_tokens,
+        total_tokens: result.diagnostics.total_tokens,
+        generated_content_changed: result.diagnostics.generated_content_changed,
+    };
+    repository
+        .complete_with_diagnostics(job.id, job.lease_owner, &diagnostics)
+        .await?;
     Ok(())
 }
 
