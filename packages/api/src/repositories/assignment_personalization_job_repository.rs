@@ -281,11 +281,7 @@ impl AssignmentPersonalizationJobRepository {
                 last_error_summary = NULL,
                 processing_stage = 'queued'
             FROM assignments AS assignment,
-                 custom_assignments AS custom_assignment,
-                 LATERAL public.resolve_assignment_personalization_policy(
-                     job.school_id,
-                     job.requested_by
-                 ) AS effective
+                 custom_assignments AS custom_assignment
             WHERE job.id = $1
               AND job.status IN ('failed', 'cancelled')
               AND assignment.id = job.assignment_id
@@ -293,8 +289,15 @@ impl AssignmentPersonalizationJobRepository {
               AND custom_assignment.assignment_id = job.assignment_id
               AND custom_assignment.student_id = job.student_id
               AND custom_assignment.prompt_ctx IS NULL
-              AND effective.enabled
-              AND NOT effective.paused
+              AND EXISTS (
+                  SELECT 1
+                  FROM public.resolve_assignment_personalization_policy(
+                      job.school_id,
+                      job.requested_by
+                  ) AS effective
+                  WHERE effective.enabled
+                    AND NOT effective.paused
+              )
             "#,
         )
         .bind(job_id)
