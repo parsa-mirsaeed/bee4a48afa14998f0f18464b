@@ -7,7 +7,7 @@
 
 use crate::ai_gateway_protocol::{
     GatewayChatMessage, GatewayChatRequest, GatewayChatResponse, GatewayErrorEnvelope,
-    GatewayResponseFormat,
+    GatewayResponseFormat, GatewayUsage,
 };
 use crate::services::llm_profile::{
     resolve_llm_profile, validate_llm_profile_override, DEEPSEEK_CHAT_V1,
@@ -162,6 +162,12 @@ pub struct PersonalizedAssignment {
     pub rubric: PersonalizedRubric,
     pub personalization_notes: String,
     pub estimated_difficulty: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct PersonalizedAssignmentGeneration {
+    pub assignment: PersonalizedAssignment,
+    pub usage: Option<GatewayUsage>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -319,6 +325,46 @@ impl ExternalLlmClient {
         student_context: &StudentContext,
         material_context: &[MaterialContext],
     ) -> Result<PersonalizedAssignment, LlmError> {
+        self.personalize_assignment_with_context_for_school_with_usage(
+            school_id,
+            base_assignment,
+            student_context,
+            material_context,
+        )
+        .await
+        .map(|generation| generation.assignment)
+    }
+
+    pub async fn personalize_assignment_with_context_with_usage(
+        &self,
+        base_assignment: &BaseAssignment,
+        student_context: &StudentContext,
+        material_context: &[MaterialContext],
+    ) -> Result<PersonalizedAssignmentGeneration, LlmError> {
+        let school_id = if !student_context.school_id.is_nil() {
+            student_context.school_id
+        } else {
+            self.config
+                .default_school_id
+                .filter(|value| !value.is_nil())
+                .ok_or(LlmError::MissingSchoolId)?
+        };
+        self.personalize_assignment_with_context_for_school_with_usage(
+            school_id,
+            base_assignment,
+            student_context,
+            material_context,
+        )
+        .await
+    }
+
+    pub async fn personalize_assignment_with_context_for_school_with_usage(
+        &self,
+        school_id: Uuid,
+        base_assignment: &BaseAssignment,
+        student_context: &StudentContext,
+        material_context: &[MaterialContext],
+    ) -> Result<PersonalizedAssignmentGeneration, LlmError> {
         if school_id.is_nil()
             || (!student_context.school_id.is_nil() && school_id != student_context.school_id)
         {
@@ -338,10 +384,11 @@ impl ExternalLlmClient {
                 )?,
             },
         ];
-        let response = self
+        let (response, usage) = self
             .chat_completion_for_school(school_id, messages, true)
             .await?;
-        self.parse_personalized_assignment(&response)
+        let assignment = self.parse_personalized_assignment(&response)?;
+        Ok(PersonalizedAssignmentGeneration { assignment, usage })
     }
 
     fn build_system_prompt(&self) -> String {
@@ -362,7 +409,7 @@ impl ExternalLlmClient {
         &self,
         base_assignment: &BaseAssignment,
         student_context: &StudentContext,
-    ) -> Result<String, LlmError> {
+    ) -> Result<(String, Option<GatewayUsage>), LlmError> {
         self.build_user_prompt_with_context(base_assignment, student_context, &[])
     }
 
@@ -516,6 +563,7 @@ impl ExternalLlmClient {
                 "Gateway returned the wrong model or choice count".to_string(),
             ));
         }
+        let usage = completion.usage.clone();
         let choice = completion
             .choices
             .into_iter()
@@ -529,7 +577,7 @@ impl ExternalLlmClient {
                 "Invalid completion choice".to_string(),
             ));
         }
-        Ok(choice.message.content)
+        Ok((choice.message.content, usage))
     }
 
     fn parse_personalized_assignment(
