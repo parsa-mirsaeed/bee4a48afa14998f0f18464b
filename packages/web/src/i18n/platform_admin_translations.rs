@@ -487,6 +487,8 @@ pub(crate) fn platform_admin_translation(
         (Locale::Fa, "platform_admin.personalization.performance") => Some("زمینه عملکرد"),
         (Locale::En, "platform_admin.personalization.stage.queued") => Some("Queued"),
         (Locale::Fa, "platform_admin.personalization.stage.queued") => Some("در صف"),
+        (Locale::En, "platform_admin.personalization.stage.running") => Some("Running"),
+        (Locale::Fa, "platform_admin.personalization.stage.running") => Some("در حال اجرا"),
         (Locale::En, "platform_admin.personalization.stage.paused") => Some("Paused by policy"),
         (Locale::Fa, "platform_admin.personalization.stage.paused") => Some("متوقف‌شده با سیاست"),
         (Locale::En, "platform_admin.personalization.stage.authorizing") => Some("Authorizing"),

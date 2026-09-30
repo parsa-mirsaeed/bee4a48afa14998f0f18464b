@@ -321,6 +321,7 @@ for (const scenario of [
             recentJobs: 'کارهای اخیر شخصی‌سازی',
             queueSummary: 'صف شخصی‌سازی',
             retryFailedScope: 'تلاش دوباره خطاهای این محدوده',
+            statusLabel: 'وضعیت',
             running: 'در حال اجرا',
             ready: 'آماده',
             retrieving: 'در حال بازیابی زمینه آموزشی',
@@ -338,6 +339,7 @@ for (const scenario of [
             recentJobs: 'Recent personalization jobs',
             queueSummary: 'Personalization queue',
             retryFailedScope: 'Retry failed in this scope',
+            statusLabel: 'Status',
             running: 'Running',
             ready: 'Ready',
             retrieving: 'Retrieving learning context',
@@ -386,7 +388,9 @@ for (const scenario of [
       has: page.getByText('E2E Personalization Running', { exact: true }),
     });
     await expect(runningJob).toBeVisible();
-    await expect(runningJob).toContainText(copy.running);
+    await expect(
+      runningJob.getByText(`${copy.statusLabel}: ${copy.running}`, { exact: true }),
+    ).toBeVisible();
     await expect(runningJob).toContainText(copy.retrieving);
 
     const readyJob = page.locator('article').filter({

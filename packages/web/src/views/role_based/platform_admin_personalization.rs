@@ -31,6 +31,7 @@ fn yes_no(value: bool, locale: Locale) -> String {
 fn stage_label(stage: &str, locale: Locale) -> String {
     let key = match stage {
         "queued" => "platform_admin.personalization.stage.queued",
+        "running" => "platform_admin.personalization.stage.running",
         "paused" => "platform_admin.personalization.stage.paused",
         "authorizing" => "platform_admin.personalization.stage.authorizing",
         "building_student_context" => {
