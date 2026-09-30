@@ -30,7 +30,7 @@ pub mod vector_store_service;
 // Re-export services for convenience
 pub use assignment_personalization_service::{
     AssignmentPersonalizationService, PersonalizationDiagnostics, PersonalizationError,
-    PersonalizationResult,
+    PersonalizationResult, PersonalizationStageReporter,
 };
 #[cfg(feature = "server")]
 pub use assignment_personalization_worker::start_assignment_personalization_worker;
