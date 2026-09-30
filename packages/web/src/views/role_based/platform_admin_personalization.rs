@@ -146,10 +146,15 @@ pub fn PlatformPersonalizationSection() -> Element {
                                 div { class: "grid grid-cols-1 gap-4 xl:grid-cols-2",
                                     for policy in data.schools.iter() {
                                         SchoolPolicyCard {
-                                            key: "{policy.school_id}",
+                                            key: "{policy.school_id}-{policy.policy_version}",
                                             policy: policy.clone(),
                                             methods: data.methods.clone(),
-                                            on_saved: move |_| overview.restart(),
+                                            on_saved: move |_| {
+                                                overview.restart();
+                                                if selected_school().is_some() {
+                                                    teachers.restart();
+                                                }
+                                            },
                                             on_manage_teachers: move |selection| {
                                                 selected_school.set(Some(selection));
                                                 teachers.restart();
@@ -188,7 +193,7 @@ pub fn PlatformPersonalizationSection() -> Element {
                                             div { class: "grid grid-cols-1 gap-4 xl:grid-cols-2",
                                                 for item in items.iter() {
                                                     TeacherPolicyCard {
-                                                        key: "{item.teacher_id}",
+                                                        key: "{item.teacher_id}-{item.override_version}-{item.effective_version}-{item.effective_enabled}-{item.effective_paused}-{item.effective_llm_profile_id}-{item.effective_delivery_policy}",
                                                         policy: item.clone(),
                                                         methods: data.methods.clone(),
                                                         on_saved: move |_| {
