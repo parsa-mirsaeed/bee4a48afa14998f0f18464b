@@ -24,6 +24,7 @@ pub struct ClaimedAssignmentPersonalizationJob {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PersonalizationFailureKind {
     GatewayUnavailable,
+    ConfigurationUnavailable,
     RateLimited,
     InvalidGatewayResponse,
     ProcessingUnavailable,
@@ -34,6 +35,7 @@ impl PersonalizationFailureKind {
     pub fn code(self) -> &'static str {
         match self {
             Self::GatewayUnavailable => "gateway_unavailable",
+            Self::ConfigurationUnavailable => "provider_unconfigured",
             Self::RateLimited => "rate_limited",
             Self::InvalidGatewayResponse => "invalid_gateway_response",
             Self::ProcessingUnavailable => "processing_unavailable",
@@ -44,6 +46,7 @@ impl PersonalizationFailureKind {
     pub fn safe_summary(self) -> &'static str {
         match self {
             Self::GatewayUnavailable => "AI gateway is temporarily unavailable",
+            Self::ConfigurationUnavailable => "AI personalization provider is not configured",
             Self::RateLimited => "AI personalization is temporarily rate limited",
             Self::InvalidGatewayResponse => "AI gateway returned an invalid response",
             Self::ProcessingUnavailable => "Personalization processing is temporarily unavailable",
@@ -52,7 +55,7 @@ impl PersonalizationFailureKind {
     }
 
     pub fn retryable(self) -> bool {
-        !matches!(self, Self::ContentRejected)
+        !matches!(self, Self::ContentRejected | Self::ConfigurationUnavailable)
     }
 }
 
@@ -496,6 +499,7 @@ mod tests {
     fn persisted_failure_messages_are_fixed_and_non_sensitive() {
         for kind in [
             PersonalizationFailureKind::GatewayUnavailable,
+            PersonalizationFailureKind::ConfigurationUnavailable,
             PersonalizationFailureKind::RateLimited,
             PersonalizationFailureKind::InvalidGatewayResponse,
             PersonalizationFailureKind::ProcessingUnavailable,
@@ -518,6 +522,7 @@ mod tests {
             }
         }
         assert!(!PersonalizationFailureKind::ContentRejected.retryable());
+        assert!(!PersonalizationFailureKind::ConfigurationUnavailable.retryable());
         assert!(PersonalizationFailureKind::RateLimited.retryable());
     }
 }
