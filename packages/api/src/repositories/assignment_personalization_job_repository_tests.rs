@@ -646,3 +646,161 @@ async fn explicit_retry_reuses_the_stable_job_identity() {
     assert_eq!(row.get::<String, _>("status"), "queued");
     assert_eq!(row.get::<i32, _>("attempt_count"), 0);
 }
+
+
+#[cfg(feature = "server")]
+#[tokio::test]
+async fn platform_admin_policy_is_authorized_audited_and_snapshotted_into_new_jobs() {
+    let _queue_guard = QUEUE_TEST_LOCK.lock().await;
+    let fixture = queue_fixture(1).await;
+    let platform_role = role_id(&fixture.pool, "PlatformAdmin").await;
+    let suffix = Uuid::new_v4().simple().to_string();
+    let platform_admin = insert_user(
+        &fixture.pool,
+        &suffix,
+        "Personalization Platform Admin",
+        platform_role,
+        fixture.school_id,
+    )
+    .await;
+    let policy_repository =
+        AssignmentPersonalizationPolicyRepository::new(fixture.pool.clone());
+
+    let unauthorized = run_as(
+        fixture.pool.as_ref(),
+        actor(fixture.teacher_user, "Teacher", fixture.school_id),
+        policy_repository.set_school_policy(
+            fixture.teacher_user,
+            fixture.school_id,
+            true,
+            false,
+            "deepseek-chat-v1",
+            DELIVERY_ALLOW_ORIGINAL_FALLBACK,
+        ),
+    )
+    .await;
+    assert!(matches!(
+        unauthorized,
+        Err(crate::repositories::RepositoryError::Unauthorized)
+    ));
+
+    let school_policy = run_as(
+        fixture.pool.as_ref(),
+        actor(platform_admin, "PlatformAdmin", fixture.school_id),
+        policy_repository.set_school_policy(
+            platform_admin,
+            fixture.school_id,
+            true,
+            false,
+            "deepseek-chat-v1",
+            DELIVERY_REQUIRE_PERSONALIZED,
+        ),
+    )
+    .await
+    .expect("platform admin updates school policy");
+    assert_eq!(school_policy.policy_version, 2);
+
+    let teacher_policy = run_as(
+        fixture.pool.as_ref(),
+        actor(platform_admin, "PlatformAdmin", fixture.school_id),
+        policy_repository.set_teacher_override(
+            platform_admin,
+            fixture.teacher_id,
+            "override",
+            Some(true),
+            Some(false),
+            Some("deepseek-chat-v1"),
+            Some(DELIVERY_ALLOW_ORIGINAL_FALLBACK),
+        ),
+    )
+    .await
+    .expect("platform admin sets teacher override");
+    assert_eq!(teacher_policy.effective_scope, "teacher");
+    assert_eq!(
+        teacher_policy.effective_delivery_policy,
+        DELIVERY_ALLOW_ORIGINAL_FALLBACK
+    );
+
+    let assignment = run_as(
+        fixture.pool.as_ref(),
+        actor(fixture.teacher_user, "Teacher", fixture.school_id),
+        fixture.repository.create_for_teacher(
+            fixture.teacher,
+            CreateAssignmentRequest {
+                class_section_id: fixture.class_section_id.into(),
+                subject_id: fixture.subject_id.into(),
+                lecture_id: None,
+                lecture_title: None,
+                lecture_number: None,
+                title: "Policy snapshot assignment".into(),
+                body: "Generate a genuinely personalized assignment".into(),
+                due_at: Utc::now() + Duration::days(8),
+                material_ids: None,
+            },
+        ),
+    )
+    .await
+    .expect("create policy snapshot assignment");
+    let assignment_id: Uuid = assignment.id.into();
+
+    run_as(
+        fixture.pool.as_ref(),
+        actor(fixture.teacher_user, "Teacher", fixture.school_id),
+        fixture
+            .repository
+            .publish_for_teacher(fixture.teacher, assignment.id),
+    )
+    .await
+    .expect("publish policy snapshot assignment");
+
+    let row = sqlx::query(
+        r#"
+        SELECT llm_profile_id, llm_provider, model_name, policy_scope,
+               policy_version, delivery_policy, processing_stage
+        FROM assignment_personalization_jobs
+        WHERE assignment_id = $1
+        "#,
+    )
+    .bind(assignment_id)
+    .fetch_one(&*fixture.pool)
+    .await
+    .expect("read policy snapshot");
+    assert_eq!(row.get::<String, _>("llm_profile_id"), "deepseek-chat-v1");
+    assert_eq!(row.get::<String, _>("llm_provider"), "deepseek");
+    assert_eq!(row.get::<String, _>("model_name"), "deepseek-chat");
+    assert_eq!(row.get::<String, _>("policy_scope"), "teacher");
+    assert_eq!(row.get::<i32, _>("policy_version"), 1);
+    assert_eq!(
+        row.get::<String, _>("delivery_policy"),
+        DELIVERY_ALLOW_ORIGINAL_FALLBACK
+    );
+    assert_eq!(row.get::<String, _>("processing_stage"), "queued");
+
+    let immutable = sqlx::query(
+        "UPDATE assignment_personalization_jobs SET delivery_policy = 'require_personalized' WHERE assignment_id = $1",
+    )
+    .bind(assignment_id)
+    .execute(&*fixture.pool)
+    .await;
+    assert!(
+        immutable.is_err(),
+        "queued execution contract must be immutable even to direct database writes"
+    );
+
+    let audit_count: i64 = run_as(
+        fixture.pool.as_ref(),
+        actor(platform_admin, "PlatformAdmin", fixture.school_id),
+        sqlx::query_scalar(
+            "SELECT COUNT(*) FROM assignment_personalization_policy_audit WHERE actor_id = $1 AND school_id = $2",
+        )
+        .bind(platform_admin)
+        .bind(fixture.school_id)
+        .fetch_one(&AuthorizedPool::new()),
+    )
+    .await
+    .expect("read policy audit");
+    assert!(
+        audit_count >= 2,
+        "school and teacher policy writes must be audited"
+    );
+}
