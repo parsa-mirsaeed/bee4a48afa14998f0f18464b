@@ -749,9 +749,15 @@ impl ProviderFailure {
 #[derive(Serialize)]
 struct HealthResponse {
     status: &'static str,
+    /// Compatibility field: this is the embedding transport mode.
     mode: &'static str,
     embedding_profile: &'static str,
     embedding_circuit: &'static str,
+    llm_mode: &'static str,
+    llm_profile: &'static str,
+    llm_provider: &'static str,
+    llm_model: &'static str,
+    llm_configured: bool,
     llm_circuit: &'static str,
     external_providers_required_for_health: bool,
 }
@@ -780,6 +786,16 @@ async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
         mode: state.config.mode.as_str(),
         embedding_profile: state.config.embedding_profile.id,
         embedding_circuit: state.embedding_breaker.status().await,
+        llm_mode: state.config.llm_mode.as_str(),
+        llm_profile: state.config.llm_profile.id,
+        llm_provider: state.config.llm_profile.provider.as_str(),
+        llm_model: state.config.llm_profile.model,
+        llm_configured: state
+            .config
+            .llm_provider
+            .as_ref()
+            .and_then(|provider| provider.api_key.as_ref())
+            .is_some(),
         llm_circuit: state.llm_breaker.status().await,
         external_providers_required_for_health: false,
     })
