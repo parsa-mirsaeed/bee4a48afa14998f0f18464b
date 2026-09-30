@@ -319,6 +319,11 @@ for (const scenario of [
             manageTeachers: 'مدیریت استثناهای معلم',
             teacherPolicy: 'سیاست معلم',
             recentJobs: 'کارهای اخیر شخصی‌سازی',
+            queueSummary: 'صف شخصی‌سازی',
+            retryFailedScope: 'تلاش دوباره خطاهای این محدوده',
+            running: 'در حال اجرا',
+            ready: 'آماده',
+            retrieving: 'در حال بازیابی زمینه آموزشی',
             failed: 'ناموفق',
             failure: 'دروازه هوش مصنوعی موقتاً در دسترس نیست',
           }
@@ -330,6 +335,11 @@ for (const scenario of [
             manageTeachers: 'Manage teacher overrides',
             teacherPolicy: 'Teacher policy',
             recentJobs: 'Recent personalization jobs',
+            queueSummary: 'Personalization queue',
+            retryFailedScope: 'Retry failed in this scope',
+            running: 'Running',
+            ready: 'Ready',
+            retrieving: 'Retrieving learning context',
             failed: 'Failed',
             failure: 'AI gateway is temporarily unavailable',
           };
@@ -337,6 +347,8 @@ for (const scenario of [
     await expectSidebarRole(page, scenario.role);
     await expect(page.getByText(copy.title, { exact: true })).toBeVisible();
     await expect(page.getByText(copy.capability, { exact: true })).toBeVisible();
+    await expect(page.getByText(copy.queueSummary, { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: copy.retryFailedScope, exact: true }).first()).toBeVisible();
     await expect(page.getByText(copy.schoolPolicy, { exact: true })).toBeVisible();
 
     const schoolCard = page.locator('article').filter({
@@ -345,6 +357,7 @@ for (const scenario of [
     await expect(schoolCard).toBeVisible();
     await expect(schoolCard).toContainText('deepseek-chat-v1');
     await expect(schoolCard).toContainText(copy.requirePersonalized);
+    await expect(schoolCard.getByRole('button', { name: copy.retryFailedScope, exact: true })).toBeVisible();
     await schoolCard.getByRole('button', { name: copy.manageTeachers, exact: true }).click();
 
     await expect(page.getByText(copy.teacherPolicy, { exact: true })).toBeVisible();
@@ -353,6 +366,7 @@ for (const scenario of [
     });
     await expect(teacherCard).toBeVisible();
     await expect(teacherCard).toContainText('deepseek-chat-v1');
+    await expect(teacherCard.getByRole('button', { name: copy.retryFailedScope, exact: true })).toBeVisible();
 
     await expect(page.getByText(copy.recentJobs, { exact: true })).toBeVisible();
     const failedJob = page.locator('article').filter({
@@ -361,6 +375,20 @@ for (const scenario of [
     await expect(failedJob).toBeVisible();
     await expect(failedJob).toContainText(copy.failed);
     await expect(failedJob).toContainText(copy.failure);
+    await expect(failedJob.getByRole('button', { name: copy.retryFailedScope, exact: true })).toBeVisible();
+
+    const runningJob = page.locator('article').filter({
+      has: page.getByText('E2E Personalization Running', { exact: true }),
+    });
+    await expect(runningJob).toBeVisible();
+    await expect(runningJob).toContainText(copy.running);
+    await expect(runningJob).toContainText(copy.retrieving);
+
+    const readyJob = page.locator('article').filter({
+      has: page.getByText('E2E Personalization Source Ready', { exact: true }),
+    });
+    await expect(readyJob).toBeVisible();
+    await expect(readyJob).toContainText(copy.ready);
 
     await expect(body).not.toContainText(/platform_admin\.[a-z0-9_.]+/i);
     await expect(body).not.toContainText(/LLM_API_KEY|OPENAI_API_KEY|Authorization:\s*Bearer|prompt_ctx/i);
