@@ -1,7 +1,7 @@
 pub mod assignment_personalization_job_repository;
-pub mod assignment_personalization_policy_repository;
 #[cfg(test)]
 mod assignment_personalization_job_repository_tests;
+pub mod assignment_personalization_policy_repository;
 pub mod assignment_repository;
 pub mod audit_log_repository;
 pub mod authorized_assignment_repository;
