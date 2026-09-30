@@ -711,6 +711,141 @@ $$;
 REVOKE EXECUTE ON FUNCTION public.recover_stale_assignment_personalization_jobs(BIGINT, INTEGER)
 FROM PUBLIC;
 
+CREATE TABLE IF NOT EXISTS public.assignment_personalization_policy_audit (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    actor_id UUID REFERENCES public.users(id) ON DELETE SET NULL,
+    scope_type TEXT NOT NULL CHECK (scope_type IN ('school', 'teacher')),
+    school_id UUID NOT NULL REFERENCES public.schools(id) ON DELETE CASCADE,
+    teacher_id UUID REFERENCES public.teachers(id) ON DELETE CASCADE,
+    action TEXT NOT NULL CHECK (action IN ('created', 'updated', 'deleted')),
+    before_policy JSONB,
+    after_policy JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT assignment_personalization_policy_audit_scope CHECK (
+        (scope_type = 'school' AND teacher_id IS NULL)
+        OR (scope_type = 'teacher' AND teacher_id IS NOT NULL)
+    )
+);
+
+CREATE INDEX IF NOT EXISTS assignment_personalization_policy_audit_school_idx
+    ON public.assignment_personalization_policy_audit (school_id, created_at DESC);
+
+ALTER TABLE public.assignment_personalization_policy_audit ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.assignment_personalization_policy_audit FORCE ROW LEVEL SECURITY;
+
+CREATE POLICY assignment_personalization_policy_audit_admin_select
+ON public.assignment_personalization_policy_audit
+FOR SELECT
+USING (public.get_role() = 'PlatformAdmin');
+
+CREATE OR REPLACE FUNCTION public.audit_assignment_personalization_school_policy()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public
+AS $
+DECLARE
+    actor UUID := public.get_user_id();
+BEGIN
+    IF public.get_role() <> 'PlatformAdmin' THEN
+        RETURN COALESCE(NEW, OLD);
+    END IF;
+
+    INSERT INTO public.assignment_personalization_policy_audit (
+        actor_id,
+        scope_type,
+        school_id,
+        action,
+        before_policy,
+        after_policy
+    )
+    VALUES (
+        actor,
+        'school',
+        COALESCE(NEW.school_id, OLD.school_id),
+        CASE TG_OP WHEN 'INSERT' THEN 'created' WHEN 'UPDATE' THEN 'updated' ELSE 'deleted' END,
+        CASE WHEN TG_OP IN ('UPDATE', 'DELETE') THEN jsonb_build_object(
+            'enabled', OLD.enabled,
+            'paused', OLD.paused,
+            'llm_profile_id', OLD.llm_profile_id,
+            'delivery_policy', OLD.delivery_policy,
+            'policy_version', OLD.policy_version
+        ) END,
+        CASE WHEN TG_OP IN ('INSERT', 'UPDATE') THEN jsonb_build_object(
+            'enabled', NEW.enabled,
+            'paused', NEW.paused,
+            'llm_profile_id', NEW.llm_profile_id,
+            'delivery_policy', NEW.delivery_policy,
+            'policy_version', NEW.policy_version
+        ) END
+    );
+    RETURN COALESCE(NEW, OLD);
+END
+$;
+
+DROP TRIGGER IF EXISTS audit_assignment_personalization_school_policy
+    ON public.assignment_personalization_school_policies;
+CREATE TRIGGER audit_assignment_personalization_school_policy
+AFTER INSERT OR UPDATE OR DELETE
+ON public.assignment_personalization_school_policies
+FOR EACH ROW
+EXECUTE FUNCTION public.audit_assignment_personalization_school_policy();
+
+CREATE OR REPLACE FUNCTION public.audit_assignment_personalization_teacher_override()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public
+AS $
+DECLARE
+    actor UUID := public.get_user_id();
+BEGIN
+    IF public.get_role() <> 'PlatformAdmin' THEN
+        RETURN COALESCE(NEW, OLD);
+    END IF;
+
+    INSERT INTO public.assignment_personalization_policy_audit (
+        actor_id,
+        scope_type,
+        school_id,
+        teacher_id,
+        action,
+        before_policy,
+        after_policy
+    )
+    VALUES (
+        actor,
+        'teacher',
+        COALESCE(NEW.school_id, OLD.school_id),
+        COALESCE(NEW.teacher_id, OLD.teacher_id),
+        CASE TG_OP WHEN 'INSERT' THEN 'created' WHEN 'UPDATE' THEN 'updated' ELSE 'deleted' END,
+        CASE WHEN TG_OP IN ('UPDATE', 'DELETE') THEN jsonb_build_object(
+            'mode', OLD.mode,
+            'enabled_override', OLD.enabled_override,
+            'paused_override', OLD.paused_override,
+            'llm_profile_id_override', OLD.llm_profile_id_override,
+            'delivery_policy_override', OLD.delivery_policy_override,
+            'override_version', OLD.override_version
+        ) END,
+        CASE WHEN TG_OP IN ('INSERT', 'UPDATE') THEN jsonb_build_object(
+            'mode', NEW.mode,
+            'enabled_override', NEW.enabled_override,
+            'paused_override', NEW.paused_override,
+            'llm_profile_id_override', NEW.llm_profile_id_override,
+            'delivery_policy_override', NEW.delivery_policy_override,
+            'override_version', NEW.override_version
+        ) END
+    );
+    RETURN COALESCE(NEW, OLD);
+END
+$;
+
+DROP TRIGGER IF EXISTS audit_assignment_personalization_teacher_override
+    ON public.assignment_personalization_teacher_overrides;
+CREATE TRIGGER audit_assignment_personalization_teacher_override
+AFTER INSERT OR UPDATE OR DELETE
+ON public.assignment_personalization_teacher_overrides
+FOR EACH ROW
+EXECUTE FUNCTION public.audit_assignment_personalization_teacher_override();
+
 COMMENT ON TABLE public.assignment_personalization_school_policies IS
     'Platform-admin governed default assignment-personalization policy for one school.';
 COMMENT ON TABLE public.assignment_personalization_teacher_overrides IS
