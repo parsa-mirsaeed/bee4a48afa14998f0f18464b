@@ -260,6 +260,15 @@ for (const scenario of [
     });
     await expect(pendingPublish).toBeVisible();
     await expect(pendingPublish).toBeDisabled();
+    const disabledPublishBackground = await pendingPublish.evaluate(
+      (element) => getComputedStyle(element).backgroundColor,
+    );
+    await page.evaluate(() => document.documentElement.classList.add('dark'));
+    const darkDisabledPublishBackground = await pendingPublish.evaluate(
+      (element) => getComputedStyle(element).backgroundColor,
+    );
+    expect(darkDisabledPublishBackground).not.toBe(disabledPublishBackground);
+    await page.evaluate(() => document.documentElement.classList.remove('dark'));
     await expectNoRawAdminChrome(body);
 
     await verifiedCard.getByRole('button', { name: scenario.updateOcr, exact: true }).click();
@@ -287,6 +296,10 @@ for (const scenario of [
     await expect(verifiedCard.getByText(scenario.publicationStage, { exact: true })).toBeVisible();
     await expect(pendingPublish).toBeEnabled();
     await expect(pendingPublish).toBeInViewport();
+    const enabledPublishBackground = await pendingPublish.evaluate(
+      (element) => getComputedStyle(element).backgroundColor,
+    );
+    expect(enabledPublishBackground).not.toBe(disabledPublishBackground);
     const publishBox = await pendingPublish.boundingBox();
     expect(publishBox, 'Publish must have a rendered box').not.toBeNull();
     expect(publishBox?.width ?? 0).toBeGreaterThan(120);
