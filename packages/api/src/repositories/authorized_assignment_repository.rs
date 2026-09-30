@@ -36,6 +36,14 @@ pub struct AuthorizedStudent {
     school_id: Uuid,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StudentPersonalizationDelivery {
+    pub delivery_state: String,
+    pub delivery_policy: String,
+    pub job_status: Option<String>,
+    pub processing_stage: Option<String>,
+}
+
 #[derive(Clone)]
 pub struct AuthorizedAssignmentRepository {
     pool: Arc<AuthorizedPool>,
@@ -589,6 +597,43 @@ impl AuthorizedAssignmentRepository {
         .ok_or_else(|| custom_assignment_not_found(custom_assignment_id))?;
 
         row_to_custom_assignment_details(&row)
+    }
+
+    pub async fn personalization_delivery_for_student(
+        &self,
+        actor: AuthorizedStudent,
+        custom_assignment_id: CustomAssignmentId,
+    ) -> RepositoryResult<StudentPersonalizationDelivery> {
+        // The SQL function performs its own canonical Student/school/enrollment
+        // authorization and intentionally returns no provider diagnostics.
+        let row = sqlx::query(
+            r#"
+            SELECT delivery_state, delivery_policy, job_status, processing_stage
+            FROM public.get_student_assignment_personalization_delivery($1)
+            "#,
+        )
+        .bind::<Uuid>(custom_assignment_id.into())
+        .fetch_optional(&*self.pool)
+        .await?
+        .ok_or(RepositoryError::Unauthorized)?;
+
+        let state = StudentPersonalizationDelivery {
+            delivery_state: row.get("delivery_state"),
+            delivery_policy: row.get("delivery_policy"),
+            job_status: row.get("job_status"),
+            processing_stage: row.get("processing_stage"),
+        };
+
+        // Defense in depth: a request-bound Student actor must match the same
+        // context the SECURITY DEFINER function validated.
+        if actor.user_id == Uuid::nil()
+            || actor.school_id == Uuid::nil()
+            || Uuid::from(actor.student_id) == Uuid::nil()
+        {
+            return Err(RepositoryError::Unauthorized);
+        }
+
+        Ok(state)
     }
 
     pub async fn list_for_student(
