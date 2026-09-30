@@ -360,6 +360,10 @@ fn classify_llm_failure(error: &LlmError) -> FailureAction {
                 retry_after_seconds: 10,
             }
         }
+        LlmError::ConfigurationUnavailable => FailureAction::Record {
+            kind: PersonalizationFailureKind::ConfigurationUnavailable,
+            retry_after_seconds: 0,
+        },
         LlmError::ParseError(_) | LlmError::InvalidResponse(_) | LlmError::ApiError { .. } => {
             FailureAction::Record {
                 kind: PersonalizationFailureKind::InvalidGatewayResponse,
@@ -555,6 +559,7 @@ mod tests {
             LlmConfig {
                 api_key: "abcdefghijklmnopqrstuvwxyz123456".to_string(),
                 base_url: "http://ai-gateway:8090".to_string(),
+                profile: "deepseek-chat-v1".to_string(),
                 model: "deepseek-chat".to_string(),
                 max_tokens: 1_024,
                 temperature: 0.2,

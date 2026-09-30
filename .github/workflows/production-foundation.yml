@@ -15,6 +15,7 @@ on:
       - packages/api/src/services/embedding_service.rs
       - packages/api/src/services/knowledge_ingestion_worker.rs
       - packages/api/src/services/knowledge_vector_store_service.rs
+      - packages/api/src/services/llm_profile.rs
       - packages/api/src/services/llm_service.rs
       - packages/api/src/services/material_vectorization_service.rs
       - packages/api/src/services/supabase_auth.rs

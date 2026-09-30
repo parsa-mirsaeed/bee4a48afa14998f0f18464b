@@ -9,6 +9,9 @@ use crate::ai_gateway_protocol::{
     GatewayChatMessage, GatewayChatRequest, GatewayChatResponse, GatewayErrorEnvelope,
     GatewayResponseFormat,
 };
+use crate::services::llm_profile::{
+    resolve_llm_profile, validate_llm_profile_override, DEEPSEEK_CHAT_V1,
+};
 use reqwest::redirect::Policy as RedirectPolicy;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -18,7 +21,6 @@ use thiserror::Error;
 use uuid::Uuid;
 
 const INTERNAL_GATEWAY_ORIGIN: &str = "http://ai-gateway:8090";
-const APPROVED_LLM_MODEL: &str = "deepseek-chat";
 
 #[derive(Debug, Error)]
 pub enum LlmError {
@@ -36,6 +38,8 @@ pub enum LlmError {
     RateLimited { retry_after_seconds: u64 },
     #[error("AI service temporarily unavailable")]
     TemporarilyUnavailable,
+    #[error("AI personalization provider is not configured")]
+    ConfigurationUnavailable,
     #[error("Invalid response structure: {0}")]
     InvalidResponse(String),
     #[error("Prompt contains credential-shaped or secret configuration data")]
@@ -49,6 +53,7 @@ pub struct LlmConfig {
     /// Internal AI Gateway bearer token, never a provider credential.
     pub api_key: String,
     pub base_url: String,
+    pub profile: String,
     pub model: String,
     pub max_tokens: u32,
     pub temperature: f32,
@@ -64,7 +69,8 @@ impl Default for LlmConfig {
         Self {
             api_key: String::new(),
             base_url: INTERNAL_GATEWAY_ORIGIN.to_string(),
-            model: APPROVED_LLM_MODEL.to_string(),
+            profile: DEEPSEEK_CHAT_V1.id.to_string(),
+            model: DEEPSEEK_CHAT_V1.model.to_string(),
             max_tokens: 4_096,
             temperature: 0.7,
             request_timeout: Duration::from_secs(120),
@@ -83,12 +89,12 @@ impl LlmConfig {
         let base_url =
             env::var("AI_GATEWAY_URL").unwrap_or_else(|_| INTERNAL_GATEWAY_ORIGIN.to_string());
         validate_internal_gateway_url(&base_url)?;
-        let model = env::var("LLM_MODEL").unwrap_or_else(|_| APPROVED_LLM_MODEL.to_string());
-        if model != APPROVED_LLM_MODEL {
-            return Err(LlmError::InvalidResponse(format!(
-                "LLM_MODEL must be exactly {APPROVED_LLM_MODEL}"
-            )));
-        }
+        let profile = env::var("LLM_PROFILE").unwrap_or_else(|_| DEEPSEEK_CHAT_V1.id.to_string());
+        let resolved_profile = resolve_llm_profile(&profile)
+            .map_err(|error| LlmError::InvalidResponse(error.to_string()))?;
+        let model = env::var("LLM_MODEL").unwrap_or_else(|_| resolved_profile.model.to_string());
+        validate_llm_profile_override(resolved_profile, Some(&model))
+            .map_err(|error| LlmError::InvalidResponse(error.to_string()))?;
         let temperature = env::var("LLM_TEMPERATURE")
             .ok()
             .and_then(|value| value.parse().ok())
@@ -101,6 +107,7 @@ impl LlmConfig {
         Ok(Self {
             api_key,
             base_url,
+            profile: resolved_profile.id.to_string(),
             model,
             max_tokens: env::var("LLM_MAX_TOKENS")
                 .ok()
@@ -262,11 +269,10 @@ impl ExternalLlmClient {
 
     fn validate_config(config: &LlmConfig) -> Result<(), LlmError> {
         validate_internal_gateway_url(&config.base_url)?;
-        if config.model != APPROVED_LLM_MODEL {
-            return Err(LlmError::InvalidResponse(format!(
-                "LLM model must be exactly {APPROVED_LLM_MODEL}"
-            )));
-        }
+        let profile = resolve_llm_profile(&config.profile)
+            .map_err(|error| LlmError::InvalidResponse(error.to_string()))?;
+        validate_llm_profile_override(profile, Some(&config.model))
+            .map_err(|error| LlmError::InvalidResponse(error.to_string()))?;
         if config.api_key.len() < 32 || looks_like_placeholder(&config.api_key) {
             return Err(LlmError::MissingApiKey);
         }
@@ -485,9 +491,9 @@ impl ExternalLlmClient {
                 "provider_rate_limited" | "quota_exceeded" => Err(LlmError::RateLimited {
                     retry_after_seconds: retry_after,
                 }),
+                "llm_disabled" | "provider_unconfigured" => Err(LlmError::ConfigurationUnavailable),
                 "ai_temporarily_unavailable"
                 | "circuit_open"
-                | "provider_unconfigured"
                 | "gateway_shutting_down"
                 | "invalid_provider_response"
                 | "provider_response_too_large"
@@ -547,7 +553,8 @@ impl ExternalLlmClient {
     pub fn is_configured(&self) -> bool {
         self.config.api_key.len() >= 32
             && self.config.base_url == INTERNAL_GATEWAY_ORIGIN
-            && self.config.model == APPROVED_LLM_MODEL
+            && resolve_llm_profile(&self.config.profile)
+                .is_ok_and(|profile| profile.model == self.config.model)
     }
 }
 
@@ -606,7 +613,8 @@ mod tests {
         ExternalLlmClient::with_config(LlmConfig {
             api_key: "abcdefghijklmnopqrstuvwxyz123456".to_string(),
             base_url: INTERNAL_GATEWAY_ORIGIN.to_string(),
-            model: APPROVED_LLM_MODEL.to_string(),
+            profile: DEEPSEEK_CHAT_V1.id.to_string(),
+            model: DEEPSEEK_CHAT_V1.model.to_string(),
             max_tokens: 1_024,
             temperature: 0.2,
             request_timeout: Duration::from_secs(5),

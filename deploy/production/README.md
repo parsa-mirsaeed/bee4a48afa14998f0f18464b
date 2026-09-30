@@ -174,9 +174,15 @@ Public signup, anonymous users, phone signup and unauthenticated Edge Functions 
 
 EduTalent validates Supabase ES256 tokens against the local JWKS endpoint and explicit self-hosted issuer `https://SUPABASE_DOMAIN/auth/v1`. Mixed JWKS are parsed safely, but only the matching ES256 key is accepted for user-token validation.
 
-## AI and embedding profiles
+## AI, embedding and assignment-personalization profiles
 
-Production uses the server-side AI Gateway boundary. The supported profile registry includes the offline local BGE profile (`local-bge-v1`) and the approved connected profile (`openai-v1`) with fixed model/vector/collection contracts. The application never receives provider API keys or external provider base URLs. Different embedding dimensions/models use distinct versioned Qdrant collections.
+Production uses the server-side AI Gateway boundary. Embedding transport and chat-generation capability are intentionally independent.
+
+The embedding profile registry includes the offline local BGE profile (`local-bge-v1`) and the approved connected OpenAI profile (`openai-v1`) with fixed model/vector/collection contracts. Different embedding dimensions/models use distinct versioned Qdrant collections.
+
+Assignment personalization uses the separate controlled LLM profile registry. The initial approved profile is `deepseek-chat-v1` / `deepseek-chat`. A deployment may therefore keep `AI_GATEWAY_MODE=offline` with `local-bge-v1` while supplying the gateway-only `LLM_API_KEY`. When `AI_LLM_MODE` is blank, a non-empty approved key enables connected chat automatically; operators may pin `AI_LLM_MODE=connected` or `disabled` explicitly. Air-gapped deployments should pin it to `disabled`. Arbitrary provider destinations and arbitrary model names remain rejected.
+
+The application never receives provider API keys or external provider base URLs. AI Gateway `/healthz` reports the non-secret embedding profile plus LLM mode/profile/provider/model/configured state so operator/admin diagnostics can distinguish disabled, unconfigured and runtime-outage conditions.
 
 External AI availability is not a core health requirement. Connected-provider loss is handled as a degraded AI condition while core local school operations continue.
 

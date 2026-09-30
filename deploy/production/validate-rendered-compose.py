@@ -464,21 +464,46 @@ def main() -> None:
         fail("app and AI gateway embedding profiles must match")
 
     if expected_mode == "connected":
-        for key in ("OPENAI_API_KEY", "LLM_API_KEY"):
-            value = str(ai_env.get(key, ""))
-            if len(value) < 24 or "replace" in value.lower():
-                fail(f"connected mode requires safe {key}")
+        openai_key = str(ai_env.get("OPENAI_API_KEY", ""))
+        if len(openai_key) < 24 or "replace" in openai_key.lower():
+            fail("connected embeddings require safe OPENAI_API_KEY")
         if ai_env.get("AI_EMBEDDING_BASE_URL") != "https://api.openai.com/v1/":
             fail("connected embeddings must use the exact approved OpenAI origin")
-        if ai_env.get("AI_LLM_BASE_URL") != "https://api.deepseek.com/v1/":
-            fail("connected LLM requests must use the exact approved LLM origin")
     else:
         if ai_env.get("AI_EMBEDDING_BASE_URL") != "http://embedding:80/v1/":
             fail("offline profile must use the internal TEI service")
         if "embedding" not in services:
             fail("offline profile must render the local TEI service")
 
-    print("Rendered production Compose security and AI egress invariants verified.")
+    # Assignment personalization is deliberately independent from the embedding
+    # profile. Local BGE may coexist with the fixed DeepSeek chat profile.
+    app_llm_profile = str(app_env.get("LLM_PROFILE", ""))
+    gateway_llm_profile = str(ai_env.get("LLM_PROFILE", ""))
+    app_llm_model = str(app_env.get("LLM_MODEL", ""))
+    gateway_llm_model = str(ai_env.get("LLM_MODEL", ""))
+    if (app_llm_profile, gateway_llm_profile) != (
+        "deepseek-chat-v1",
+        "deepseek-chat-v1",
+    ):
+        fail("app and AI gateway must use the registered deepseek-chat-v1 LLM profile")
+    if (app_llm_model, gateway_llm_model) != ("deepseek-chat", "deepseek-chat"):
+        fail("app and AI gateway must use the registered deepseek-chat model")
+    if ai_env.get("AI_LLM_BASE_URL") != "https://api.deepseek.com/v1/":
+        fail("LLM requests must use the exact approved DeepSeek origin")
+
+    llm_mode = str(ai_env.get("AI_LLM_MODE", "")).strip().lower()
+    llm_key = str(ai_env.get("LLM_API_KEY", ""))
+    if llm_mode not in {"", "connected", "disabled"}:
+        fail("AI_LLM_MODE must be blank, connected, or disabled")
+    effective_llm_connected = llm_mode == "connected" or (
+        llm_mode == "" and bool(llm_key.strip())
+    )
+    if effective_llm_connected and (
+        len(llm_key) < 24 or "replace" in llm_key.lower()
+    ):
+        fail("connected assignment personalization requires safe LLM_API_KEY")
+
+    print("Rendered production Compose security and independent AI capability invariants verified.")
 
 
 if __name__ == "__main__":

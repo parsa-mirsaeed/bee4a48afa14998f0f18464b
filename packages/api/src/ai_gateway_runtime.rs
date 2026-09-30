@@ -13,6 +13,9 @@ use crate::ai_gateway_protocol::{
 use crate::services::embedding_profile::{
     resolve_embedding_profile, EmbeddingProfile, EmbeddingProviderKind,
 };
+use crate::services::llm_profile::{
+    resolve_llm_profile, validate_llm_profile_override, LlmProfile, DEEPSEEK_CHAT_V1,
+};
 use axum::{
     extract::{DefaultBodyLimit, State},
     http::{header::AUTHORIZATION, HeaderMap, StatusCode},
@@ -45,7 +48,7 @@ const SCHOOL_HEADER: &str = "x-edutalent-school-id";
 const REQUEST_HEADER: &str = "x-edutalent-request-id";
 const OPENAI_BASE_URL: &str = "https://api.openai.com/v1/";
 const LLM_BASE_URL: &str = "https://api.deepseek.com/v1/";
-const LLM_MODEL: &str = "deepseek-chat";
+const LLM_MODEL: &str = DEEPSEEK_CHAT_V1.model;
 const LOCAL_TEI_BASE_URL: &str = "http://embedding:80/v1/";
 
 #[derive(Debug, Error)]
@@ -83,6 +86,31 @@ impl Mode {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LlmMode {
+    Connected,
+    Disabled,
+}
+
+impl LlmMode {
+    fn parse(value: &str) -> Result<Self, StartupError> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "connected" | "enabled" => Ok(Self::Connected),
+            "disabled" | "off" | "none" => Ok(Self::Disabled),
+            other => Err(StartupError::InvalidConfig(format!(
+                "AI_LLM_MODE must be connected or disabled, got {other}"
+            ))),
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Connected => "connected",
+            Self::Disabled => "disabled",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 struct Provider {
     base_url: Url,
@@ -111,6 +139,8 @@ struct Config {
     mode: Mode,
     embedding_profile: EmbeddingProfile,
     embedding_provider: Provider,
+    llm_mode: LlmMode,
+    llm_profile: LlmProfile,
     llm_provider: Option<Provider>,
     connect_timeout: Duration,
     request_timeout: Duration,
@@ -163,13 +193,28 @@ impl Config {
             },
         };
 
-        let configured_llm_model = env_value("LLM_MODEL", LLM_MODEL);
-        if configured_llm_model != LLM_MODEL {
-            return Err(StartupError::InvalidConfig(format!(
-                "LLM_MODEL must be exactly {LLM_MODEL}"
-            )));
-        }
-        let llm_provider = if mode == Mode::Connected {
+        // Chat generation is an independent capability from embedding. A deployment
+        // may keep local BGE/Qdrant embeddings while using the controlled external
+        // LLM profile for assignment personalization.
+        let llm_mode_setting = env::var("AI_LLM_MODE").unwrap_or_default();
+        let llm_mode = if llm_mode_setting.trim().is_empty() {
+            if env::var("LLM_API_KEY")
+                .ok()
+                .is_some_and(|value| !value.trim().is_empty())
+            {
+                LlmMode::Connected
+            } else {
+                LlmMode::Disabled
+            }
+        } else {
+            LlmMode::parse(&llm_mode_setting)?
+        };
+        let llm_profile = resolve_llm_profile(&env_value("LLM_PROFILE", DEEPSEEK_CHAT_V1.id))
+            .map_err(|error| StartupError::InvalidConfig(error.to_string()))?;
+        let configured_llm_model = env_value("LLM_MODEL", llm_profile.model);
+        validate_llm_profile_override(llm_profile, Some(&configured_llm_model))
+            .map_err(|error| StartupError::InvalidConfig(error.to_string()))?;
+        let llm_provider = if llm_mode == LlmMode::Connected {
             Some(Provider {
                 base_url: exact_external_url(
                     &env_value("AI_LLM_BASE_URL", LLM_BASE_URL),
@@ -195,6 +240,8 @@ impl Config {
             mode,
             embedding_profile,
             embedding_provider,
+            llm_mode,
+            llm_profile,
             llm_provider,
             connect_timeout: Duration::from_secs(env_u64("AI_CONNECT_TIMEOUT_SECONDS", 5, 1, 30)),
             request_timeout: Duration::from_secs(env_u64("AI_REQUEST_TIMEOUT_SECONDS", 45, 5, 180)),
@@ -262,6 +309,8 @@ impl Config {
                     .model
                     .to_string(),
             },
+            llm_mode: LlmMode::Connected,
+            llm_profile: DEEPSEEK_CHAT_V1,
             llm_provider: Some(Provider {
                 base_url: provider_base_url,
                 api_key: Some("test-llm-key-abcdefghijklmnopqrstuvwxyz".to_string()),
@@ -705,9 +754,15 @@ impl ProviderFailure {
 #[derive(Serialize)]
 struct HealthResponse {
     status: &'static str,
+    /// Compatibility field: this is the embedding transport mode.
     mode: &'static str,
     embedding_profile: &'static str,
     embedding_circuit: &'static str,
+    llm_mode: &'static str,
+    llm_profile: &'static str,
+    llm_provider: &'static str,
+    llm_model: &'static str,
+    llm_configured: bool,
     llm_circuit: &'static str,
     external_providers_required_for_health: bool,
 }
@@ -736,6 +791,16 @@ async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
         mode: state.config.mode.as_str(),
         embedding_profile: state.config.embedding_profile.id,
         embedding_circuit: state.embedding_breaker.status().await,
+        llm_mode: state.config.llm_mode.as_str(),
+        llm_profile: state.config.llm_profile.id,
+        llm_provider: state.config.llm_profile.provider.as_str(),
+        llm_model: state.config.llm_profile.model,
+        llm_configured: state
+            .config
+            .llm_provider
+            .as_ref()
+            .and_then(|provider| provider.api_key.as_ref())
+            .is_some(),
         llm_circuit: state.llm_breaker.status().await,
         external_providers_required_for_health: false,
     })
@@ -1273,6 +1338,27 @@ mod tests {
         }
     }
 
+    fn chat_request() -> GatewayChatRequest {
+        GatewayChatRequest {
+            model: DEEPSEEK_CHAT_V1.model.to_string(),
+            messages: vec![
+                GatewayChatMessage {
+                    role: "system".to_string(),
+                    content: "Return valid JSON only.".to_string(),
+                },
+                GatewayChatMessage {
+                    role: "user".to_string(),
+                    content: "{\"assignment\":\"adapt this\"}".to_string(),
+                },
+            ],
+            max_tokens: 512,
+            temperature: 0.2,
+            response_format: Some(crate::ai_gateway_protocol::GatewayResponseFormat {
+                format_type: "json_object".to_string(),
+            }),
+        }
+    }
+
     #[test]
     fn external_origins_are_fixed() {
         assert!(exact_external_url(OPENAI_BASE_URL, OPENAI_BASE_URL).is_ok());
@@ -1554,5 +1640,76 @@ mod tests {
                 "invalid_provider_response"
             );
         }
+    }
+
+    async fn spawn_chat_mock() -> Url {
+        let app = Router::new().route(
+            "/v1/chat/completions",
+            post(|| async move {
+                (
+                    StatusCode::OK,
+                    Json(serde_json::json!({
+                        "model": DEEPSEEK_CHAT_V1.model,
+                        "choices": [{
+                            "index": 0,
+                            "message": {
+                                "role": "assistant",
+                                "content": "{\"personalized_title\":\"Adapted\"}"
+                            },
+                            "finish_reason": "stop"
+                        }],
+                        "usage": {
+                            "prompt_tokens": 20,
+                            "completion_tokens": 5,
+                            "total_tokens": 25
+                        }
+                    })),
+                )
+            }),
+        );
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind chat mock");
+        let address = listener.local_addr().expect("chat mock address");
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.expect("serve chat mock");
+        });
+        Url::parse(&format!("http://{address}/v1/")).expect("chat mock url")
+    }
+
+    #[tokio::test]
+    async fn local_embedding_mode_can_use_connected_personalization_llm() {
+        let provider = spawn_chat_mock().await;
+        let mut config = Config::test(provider.clone());
+        config.mode = Mode::Offline;
+        config.embedding_profile = LOCAL_BGE_V1;
+        config.embedding_provider = Provider {
+            base_url: Url::parse(LOCAL_TEI_BASE_URL).expect("local TEI url"),
+            api_key: None,
+            model: LOCAL_BGE_V1.model.to_string(),
+        };
+        config.llm_mode = LlmMode::Connected;
+        config.llm_profile = DEEPSEEK_CHAT_V1;
+        config.llm_provider = Some(Provider {
+            base_url: provider,
+            api_key: Some("test-llm-key-abcdefghijklmnopqrstuvwxyz".to_string()),
+            model: DEEPSEEK_CHAT_V1.model.to_string(),
+        });
+
+        let state = AppState::new(config).expect("state");
+        let response = state
+            .chat(&context(), chat_request())
+            .await
+            .expect("connected LLM must work with local embeddings");
+
+        assert_eq!(response.model, DEEPSEEK_CHAT_V1.model);
+        assert_eq!(response.choices.len(), 1);
+    }
+
+    #[test]
+    fn llm_mode_is_independent_and_explicit() {
+        assert_eq!(LlmMode::parse("connected").unwrap(), LlmMode::Connected);
+        assert_eq!(LlmMode::parse("disabled").unwrap(), LlmMode::Disabled);
+        assert!(LlmMode::parse("offline").is_err());
     }
 }
