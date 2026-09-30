@@ -265,8 +265,10 @@ pub fn PlatformPersonalizationSection() -> Element {
                                                 }
                                             },
                                             on_manage_teachers: move |selection| {
+                                                // The teacher resource already reacts to
+                                                // selected_school. An immediate explicit restart
+                                                // can race this signal update and reload None.
                                                 selected_school.set(Some(selection));
-                                                teachers.restart();
                                             },
                                         }
                                     }
