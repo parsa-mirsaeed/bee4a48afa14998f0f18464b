@@ -19,6 +19,7 @@ use crate::services::llm_service::{
 use crate::services::material_vectorization_service::MaterialVectorizationService;
 use crate::services::student_context_service::{StudentContextError, StudentContextService};
 use crate::services::KnowledgeAssetService;
+use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::sync::Arc;
 use thiserror::Error;
@@ -76,6 +77,11 @@ pub struct PersonalizationProgress {
     pub current_student: Option<String>,
 }
 
+#[async_trait]
+pub trait PersonalizationStageReporter: Send + Sync {
+    async fn report(&self, stage: &'static str) -> Result<(), PersonalizationError>;
+}
+
 #[derive(Clone)]
 pub struct AssignmentPersonalizationService {
     pool: Arc<AuthorizedPool>,
@@ -120,11 +126,30 @@ impl AssignmentPersonalizationService {
         student_id: StudentId,
         precomputed_context: Option<&[MaterialContext]>,
     ) -> Result<PersonalizationResult, PersonalizationError> {
+        self.personalize_for_student_with_reporter(
+            assignment_id,
+            student_id,
+            precomputed_context,
+            None,
+        )
+        .await
+    }
+
+    pub async fn personalize_for_student_with_reporter(
+        &self,
+        assignment_id: AssignmentId,
+        student_id: StudentId,
+        precomputed_context: Option<&[MaterialContext]>,
+        reporter: Option<&dyn PersonalizationStageReporter>,
+    ) -> Result<PersonalizationResult, PersonalizationError> {
         let assignment = self
             .assignment_repo
             .find_with_details_by_id(assignment_id)
             .await
             .map_err(|_| PersonalizationError::AssignmentNotFound(assignment_id.to_string()))?;
+        if let Some(reporter) = reporter {
+            reporter.report("building_student_context").await?;
+        }
         let student_context = self
             .student_context_service
             .build_context(student_id)
@@ -142,6 +167,9 @@ impl AssignmentPersonalizationService {
                 )
             })?;
 
+        if let Some(reporter) = reporter {
+            reporter.report("retrieving_context").await?;
+        }
         let (material_context, class_material_chunk_count, governed_knowledge_chunk_count) =
             match precomputed_context {
                 Some(context) => (context.to_vec(), context.len(), 0),
@@ -173,6 +201,9 @@ impl AssignmentPersonalizationService {
             lecture_title: assignment.lecture_title.clone(),
             lecture_number: assignment.lecture_number,
         };
+        if let Some(reporter) = reporter {
+            reporter.report("ai_gateway").await?;
+        }
         let generation = llm_client
             .personalize_assignment_with_context_with_usage(
                 &base_assignment,
@@ -180,6 +211,9 @@ impl AssignmentPersonalizationService {
                 &material_context,
             )
             .await?;
+        if let Some(reporter) = reporter {
+            reporter.report("validating_response").await?;
+        }
         let personalized = generation.assignment;
         let usage = generation.usage;
         let diagnostics = PersonalizationDiagnostics {
@@ -213,6 +247,9 @@ impl AssignmentPersonalizationService {
         let prompt_context =
             self.build_prompt_context(&base_assignment, &student_context, &personalized);
         let rubric = self.build_rubric_json(&personalized);
+        if let Some(reporter) = reporter {
+            reporter.report("saving").await?;
+        }
         self.custom_assignment_repo
             .update_with_ai_content(custom_assignment.id, prompt_context, rubric)
             .await?;
