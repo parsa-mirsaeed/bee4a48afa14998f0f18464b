@@ -44,6 +44,8 @@ pub(crate) fn supplemental_translation(key: &'static str, locale: Locale) -> Opt
         (Locale::Fa, "nav.knowledge_assets") => Some("منابع دانشی"),
         (Locale::En, "nav.knowledge_audit") => Some("Knowledge audit"),
         (Locale::Fa, "nav.knowledge_audit") => Some("ممیزی دانش"),
+        (Locale::En, "nav.personalization") => Some("AI personalization"),
+        (Locale::Fa, "nav.personalization") => Some("شخصی‌سازی هوشمند"),
         (Locale::En, "nav.knowledge_submissions") => Some("Knowledge submissions"),
         (Locale::Fa, "nav.knowledge_submissions") => Some("ارسال منابع دانشی"),
 
@@ -356,6 +358,7 @@ mod tests {
             "teachers.students.no_grades",
             "nav.knowledge_assets",
             "nav.knowledge_audit",
+            "nav.personalization",
             "nav.knowledge_submissions",
             "errors.destination_unavailable",
             "errors.generic_title",
