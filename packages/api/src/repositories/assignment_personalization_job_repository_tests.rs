@@ -271,6 +271,11 @@ async fn claim_next(pool: &PgPool, worker_id: Uuid) -> Option<ClaimedAssignmentP
                 model_name,
                 profile_name,
                 profile_version,
+                llm_profile_id,
+                llm_provider,
+                policy_scope,
+                policy_version,
+                delivery_policy,
                 lease_owner
             FROM public.claim_next_assignment_personalization_job($1)
             "#,
@@ -290,6 +295,11 @@ async fn claim_next(pool: &PgPool, worker_id: Uuid) -> Option<ClaimedAssignmentP
             model_name: row.get("model_name"),
             profile_name: row.get("profile_name"),
             profile_version: row.get("profile_version"),
+            llm_profile_id: row.get("llm_profile_id"),
+            llm_provider: row.get("llm_provider"),
+            policy_scope: row.get("policy_scope"),
+            policy_version: row.get("policy_version"),
+            delivery_policy: row.get("delivery_policy"),
             lease_owner: row.get("lease_owner"),
         })
     })
