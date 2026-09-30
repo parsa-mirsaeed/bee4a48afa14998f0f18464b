@@ -717,8 +717,11 @@ CREATE TABLE IF NOT EXISTS public.assignment_personalization_policy_audit (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     actor_id UUID REFERENCES public.users(id) ON DELETE SET NULL,
     scope_type TEXT NOT NULL CHECK (scope_type IN ('school', 'teacher')),
-    school_id UUID NOT NULL REFERENCES public.schools(id) ON DELETE CASCADE,
-    teacher_id UUID REFERENCES public.teachers(id) ON DELETE CASCADE,
+    -- Historical audit identity deliberately has no FK to the governed row:
+    -- policy deletion may be caused by deleting the school/teacher itself and
+    -- the audit record must remain insertable and durable during that cascade.
+    school_id UUID NOT NULL,
+    teacher_id UUID,
     action TEXT NOT NULL CHECK (action IN ('created', 'updated', 'deleted')),
     before_policy JSONB,
     after_policy JSONB,
