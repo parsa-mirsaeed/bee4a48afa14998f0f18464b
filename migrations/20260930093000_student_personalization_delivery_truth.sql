@@ -19,12 +19,10 @@ SECURITY DEFINER
 SET search_path = pg_catalog, public
 AS $$
 DECLARE
-    current_user_id UUID := public.get_user_id();
-    current_school_id UUID := public.get_school_id();
-    current_role TEXT := public.get_role();
+    current_user_id UUID := NULLIF(current_setting('app.user_id', true), '')::UUID;
+    current_school_id UUID := NULLIF(current_setting('app.school_id', true), '')::UUID;
 BEGIN
-    IF current_role <> 'Student'
-       OR current_user_id IS NULL
+    IF current_user_id IS NULL
        OR current_school_id IS NULL THEN
         RAISE EXCEPTION 'student assignment delivery context required'
             USING ERRCODE = '42501';
@@ -60,6 +58,8 @@ BEGIN
       ON student.id = custom_assignment.student_id
     JOIN public.users AS student_user
       ON student_user.id = student.user_id
+    JOIN public.roles AS student_role
+      ON student_role.id = student_user.role_id
     JOIN public.enrollments AS enrollment
       ON enrollment.student_id = student.id
      AND enrollment.class_section_id = assignment.class_section_id
@@ -80,6 +80,7 @@ BEGIN
       AND student.school_id = current_school_id
       AND student_user.school_id = current_school_id
       AND student_user.is_active = TRUE
+      AND student_role.name::text = 'Student'
       AND class_section.school_id = current_school_id
       AND assignment.status = 'Published'::assignment_status;
 END
