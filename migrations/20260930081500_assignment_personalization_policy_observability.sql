@@ -715,7 +715,11 @@ FROM PUBLIC;
 
 CREATE TABLE IF NOT EXISTS public.assignment_personalization_policy_audit (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    actor_id UUID REFERENCES public.users(id) ON DELETE SET NULL,
+    -- Historical actor identity is intentionally not FK-bound. Some bounded
+    -- authorization tests and deletion cascades use a valid authorization
+    -- identity that need not remain present in users for the audit record to
+    -- be durable.
+    actor_id UUID,
     scope_type TEXT NOT NULL CHECK (scope_type IN ('school', 'teacher')),
     -- Historical audit identity deliberately has no FK to the governed row:
     -- policy deletion may be caused by deleting the school/teacher itself and
