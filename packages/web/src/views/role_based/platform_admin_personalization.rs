@@ -58,6 +58,31 @@ fn delivery_label(value: &str, locale: Locale) -> String {
     }
 }
 
+fn failure_label(code: Option<&str>, locale: Locale) -> String {
+    let key = match code {
+        Some("gateway_unavailable") => {
+            "platform_admin.personalization.failure.gateway_unavailable"
+        }
+        Some("provider_unconfigured") => {
+            "platform_admin.personalization.failure.provider_unconfigured"
+        }
+        Some("rate_limited") => "platform_admin.personalization.failure.rate_limited",
+        Some("invalid_gateway_response") => {
+            "platform_admin.personalization.failure.invalid_gateway_response"
+        }
+        Some("processing_unavailable") => {
+            "platform_admin.personalization.failure.processing_unavailable"
+        }
+        Some("content_rejected") => "platform_admin.personalization.failure.content_rejected",
+        Some("authorization_revoked") => {
+            "platform_admin.personalization.failure.authorization_revoked"
+        }
+        Some("policy_disabled") => "platform_admin.personalization.failure.policy_disabled",
+        _ => "platform_admin.personalization.failure.other",
+    };
+    t(key, locale)
+}
+
 #[component]
 pub fn PlatformPersonalizationSection() -> Element {
     let locale = use_locale().current();
@@ -590,10 +615,10 @@ fn PersonalizationJobCard(job: AdminPersonalizationJobDto, on_retried: EventHand
                 }
             }
 
-            if let Some(summary) = job.last_error_summary.as_ref() {
+            if job.last_error_code.is_some() {
                 div { class: "mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-800 dark:bg-red-900/20 dark:text-red-200",
                     p { class: "font-medium", {t("platform_admin.personalization.error", locale)} }
-                    p { class: "mt-1", "{summary}" }
+                    p { class: "mt-1", "{failure_label(job.last_error_code.as_deref(), locale)}" }
                 }
             }
 
