@@ -744,6 +744,25 @@ fn PersonalizationJobCard(
                 }
             }
 
+            dl { class: "mt-3 grid grid-cols-1 gap-3 text-sm sm:grid-cols-2 xl:grid-cols-4",
+                CompactField {
+                    label: t("platform_admin.personalization.created_at", locale),
+                    value: job.created_at.clone(),
+                }
+                CompactField {
+                    label: t("platform_admin.personalization.started_at", locale),
+                    value: job.started_at.clone().unwrap_or_else(|| "—".to_string()),
+                }
+                CompactField {
+                    label: t("platform_admin.personalization.completed_at", locale),
+                    value: job.completed_at.clone().unwrap_or_else(|| "—".to_string()),
+                }
+                CompactField {
+                    label: t("platform_admin.personalization.heartbeat_at", locale),
+                    value: job.heartbeat_at.clone().unwrap_or_else(|| "—".to_string()),
+                }
+            }
+
             div { class: "mt-4 space-y-3",
                 QueueSummaryStrip { summary: assignment_summary }
                 ScopeRetryButton {
