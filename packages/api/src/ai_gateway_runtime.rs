@@ -13,6 +13,9 @@ use crate::ai_gateway_protocol::{
 use crate::services::embedding_profile::{
     resolve_embedding_profile, EmbeddingProfile, EmbeddingProviderKind,
 };
+use crate::services::llm_profile::{
+    resolve_llm_profile, validate_llm_profile_override, LlmProfile, DEEPSEEK_CHAT_V1,
+};
 use axum::{
     extract::{DefaultBodyLimit, State},
     http::{header::AUTHORIZATION, HeaderMap, StatusCode},
@@ -45,7 +48,7 @@ const SCHOOL_HEADER: &str = "x-edutalent-school-id";
 const REQUEST_HEADER: &str = "x-edutalent-request-id";
 const OPENAI_BASE_URL: &str = "https://api.openai.com/v1/";
 const LLM_BASE_URL: &str = "https://api.deepseek.com/v1/";
-const LLM_MODEL: &str = "deepseek-chat";
+const LLM_MODEL: &str = DEEPSEEK_CHAT_V1.model;
 const LOCAL_TEI_BASE_URL: &str = "http://embedding:80/v1/";
 
 #[derive(Debug, Error)]
@@ -83,6 +86,31 @@ impl Mode {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LlmMode {
+    Connected,
+    Disabled,
+}
+
+impl LlmMode {
+    fn parse(value: &str) -> Result<Self, StartupError> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "connected" | "enabled" => Ok(Self::Connected),
+            "disabled" | "off" | "none" => Ok(Self::Disabled),
+            other => Err(StartupError::InvalidConfig(format!(
+                "AI_LLM_MODE must be connected or disabled, got {other}"
+            ))),
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Connected => "connected",
+            Self::Disabled => "disabled",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 struct Provider {
     base_url: Url,
@@ -111,6 +139,8 @@ struct Config {
     mode: Mode,
     embedding_profile: EmbeddingProfile,
     embedding_provider: Provider,
+    llm_mode: LlmMode,
+    llm_profile: LlmProfile,
     llm_provider: Option<Provider>,
     connect_timeout: Duration,
     request_timeout: Duration,
@@ -163,13 +193,23 @@ impl Config {
             },
         };
 
-        let configured_llm_model = env_value("LLM_MODEL", LLM_MODEL);
-        if configured_llm_model != LLM_MODEL {
-            return Err(StartupError::InvalidConfig(format!(
-                "LLM_MODEL must be exactly {LLM_MODEL}"
-            )));
-        }
-        let llm_provider = if mode == Mode::Connected {
+        // Chat generation is an independent capability from embedding. A deployment
+        // may keep local BGE/Qdrant embeddings while using the controlled external
+        // LLM profile for assignment personalization.
+        let llm_mode = LlmMode::parse(&env_value(
+            "AI_LLM_MODE",
+            if mode == Mode::Connected {
+                "connected"
+            } else {
+                "disabled"
+            },
+        ))?;
+        let llm_profile = resolve_llm_profile(&env_value("LLM_PROFILE", DEEPSEEK_CHAT_V1.id))
+            .map_err(|error| StartupError::InvalidConfig(error.to_string()))?;
+        let configured_llm_model = env_value("LLM_MODEL", llm_profile.model);
+        validate_llm_profile_override(llm_profile, Some(&configured_llm_model))
+            .map_err(|error| StartupError::InvalidConfig(error.to_string()))?;
+        let llm_provider = if llm_mode == LlmMode::Connected {
             Some(Provider {
                 base_url: exact_external_url(
                     &env_value("AI_LLM_BASE_URL", LLM_BASE_URL),
@@ -195,6 +235,8 @@ impl Config {
             mode,
             embedding_profile,
             embedding_provider,
+            llm_mode,
+            llm_profile,
             llm_provider,
             connect_timeout: Duration::from_secs(env_u64("AI_CONNECT_TIMEOUT_SECONDS", 5, 1, 30)),
             request_timeout: Duration::from_secs(env_u64("AI_REQUEST_TIMEOUT_SECONDS", 45, 5, 180)),
@@ -262,6 +304,8 @@ impl Config {
                     .model
                     .to_string(),
             },
+            llm_mode: LlmMode::Connected,
+            llm_profile: DEEPSEEK_CHAT_V1,
             llm_provider: Some(Provider {
                 base_url: provider_base_url,
                 api_key: Some("test-llm-key-abcdefghijklmnopqrstuvwxyz".to_string()),
