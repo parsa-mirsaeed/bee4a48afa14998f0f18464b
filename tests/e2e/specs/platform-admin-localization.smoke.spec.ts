@@ -113,7 +113,7 @@ async function completeQueuedVectorizationFixture(): Promise<void> {
 async function openAdminRoute(
   page: Page,
   locale: 'en' | 'fa',
-  path: '/dashboard' | '/dashboard/knowledge-audit',
+  path: '/dashboard' | '/dashboard/knowledge-audit' | '/dashboard/personalization',
 ): Promise<void> {
   await page.addInitScript((selectedLocale) => {
     localStorage.setItem('edutalent_locale', selectedLocale);
@@ -303,6 +303,72 @@ for (const scenario of [
       await expect(body).not.toContainText('Vectorization method');
       await expect(body).not.toContainText('Start vectorization');
       await expect(body).not.toContainText('Source document');
+    }
+  });
+
+  test(`platform admin personalization operations are governed and localized in ${scenario.locale} @smoke @final @platform-admin @personalization @i18n @workflow-truth`, async ({ page }) => {
+    await openAdminRoute(page, scenario.locale, '/dashboard/personalization');
+    const body = page.locator('body');
+    const copy =
+      scenario.locale === 'fa'
+        ? {
+            title: 'مرکز کنترل شخصی‌سازی هوشمند',
+            capability: 'قابلیت هوش مصنوعی',
+            schoolPolicy: 'سیاست مدرسه',
+            requirePersonalized: 'محتوای شخصی‌سازی‌شده الزامی است',
+            manageTeachers: 'مدیریت استثناهای معلم',
+            teacherPolicy: 'سیاست معلم',
+            recentJobs: 'کارهای اخیر شخصی‌سازی',
+            failed: 'ناموفق',
+            failure: 'دروازه هوش مصنوعی موقتاً در دسترس نیست',
+          }
+        : {
+            title: 'AI personalization control center',
+            capability: 'AI capability',
+            schoolPolicy: 'School policy',
+            requirePersonalized: 'Require personalized content',
+            manageTeachers: 'Manage teacher overrides',
+            teacherPolicy: 'Teacher policy',
+            recentJobs: 'Recent personalization jobs',
+            failed: 'Failed',
+            failure: 'AI gateway is temporarily unavailable',
+          };
+
+    await expectSidebarRole(page, scenario.role);
+    await expect(page.getByText(copy.title, { exact: true })).toBeVisible();
+    await expect(page.getByText(copy.capability, { exact: true })).toBeVisible();
+    await expect(page.getByText(copy.schoolPolicy, { exact: true })).toBeVisible();
+
+    const schoolCard = page.locator('article').filter({
+      has: page.getByText('E2E School A', { exact: true }),
+    });
+    await expect(schoolCard).toBeVisible();
+    await expect(schoolCard).toContainText('deepseek-chat-v1');
+    await expect(schoolCard).toContainText(copy.requirePersonalized);
+    await schoolCard.getByRole('button', { name: copy.manageTeachers, exact: true }).click();
+
+    await expect(page.getByText(copy.teacherPolicy, { exact: true })).toBeVisible();
+    const teacherCard = page.locator('article').filter({
+      has: page.getByText('E2E Teacher A', { exact: true }),
+    });
+    await expect(teacherCard).toBeVisible();
+    await expect(teacherCard).toContainText('deepseek-chat-v1');
+
+    await expect(page.getByText(copy.recentJobs, { exact: true })).toBeVisible();
+    const failedJob = page.locator('article').filter({
+      has: page.getByText('E2E Personalization Unavailable', { exact: true }),
+    });
+    await expect(failedJob).toBeVisible();
+    await expect(failedJob).toContainText(copy.failed);
+    await expect(failedJob).toContainText(copy.failure);
+
+    await expect(body).not.toContainText(/platform_admin\.[a-z0-9_.]+/i);
+    await expect(body).not.toContainText(/LLM_API_KEY|OPENAI_API_KEY|Authorization:\s*Bearer|prompt_ctx/i);
+    if (scenario.locale === 'fa') {
+      await expect(body).not.toContainText('AI personalization control center');
+      await expect(body).not.toContainText('School policy');
+      await expect(body).not.toContainText('Recent personalization jobs');
+      await expect(body).not.toContainText('AI gateway is temporarily unavailable');
     }
   });
 
