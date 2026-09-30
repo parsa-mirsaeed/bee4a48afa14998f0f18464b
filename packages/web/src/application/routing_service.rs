@@ -39,7 +39,9 @@ impl RoutingService {
     pub fn can_access_dashboard_section(user: &User, section: &str) -> bool {
         let capabilities = PRODUCTION_PRODUCT_CAPABILITIES;
         match user.role {
-            SystemRole::PlatformAdmin => matches!(section, "knowledge-assets" | "knowledge-audit"),
+            SystemRole::PlatformAdmin => {
+                matches!(section, "knowledge-assets" | "knowledge-audit" | "personalization")
+            },
             SystemRole::SchoolManager => match section {
                 "overview"
                 | "users"
@@ -180,6 +182,11 @@ impl RoutingService {
                         "knowledge-audit",
                         locale.t("nav.knowledge_audit"),
                         "policy",
+                    ),
+                    NavigationItem::section(
+                        "personalization",
+                        locale.t("nav.personalization"),
+                        "psychology",
                     ),
                 ]);
             }
@@ -448,6 +455,10 @@ mod tests {
         assert!(RoutingService::can_access_dashboard_section(
             &platform,
             "knowledge-assets"
+        ));
+        assert!(RoutingService::can_access_dashboard_section(
+            &platform,
+            "personalization"
         ));
         assert!(!RoutingService::can_access_dashboard_section(
             &platform, "overview"
