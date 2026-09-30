@@ -7,6 +7,7 @@
 pub mod admin_functions;
 pub mod admin_knowledge_ocr_functions;
 pub mod admin_knowledge_review_functions;
+pub mod admin_personalization_functions;
 pub mod assignment_functions;
 pub mod assignment_personalization_functions;
 pub mod assignment_workflow;
