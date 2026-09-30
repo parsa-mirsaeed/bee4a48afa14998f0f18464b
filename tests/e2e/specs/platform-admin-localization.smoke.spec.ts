@@ -286,6 +286,11 @@ for (const scenario of [
     ).toBeVisible({ timeout: 15_000 });
     await expect(verifiedCard.getByText(scenario.publicationStage, { exact: true })).toBeVisible();
     await expect(pendingPublish).toBeEnabled();
+    await expect(pendingPublish).toBeInViewport();
+    const publishBox = await pendingPublish.boundingBox();
+    expect(publishBox, 'Publish must have a rendered box').not.toBeNull();
+    expect(publishBox?.width ?? 0).toBeGreaterThan(120);
+    expect(publishBox?.height ?? 0).toBeGreaterThan(32);
 
     const publishedCard = page.locator('article').filter({
       has: page.getByText('E2E Published Asset', { exact: true }),
