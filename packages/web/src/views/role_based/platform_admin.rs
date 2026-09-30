@@ -6,6 +6,7 @@ use crate::i18n::{
 };
 use crate::ui::{ConfirmDialog, Dialog};
 use crate::views::role_based::components::{DashboardSection, ResponsiveDashboardLayout};
+use crate::views::role_based::platform_admin_personalization::PlatformPersonalizationSection;
 use api::server_functions::admin_knowledge_ocr_functions::{
     get_admin_knowledge_source_revision, save_admin_verified_ocr, SaveAdminVerifiedOcrRequest,
 };
@@ -81,6 +82,7 @@ pub fn PlatformAdminDashboard(section: String) -> Element {
     if let Some(user) = current_user {
         let content = match section.as_str() {
             "knowledge-audit" => rsx! { PlatformKnowledgeAuditSection {} },
+            "personalization" => rsx! { PlatformPersonalizationSection {} },
             _ => rsx! { PlatformKnowledgeReviewSection {} },
         };
         rsx! {

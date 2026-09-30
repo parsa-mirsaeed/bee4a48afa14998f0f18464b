@@ -4,11 +4,13 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "server")]
 use {
     crate::repositories::{
-        AdminPersonalizationJobRecord, AssignmentPersonalizationJobRepository,
-        AssignmentPersonalizationPolicyRepository, SchoolPersonalizationPolicy,
-        TeacherPersonalizationPolicy,
+        AdminPersonalizationJobRecord, AdminPersonalizationScopeSummary,
+        AssignmentPersonalizationJobRepository, AssignmentPersonalizationPolicyRepository,
+        SchoolPersonalizationPolicy, TeacherPersonalizationPolicy,
     },
-    crate::services::DEEPSEEK_CHAT_V1,
+    crate::services::{llm_service::INTERNAL_GATEWAY_ORIGIN, DEEPSEEK_CHAT_V1},
+    reqwest::redirect::Policy as RedirectPolicy,
+    std::time::Duration,
     uuid::Uuid,
 };
 
@@ -17,6 +19,17 @@ pub struct AdminPersonalizationMethodDto {
     pub profile_id: String,
     pub provider: String,
     pub model: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AdminPersonalizationCapabilityDto {
+    pub gateway_reachable: bool,
+    pub llm_mode: String,
+    pub llm_profile: String,
+    pub provider: String,
+    pub model: String,
+    pub configured: bool,
+    pub circuit: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -88,9 +101,24 @@ pub struct AdminPersonalizationJobDto {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AdminPersonalizationScopeSummaryDto {
+    pub school_id: Option<String>,
+    pub teacher_user_id: Option<String>,
+    pub assignment_id: Option<String>,
+    pub queued: i64,
+    pub running: i64,
+    pub succeeded: i64,
+    pub failed: i64,
+    pub cancelled: i64,
+    pub total: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AdminPersonalizationOverviewDto {
+    pub capability: AdminPersonalizationCapabilityDto,
     pub methods: Vec<AdminPersonalizationMethodDto>,
     pub schools: Vec<AdminSchoolPersonalizationPolicyDto>,
+    pub summaries: Vec<AdminPersonalizationScopeSummaryDto>,
     pub recent_jobs: Vec<AdminPersonalizationJobDto>,
 }
 
@@ -111,6 +139,78 @@ pub struct SetAdminTeacherPersonalizationPolicyRequest {
     pub paused_override: Option<bool>,
     pub llm_profile_id_override: Option<String>,
     pub delivery_policy_override: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct RetryAdminPersonalizationScopeRequest {
+    pub school_id: Option<String>,
+    pub teacher_user_id: Option<String>,
+    pub assignment_id: Option<String>,
+}
+
+#[cfg(feature = "server")]
+async fn load_personalization_capability() -> AdminPersonalizationCapabilityDto {
+    let fallback = AdminPersonalizationCapabilityDto {
+        gateway_reachable: false,
+        llm_mode: "unavailable".to_string(),
+        llm_profile: DEEPSEEK_CHAT_V1.id.to_string(),
+        provider: DEEPSEEK_CHAT_V1.provider.as_str().to_string(),
+        model: DEEPSEEK_CHAT_V1.model.to_string(),
+        configured: false,
+        circuit: "unavailable".to_string(),
+    };
+
+    let client = match reqwest::Client::builder()
+        .redirect(RedirectPolicy::none())
+        .connect_timeout(Duration::from_secs(2))
+        .timeout(Duration::from_secs(3))
+        .build()
+    {
+        Ok(client) => client,
+        Err(_) => return fallback,
+    };
+    let url = format!("{INTERNAL_GATEWAY_ORIGIN}/healthz");
+    let response = match client.get(url).send().await {
+        Ok(response) if response.status().is_success() => response,
+        _ => return fallback,
+    };
+    let value = match response.json::<serde_json::Value>().await {
+        Ok(value) => value,
+        Err(_) => return fallback,
+    };
+
+    AdminPersonalizationCapabilityDto {
+        gateway_reachable: true,
+        llm_mode: value
+            .get("llm_mode")
+            .and_then(|item| item.as_str())
+            .unwrap_or("unavailable")
+            .to_string(),
+        llm_profile: value
+            .get("llm_profile")
+            .and_then(|item| item.as_str())
+            .unwrap_or(DEEPSEEK_CHAT_V1.id)
+            .to_string(),
+        provider: value
+            .get("llm_provider")
+            .and_then(|item| item.as_str())
+            .unwrap_or(DEEPSEEK_CHAT_V1.provider.as_str())
+            .to_string(),
+        model: value
+            .get("llm_model")
+            .and_then(|item| item.as_str())
+            .unwrap_or(DEEPSEEK_CHAT_V1.model)
+            .to_string(),
+        configured: value
+            .get("llm_configured")
+            .and_then(|item| item.as_bool())
+            .unwrap_or(false),
+        circuit: value
+            .get("llm_circuit")
+            .and_then(|item| item.as_str())
+            .unwrap_or("unavailable")
+            .to_string(),
+    }
 }
 
 #[cfg(feature = "server")]
@@ -199,6 +299,21 @@ fn job_dto(job: AdminPersonalizationJobRecord) -> AdminPersonalizationJobDto {
     }
 }
 
+#[cfg(feature = "server")]
+fn summary_dto(summary: AdminPersonalizationScopeSummary) -> AdminPersonalizationScopeSummaryDto {
+    AdminPersonalizationScopeSummaryDto {
+        school_id: summary.school_id.map(|value| value.to_string()),
+        teacher_user_id: summary.teacher_user_id.map(|value| value.to_string()),
+        assignment_id: summary.assignment_id.map(|value| value.to_string()),
+        queued: summary.queued,
+        running: summary.running,
+        succeeded: summary.succeeded,
+        failed: summary.failed,
+        cancelled: summary.cancelled,
+        total: summary.total,
+    }
+}
+
 #[server(endpoint = "admin/personalization/overview")]
 pub async fn get_admin_personalization_overview(
 ) -> Result<AdminPersonalizationOverviewDto, ServerFnError> {
@@ -219,6 +334,17 @@ pub async fn get_admin_personalization_overview(
             .map(school_dto)
             .collect();
 
+        let summaries = job_repository
+            .summaries_for_platform_admin(actor_id)
+            .await
+            .map_err(|error| {
+                tracing::error!(error_code = "personalization_summary_list_failed", %error);
+                ServerFnError::new("Unable to load personalization summaries")
+            })?
+            .into_iter()
+            .map(summary_dto)
+            .collect();
+
         let recent_jobs = job_repository
             .list_for_platform_admin(actor_id, None, None, 200)
             .await
@@ -230,21 +356,35 @@ pub async fn get_admin_personalization_overview(
             .map(job_dto)
             .collect();
 
+        let capability = load_personalization_capability().await;
+
         Ok(AdminPersonalizationOverviewDto {
+            capability,
             methods: vec![AdminPersonalizationMethodDto {
                 profile_id: DEEPSEEK_CHAT_V1.id.to_string(),
                 provider: DEEPSEEK_CHAT_V1.provider.as_str().to_string(),
                 model: DEEPSEEK_CHAT_V1.model.to_string(),
             }],
             schools,
+            summaries,
             recent_jobs,
         })
     }
 
     #[cfg(not(feature = "server"))]
     Ok(AdminPersonalizationOverviewDto {
+        capability: AdminPersonalizationCapabilityDto {
+            gateway_reachable: false,
+            llm_mode: "unavailable".to_string(),
+            llm_profile: String::new(),
+            provider: String::new(),
+            model: String::new(),
+            configured: false,
+            circuit: "unavailable".to_string(),
+        },
         methods: Vec::new(),
         schools: Vec::new(),
+        summaries: Vec::new(),
         recent_jobs: Vec::new(),
     })
 }
@@ -326,6 +466,44 @@ pub async fn set_admin_teacher_personalization_policy(
             .map_err(|error| {
                 tracing::error!(error_code = "personalization_teacher_policy_update_failed", %error);
                 ServerFnError::new("Unable to update teacher personalization policy")
+            })
+    }
+
+    #[cfg(not(feature = "server"))]
+    Err(ServerFnError::new("Server only"))
+}
+
+#[server(endpoint = "admin/personalization/retry-failed-scope")]
+pub async fn retry_admin_personalization_failed_scope(
+    request: RetryAdminPersonalizationScopeRequest,
+) -> Result<u64, ServerFnError> {
+    #[cfg(feature = "server")]
+    {
+        let (actor_id, pool) = platform_admin_context().await?;
+        let parse_optional = |value: Option<String>, label: &'static str| {
+            value
+                .map(|value| {
+                    Uuid::parse_str(&value)
+                        .map_err(|_| ServerFnError::new(format!("Invalid {label} ID")))
+                })
+                .transpose()
+        };
+        let school_id = parse_optional(request.school_id, "school")?;
+        let teacher_user_id = parse_optional(request.teacher_user_id, "teacher")?;
+        let assignment_id = parse_optional(request.assignment_id, "assignment")?;
+
+        AssignmentPersonalizationJobRepository::new(pool)
+            .retry_failed_scope_for_platform_admin(
+                actor_id,
+                school_id,
+                teacher_user_id,
+                assignment_id,
+                100,
+            )
+            .await
+            .map_err(|error| {
+                tracing::error!(error_code = "personalization_admin_scope_retry_failed", %error);
+                ServerFnError::new("Unable to retry failed personalization jobs")
             })
     }
 

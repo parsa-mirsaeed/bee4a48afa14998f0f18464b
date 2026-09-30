@@ -988,3 +988,112 @@ async fn student_delivery_truth_hides_source_until_policy_allows_fallback() {
         DELIVERY_ALLOW_ORIGINAL_FALLBACK
     );
 }
+
+#[cfg(feature = "server")]
+#[tokio::test]
+async fn platform_admin_scope_summaries_and_bulk_retry_are_exact_and_bounded() {
+    let _queue_guard = QUEUE_TEST_LOCK.lock().await;
+    let fixture = queue_fixture(2).await;
+    let platform_role = role_id(&fixture.pool, "PlatformAdmin").await;
+    let suffix = Uuid::new_v4().simple().to_string();
+    let platform_admin = insert_user(
+        &fixture.pool,
+        &suffix,
+        "Personalization Scope Platform Admin",
+        platform_role,
+        fixture.school_id,
+    )
+    .await;
+    let repository = AssignmentPersonalizationJobRepository::new(fixture.pool.clone());
+
+    let summaries = run_as(
+        fixture.pool.as_ref(),
+        actor(platform_admin, "PlatformAdmin", fixture.school_id),
+        repository.summaries_for_platform_admin(platform_admin),
+    )
+    .await
+    .expect("load exact admin personalization summaries");
+
+    let school_summary = summaries
+        .iter()
+        .find(|summary| {
+            summary.school_id == Some(fixture.school_id)
+                && summary.teacher_user_id.is_none()
+                && summary.assignment_id.is_none()
+        })
+        .expect("school scope summary");
+    assert_eq!(school_summary.total, 2);
+    assert_eq!(school_summary.queued, 2);
+    assert_eq!(school_summary.running, 0);
+    assert_eq!(school_summary.failed, 0);
+
+    let teacher_summary = summaries
+        .iter()
+        .find(|summary| {
+            summary.school_id == Some(fixture.school_id)
+                && summary.teacher_user_id == Some(fixture.teacher_user)
+                && summary.assignment_id.is_none()
+        })
+        .expect("teacher scope summary");
+    assert_eq!(teacher_summary.total, 2);
+    assert_eq!(teacher_summary.queued, 2);
+
+    let assignment_summary = summaries
+        .iter()
+        .find(|summary| {
+            summary.school_id == Some(fixture.school_id)
+                && summary.teacher_user_id == Some(fixture.teacher_user)
+                && summary.assignment_id == Some(fixture.assignment_id)
+        })
+        .expect("assignment scope summary");
+    assert_eq!(assignment_summary.total, 2);
+    assert_eq!(assignment_summary.queued, 2);
+
+    sqlx::query(
+        r#"
+        UPDATE assignment_personalization_jobs
+        SET status = 'failed',
+            processing_stage = 'failed',
+            completed_at = NOW(),
+            last_error_code = 'gateway_unavailable',
+            last_error_summary = 'AI gateway is temporarily unavailable'
+        WHERE assignment_id = $1
+        "#,
+    )
+    .bind(fixture.assignment_id)
+    .execute(&*fixture.pool)
+    .await
+    .expect("mark fixture jobs failed");
+
+    let retried = run_as(
+        fixture.pool.as_ref(),
+        actor(platform_admin, "PlatformAdmin", fixture.school_id),
+        repository.retry_failed_scope_for_platform_admin(
+            platform_admin,
+            Some(fixture.school_id),
+            Some(fixture.teacher_user),
+            Some(fixture.assignment_id),
+            100,
+        ),
+    )
+    .await
+    .expect("retry bounded failed assignment scope");
+    assert_eq!(retried, 2);
+
+    let states: Vec<(String, i32)> = sqlx::query_as(
+        r#"
+        SELECT status, attempt_count
+        FROM assignment_personalization_jobs
+        WHERE assignment_id = $1
+        ORDER BY student_id
+        "#,
+    )
+    .bind(fixture.assignment_id)
+    .fetch_all(&*fixture.pool)
+    .await
+    .expect("read retried states");
+    assert_eq!(
+        states,
+        vec![("queued".to_string(), 0), ("queued".to_string(), 0)]
+    );
+}

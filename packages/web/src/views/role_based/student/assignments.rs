@@ -291,39 +291,70 @@ fn AssignmentDetails(
     let status = assignment_status_label(current_state.display_name(), locale.current());
     let due_date = format_product_date(item.due_at, locale.current());
 
+    let content_ready = matches!(
+        item.delivery_state.as_str(),
+        "ready" | "fallback_original" | "source"
+    );
+
     rsx! {
         div { class: "space-y-5",
-            div {
-                h3 { class: "text-xl font-bold text-gray-900 dark:text-white", "{item.title}" }
-                p { class: "mt-1 text-sm text-gray-500", "{locale.t(\"student.assignments.status_label\")}: {status}" }
-            }
-            div { class: "max-h-72 overflow-y-auto whitespace-pre-wrap rounded-lg bg-gray-50 p-4 text-sm dark:bg-gray-800", "{item.body}" }
-            p { class: "text-sm text-gray-500", "{locale.t(\"student.assignments.due_label\")}: {due_date}" }
-            if let Ok(id) = uuid::Uuid::parse_str(&item.id) { SubmittedOriginals {assignment_id:id} }
-            if current_state == StudentAssignmentPresentationState::Graded {
-                match submission.read().as_ref() {
-                    Some(Ok(Some(saved))) => rsx! {
-                        div { class: "rounded-lg bg-green-50 p-4 text-sm text-green-900 dark:bg-green-900/20 dark:text-green-100",
-                            if let Some(grade) = saved.grade.as_ref() {
-                                p { class: "font-semibold", "{locale.t(\"student.assignments.grade_label\")}: {grade}" }
-                            }
-                            if let Some(feedback) = saved.feedback.as_ref() {
-                                p { class: "mt-2 whitespace-pre-wrap", "{feedback}" }
-                            } else {
-                                p { class: "mt-2", "{locale.t(\"student.assignments.no_written_feedback\")}" }
-                            }
-                        }
-                    },
-                    Some(Ok(None)) | Some(Err(_)) => rsx! {
-                        p { class: "text-sm text-gray-500", "{locale.t(\"student.assignments.feedback_unavailable\")}" }
-                    },
-                    None => rsx! { p { class: "text-sm text-gray-500", "{locale.t(\"student.assignments.feedback_loading\")}" } },
+            if item.delivery_state == "preparing" {
+                div { class: "rounded-lg bg-blue-50 p-5 text-blue-900 dark:bg-blue-900/20 dark:text-blue-100", role: "status",
+                    h3 { class: "font-semibold", "{locale.t(\"student.assignments.personalization_preparing_title\")}" }
+                    p { class: "mt-2 text-sm", "{locale.t(\"student.assignments.personalization_preparing_body\")}" }
+                }
+            } else if item.delivery_state == "unavailable" {
+                div { class: "rounded-lg bg-amber-50 p-5 text-amber-900 dark:bg-amber-900/20 dark:text-amber-100", role: "status",
+                    h3 { class: "font-semibold", "{locale.t(\"student.assignments.personalization_unavailable_title\")}" }
+                    p { class: "mt-2 text-sm", "{locale.t(\"student.assignments.personalization_unavailable_body\")}" }
                 }
             } else {
-                button {
-                    class: "et-ui-button et-ui-button--md et-ui-button--primary",
-                    onclick: move |_| on_work.call(()),
-                    "{locale.t(\"student.assignments.open_submission\")}"
+                if item.delivery_state == "fallback_original" {
+                    div { class: "rounded-lg bg-amber-50 p-4 text-sm text-amber-900 dark:bg-amber-900/20 dark:text-amber-100", role: "status",
+                        p { class: "font-semibold", "{locale.t(\"student.assignments.personalization_fallback_title\")}" }
+                        p { class: "mt-1", "{locale.t(\"student.assignments.personalization_fallback_body\")}" }
+                    }
+                } else if item.delivery_state == "ready" {
+                    p { class: "inline-flex rounded-full bg-green-100 px-2.5 py-1 text-xs font-semibold text-green-800 dark:bg-green-900/30 dark:text-green-200",
+                        "{locale.t(\"student.assignments.personalized_ready\")}"
+                    }
+                }
+
+                div {
+                    h3 { class: "text-xl font-bold text-gray-900 dark:text-white", "{item.title}" }
+                    p { class: "mt-1 text-sm text-gray-500", "{locale.t(\"student.assignments.status_label\")}: {status}" }
+                }
+                div { class: "max-h-72 overflow-y-auto whitespace-pre-wrap rounded-lg bg-gray-50 p-4 text-sm dark:bg-gray-800", "{item.body}" }
+            }
+
+            p { class: "text-sm text-gray-500", "{locale.t(\"student.assignments.due_label\")}: {due_date}" }
+            if content_ready {
+                if let Ok(id) = uuid::Uuid::parse_str(&item.id) { SubmittedOriginals {assignment_id:id} }
+                if current_state == StudentAssignmentPresentationState::Graded {
+                    match submission.read().as_ref() {
+                        Some(Ok(Some(saved))) => rsx! {
+                            div { class: "rounded-lg bg-green-50 p-4 text-sm text-green-900 dark:bg-green-900/20 dark:text-green-100",
+                                if let Some(grade) = saved.grade.as_ref() {
+                                    p { class: "font-semibold", "{locale.t(\"student.assignments.grade_label\")}: {grade}" }
+                                }
+                                if let Some(feedback) = saved.feedback.as_ref() {
+                                    p { class: "mt-2 whitespace-pre-wrap", "{feedback}" }
+                                } else {
+                                    p { class: "mt-2", "{locale.t(\"student.assignments.no_written_feedback\")}" }
+                                }
+                            }
+                        },
+                        Some(Ok(None)) | Some(Err(_)) => rsx! {
+                            p { class: "text-sm text-gray-500", "{locale.t(\"student.assignments.feedback_unavailable\")}" }
+                        },
+                        None => rsx! { p { class: "text-sm text-gray-500", "{locale.t(\"student.assignments.feedback_loading\")}" } },
+                    }
+                } else {
+                    button {
+                        class: "et-ui-button et-ui-button--md et-ui-button--primary",
+                        onclick: move |_| on_work.call(()),
+                        "{locale.t(\"student.assignments.open_submission\")}"
+                    }
                 }
             }
         }

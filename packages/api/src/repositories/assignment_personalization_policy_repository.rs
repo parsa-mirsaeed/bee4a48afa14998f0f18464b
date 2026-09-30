@@ -148,33 +148,8 @@ impl AssignmentPersonalizationPolicyRepository {
         self.require_platform_admin(actor_id).await?;
         let rows = sqlx::query(
             r#"
-            SELECT
-                teacher.id AS teacher_id,
-                teacher.user_id AS teacher_user_id,
-                teacher_user.name AS teacher_name,
-                teacher.school_id,
-                COALESCE(override_policy.mode, 'inherit') AS mode,
-                override_policy.enabled_override,
-                override_policy.paused_override,
-                override_policy.llm_profile_id_override,
-                override_policy.delivery_policy_override,
-                COALESCE(override_policy.override_version, 1) AS override_version,
-                effective.enabled AS effective_enabled,
-                effective.paused AS effective_paused,
-                effective.llm_profile_id AS effective_llm_profile_id,
-                effective.delivery_policy AS effective_delivery_policy,
-                effective.policy_scope AS effective_scope,
-                effective.policy_version AS effective_version
-            FROM teachers AS teacher
-            JOIN users AS teacher_user ON teacher_user.id = teacher.user_id
-            CROSS JOIN LATERAL public.resolve_assignment_personalization_policy(
-                teacher.school_id,
-                teacher.user_id
-            ) AS effective
-            LEFT JOIN assignment_personalization_teacher_overrides AS override_policy
-              ON override_policy.teacher_id = teacher.id
-            WHERE teacher.school_id = $1
-            ORDER BY teacher_user.name, teacher.id
+            SELECT *
+            FROM public.list_assignment_personalization_teacher_policies_for_admin($1)
             "#,
         )
         .bind(school_id)
@@ -329,15 +304,16 @@ impl AssignmentPersonalizationPolicyRepository {
             None
         };
 
-        let canonical_school =
-            sqlx::query_scalar::<_, Uuid>("SELECT school_id FROM teachers WHERE id = $1")
-                .bind(teacher_id)
-                .fetch_optional(&*self.base.pool())
-                .await?
-                .ok_or_else(|| RepositoryError::NotFound {
-                    entity: "Teacher".to_string(),
-                    id: teacher_id.to_string(),
-                })?;
+        let canonical_school = sqlx::query_scalar::<_, Option<Uuid>>(
+            "SELECT public.assignment_personalization_teacher_school_for_admin($1)",
+        )
+        .bind(teacher_id)
+        .fetch_one(&*self.base.pool())
+        .await?
+        .ok_or_else(|| RepositoryError::NotFound {
+            entity: "Teacher".to_string(),
+            id: teacher_id.to_string(),
+        })?;
 
         sqlx::query(
             r#"

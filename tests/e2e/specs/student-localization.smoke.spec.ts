@@ -152,6 +152,76 @@ for (const locale of ['en', 'fa'] as const) {
     await assertLocalizedStudentChrome(page, locale);
   });
 
+  test(`student personalization delivery never disguises teacher source as generated content in ${locale} @smoke @final @student @personalization @i18n @workflow-truth`, async ({ page }) => {
+    await signInStudent(page, locale);
+    await page.goto('/dashboard/assignments');
+    await waitForStudentRouteData(page, '/dashboard/assignments');
+
+    const copy =
+      locale === 'fa'
+        ? {
+            preparingTitle: 'تکلیف شما در حال آماده‌سازی است',
+            unavailableTitle: 'تکلیف شخصی‌سازی‌شده فعلاً در دسترس نیست',
+            fallbackTitle: 'نمایش نسخه اصلی طبق سیاست مدرسه',
+            readyTitle: 'شخصی‌سازی‌شده برای شما',
+            openSubmission: 'باز کردن ارسال من',
+          }
+        : {
+            preparingTitle: 'Your assignment is being prepared',
+            unavailableTitle: 'Personalized assignment is temporarily unavailable',
+            fallbackTitle: 'Original assignment shown by school policy',
+            readyTitle: 'Personalized for you',
+            openSubmission: 'Open my submission',
+          };
+
+    const openFixture = async (title: string) => {
+      const card = page
+        .getByText(title, { exact: true })
+        .locator('xpath=ancestor::article[1]');
+      await expect(card).toBeVisible();
+      await card.getByRole('button').first().click();
+      const dialog = page.getByRole('dialog');
+      await expect(dialog).toBeVisible();
+      return dialog;
+    };
+
+    let dialog = await openFixture('E2E Personalization Preparing');
+    await expect(dialog.getByText(copy.preparingTitle, { exact: true })).toBeVisible();
+    await expect(dialog).not.toContainText('PREPARING SOURCE MUST NOT BE SHOWN');
+    await expect(dialog.getByRole('button', { name: copy.openSubmission, exact: true })).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+
+    dialog = await openFixture('E2E Personalization Running');
+    await expect(dialog.getByText(copy.preparingTitle, { exact: true })).toBeVisible();
+    await expect(dialog).not.toContainText('RUNNING SOURCE MUST NOT BE SHOWN');
+    await expect(dialog.getByRole('button', { name: copy.openSubmission, exact: true })).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+
+    dialog = await openFixture('E2E Personalization Unavailable');
+    await expect(dialog.getByText(copy.unavailableTitle, { exact: true })).toBeVisible();
+    await expect(dialog).not.toContainText('UNAVAILABLE SOURCE MUST NOT BE SHOWN');
+    await expect(dialog.getByRole('button', { name: copy.openSubmission, exact: true })).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+
+    dialog = await openFixture('E2E Personalization Fallback');
+    await expect(dialog.getByText(copy.fallbackTitle, { exact: true })).toBeVisible();
+    await expect(dialog).toContainText('E2E FALLBACK ORIGINAL CONTENT');
+    await expect(dialog.getByRole('button', { name: copy.openSubmission, exact: true })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+
+    dialog = await openFixture('E2E Personalization Source Ready');
+    await expect(dialog.getByText(copy.readyTitle, { exact: true })).toBeVisible();
+    await expect(dialog).toContainText('E2E Personalized Ready');
+    await expect(dialog).toContainText('E2E GENERATED PERSONALIZED CONTENT');
+    await expect(dialog).not.toContainText('READY SOURCE MUST NOT BE SHOWN');
+    await expect(dialog.getByRole('button', { name: copy.openSubmission, exact: true })).toBeVisible();
+    await assertLocalizedStudentChrome(page, locale);
+  });
+
   test(`student recorded grade details stay localized in ${locale} @smoke @student @i18n`, async ({ page }) => {
     await signInStudent(page, locale);
     await page.goto('/dashboard/grades');

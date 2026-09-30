@@ -94,6 +94,230 @@ INSERT INTO custom_assignments (
   ('f1000000-0000-0000-0000-0000000000b1', 'f0000000-0000-0000-0000-0000000000b1', 'c0000000-0000-0000-0000-0000000000b3', NOW() + INTERVAL '10 days', 'Submitted', NOW() - INTERVAL '1 day', NULL)
 ON CONFLICT DO NOTHING;
 
+-- Existing browser journeys represent assignments whose personalization is
+-- already ready. Persist a small deterministic payload so the delivery-truth
+-- contract does not turn unrelated submission/localization acceptance into a
+-- synthetic AI outage.
+UPDATE custom_assignments AS custom_assignment
+SET prompt_ctx = jsonb_build_object(
+    'personalized_assignment',
+    jsonb_build_object(
+      'title', assignment.title,
+      'body', assignment.body,
+      'scope', jsonb_build_object(
+        'type', 'default',
+        'deliverables', '[]'::jsonb
+      ),
+      'estimated_difficulty', 'medium',
+      'personalization_notes', 'E2E deterministic personalized fixture'
+    )
+)
+FROM assignments AS assignment
+WHERE assignment.id = custom_assignment.assignment_id
+  AND custom_assignment.id IN (
+    'f1000000-0000-0000-0000-0000000000a1',
+    'f1000000-0000-0000-0000-0000000000a2',
+    'f1000000-0000-0000-0000-0000000000a3',
+    'f1000000-0000-0000-0000-0000000000a4',
+    'f1000000-0000-0000-0000-0000000000b1'
+  );
+
+UPDATE assignment_personalization_jobs
+SET status = 'succeeded',
+    processing_stage = 'ready',
+    completed_at = COALESCE(completed_at, NOW()),
+    last_error_code = NULL,
+    last_error_summary = NULL
+WHERE assignment_id IN (
+  'f0000000-0000-0000-0000-0000000000a1',
+  'f0000000-0000-0000-0000-0000000000a2',
+  'f0000000-0000-0000-0000-0000000000a3',
+  'f0000000-0000-0000-0000-0000000000a4',
+  'f0000000-0000-0000-0000-0000000000b1'
+);
+
+-- Dedicated truth-state fixtures. These are intentionally separate from the
+-- existing stateful submission journeys.
+INSERT INTO assignments (
+  id, teacher_id, class_section_id, subject_id, title, body, due_at, status, published_at
+) VALUES
+  (
+    'f0000000-0000-0000-0000-0000000000c1',
+    'c0000000-0000-0000-0000-0000000000a2',
+    'e0000000-0000-0000-0000-0000000000a1',
+    'd0000000-0000-0000-0000-0000000000a1',
+    'E2E Personalization Preparing',
+    'PREPARING SOURCE MUST NOT BE SHOWN',
+    NOW() + INTERVAL '2 days',
+    'Published',
+    NOW()
+  ),
+  (
+    'f0000000-0000-0000-0000-0000000000c2',
+    'c0000000-0000-0000-0000-0000000000a2',
+    'e0000000-0000-0000-0000-0000000000a1',
+    'd0000000-0000-0000-0000-0000000000a1',
+    'E2E Personalization Unavailable',
+    'UNAVAILABLE SOURCE MUST NOT BE SHOWN',
+    NOW() + INTERVAL '3 days',
+    'Published',
+    NOW()
+  ),
+  (
+    'f0000000-0000-0000-0000-0000000000c3',
+    'c0000000-0000-0000-0000-0000000000a2',
+    'e0000000-0000-0000-0000-0000000000a1',
+    'd0000000-0000-0000-0000-0000000000a1',
+    'E2E Personalization Fallback',
+    'E2E FALLBACK ORIGINAL CONTENT',
+    NOW() + INTERVAL '4 days',
+    'Published',
+    NOW()
+  ),
+  (
+    'f0000000-0000-0000-0000-0000000000c4',
+    'c0000000-0000-0000-0000-0000000000a2',
+    'e0000000-0000-0000-0000-0000000000a1',
+    'd0000000-0000-0000-0000-0000000000a1',
+    'E2E Personalization Running',
+    'RUNNING SOURCE MUST NOT BE SHOWN',
+    NOW() + INTERVAL '5 days',
+    'Published',
+    NOW()
+  ),
+  (
+    'f0000000-0000-0000-0000-0000000000c5',
+    'c0000000-0000-0000-0000-0000000000a2',
+    'e0000000-0000-0000-0000-0000000000a1',
+    'd0000000-0000-0000-0000-0000000000a1',
+    'E2E Personalization Source Ready',
+    'READY SOURCE MUST NOT BE SHOWN',
+    NOW() + INTERVAL '6 days',
+    'Published',
+    NOW()
+  )
+ON CONFLICT (id) DO NOTHING;
+
+-- Preparing and unavailable jobs snapshot the default require-personalized
+-- school policy.
+INSERT INTO custom_assignments (
+  id, assignment_id, student_id, due_at, status
+) VALUES
+  (
+    'f1000000-0000-0000-0000-0000000000c1',
+    'f0000000-0000-0000-0000-0000000000c1',
+    'c0000000-0000-0000-0000-0000000000a3',
+    NOW() + INTERVAL '2 days',
+    'Assigned'
+  ),
+  (
+    'f1000000-0000-0000-0000-0000000000c2',
+    'f0000000-0000-0000-0000-0000000000c2',
+    'c0000000-0000-0000-0000-0000000000a3',
+    NOW() + INTERVAL '3 days',
+    'Assigned'
+  ),
+  (
+    'f1000000-0000-0000-0000-0000000000c4',
+    'f0000000-0000-0000-0000-0000000000c4',
+    'c0000000-0000-0000-0000-0000000000a3',
+    NOW() + INTERVAL '5 days',
+    'Assigned'
+  ),
+  (
+    'f1000000-0000-0000-0000-0000000000c5',
+    'f0000000-0000-0000-0000-0000000000c5',
+    'c0000000-0000-0000-0000-0000000000a3',
+    NOW() + INTERVAL '6 days',
+    'Assigned'
+  )
+ON CONFLICT DO NOTHING;
+
+-- Keep the queued fixture deterministic while the real worker is running:
+-- it remains truthfully queued but is not eligible for claim during browser
+-- acceptance.
+UPDATE assignment_personalization_jobs
+SET available_at = NOW() + INTERVAL '1 day'
+WHERE assignment_id = 'f0000000-0000-0000-0000-0000000000c1';
+
+UPDATE assignment_personalization_jobs
+SET status = 'failed',
+    processing_stage = 'failed',
+    completed_at = NOW(),
+    last_error_code = 'gateway_unavailable',
+    last_error_summary = 'AI gateway is temporarily unavailable'
+WHERE assignment_id = 'f0000000-0000-0000-0000-0000000000c2';
+
+UPDATE assignment_personalization_jobs
+SET status = 'running',
+    processing_stage = 'retrieving_context',
+    attempt_count = 1,
+    started_at = NOW() - INTERVAL '10 seconds',
+    lease_owner = 'f9000000-0000-0000-0000-000000000001',
+    -- Keep this synthetic running state outside stale-recovery during a long
+    -- browser suite without disabling the real worker.
+    heartbeat_at = NOW() + INTERVAL '1 hour',
+    completed_at = NULL,
+    last_error_code = NULL,
+    last_error_summary = NULL
+WHERE assignment_id = 'f0000000-0000-0000-0000-0000000000c4';
+
+UPDATE custom_assignments
+SET prompt_ctx = jsonb_build_object(
+    'personalized_assignment',
+    jsonb_build_object(
+      'title', 'E2E Personalized Ready',
+      'body', 'E2E GENERATED PERSONALIZED CONTENT',
+      'scope', jsonb_build_object(
+        'type', 'default',
+        'deliverables', '[]'::jsonb
+      ),
+      'estimated_difficulty', 'medium',
+      'personalization_notes', 'E2E generated personalization ready fixture'
+    )
+)
+WHERE id = 'f1000000-0000-0000-0000-0000000000c5';
+
+UPDATE assignment_personalization_jobs
+SET status = 'succeeded',
+    processing_stage = 'ready',
+    completed_at = NOW(),
+    lease_owner = NULL,
+    heartbeat_at = NULL,
+    last_error_code = NULL,
+    last_error_summary = NULL,
+    generated_content_changed = TRUE
+WHERE assignment_id = 'f0000000-0000-0000-0000-0000000000c5';
+
+-- Snapshot fallback as an explicit policy decision at enqueue time, then return
+-- the school default to require-personalized for subsequent fixtures.
+UPDATE assignment_personalization_school_policies
+SET delivery_policy = 'allow_original_fallback'
+WHERE school_id = 'a0000000-0000-0000-0000-0000000000a1';
+
+INSERT INTO custom_assignments (
+  id, assignment_id, student_id, due_at, status
+) VALUES (
+  'f1000000-0000-0000-0000-0000000000c3',
+  'f0000000-0000-0000-0000-0000000000c3',
+  'c0000000-0000-0000-0000-0000000000a3',
+  NOW() + INTERVAL '4 days',
+  'Assigned'
+)
+ON CONFLICT DO NOTHING;
+
+UPDATE assignment_personalization_jobs
+SET status = 'failed',
+    processing_stage = 'failed',
+    completed_at = NOW(),
+    last_error_code = 'provider_unconfigured',
+    last_error_summary = 'AI personalization provider is not configured'
+WHERE assignment_id = 'f0000000-0000-0000-0000-0000000000c3';
+
+UPDATE assignment_personalization_school_policies
+SET delivery_policy = 'require_personalized'
+WHERE school_id = 'a0000000-0000-0000-0000-0000000000a1';
+
 INSERT INTO submissions (
   id, custom_assignment_id, student_id, content, grade, grade_scale, graded_by,
   submitted_at
@@ -175,6 +399,30 @@ INSERT INTO custom_assignments (
   'c0000000-0000-0000-0000-0000000000a3',
   NOW() + INTERVAL '1 day', 'Assigned', NOW()
 ) ON CONFLICT (id) DO NOTHING;
+UPDATE custom_assignments AS custom_assignment
+SET prompt_ctx = jsonb_build_object(
+  'personalized_assignment',
+  jsonb_build_object(
+    'title', assignment.title,
+    'body', assignment.body,
+    'scope', jsonb_build_object('type', 'default', 'deliverables', '[]'::jsonb),
+    'estimated_difficulty', 'medium',
+    'personalization_notes', 'E2E deterministic accessibility fixture'
+  )
+)
+FROM assignments AS assignment
+WHERE custom_assignment.id = 'f1000000-0000-0000-0000-0000000000a6'
+  AND assignment.id = custom_assignment.assignment_id;
+
+UPDATE assignment_personalization_jobs
+SET status = 'succeeded',
+    processing_stage = 'ready',
+    completed_at = COALESCE(completed_at, NOW()),
+    lease_owner = NULL,
+    heartbeat_at = NULL,
+    last_error_code = NULL,
+    last_error_summary = NULL
+WHERE assignment_id = 'f0000000-0000-0000-0000-0000000000a6';
 
 -- The deterministic fixture must itself obey the application state model. Keep
 -- these assertions beside the seed so an invalid baseline fails before a
@@ -304,4 +552,35 @@ INSERT INTO assignments(id,teacher_id,class_section_id,subject_id,title,body,due
 INSERT INTO custom_assignments(id,assignment_id,student_id,due_at,status) VALUES('f1600000-0000-0000-0000-000000000204','f0600000-0000-0000-0000-000000000204','c0000000-0000-0000-0000-0000000000c3',NOW()+INTERVAL '14 days','Assigned') ON CONFLICT DO NOTHING;
 INSERT INTO assignments(id,teacher_id,class_section_id,subject_id,title,body,due_at,status,published_at) VALUES('f0600000-0000-0000-0000-000000000290','c0000000-0000-0000-0000-0000000000c2','e0000000-0000-0000-0000-0000000000c1','d0000000-0000-0000-0000-0000000000a1','E2E Attachment 290','Submit your work.',NOW()+INTERVAL '14 days','Published',NOW()) ON CONFLICT DO NOTHING;
 INSERT INTO custom_assignments(id,assignment_id,student_id,due_at,status) VALUES('f1600000-0000-0000-0000-000000000290','f0600000-0000-0000-0000-000000000290','c0000000-0000-0000-0000-0000000000c3',NOW()+INTERVAL '14 days','Assigned') ON CONFLICT DO NOTHING;
+
+-- Attachment acceptance exercises submission/storage, not AI availability.
+-- Snapshot deterministic ready content so delivery truth does not block
+-- unrelated attachment journeys while the browser gateway is offline.
+UPDATE custom_assignments AS custom_assignment
+SET prompt_ctx = jsonb_build_object(
+  'personalized_assignment',
+  jsonb_build_object(
+    'title', assignment.title,
+    'body', assignment.body,
+    'scope', jsonb_build_object('type', 'default', 'deliverables', '[]'::jsonb),
+    'estimated_difficulty', 'medium',
+    'personalization_notes', 'E2E deterministic attachment fixture'
+  )
+)
+FROM assignments AS assignment
+JOIN class_sections AS class_section
+  ON class_section.id = assignment.class_section_id
+WHERE assignment.id = custom_assignment.assignment_id
+  AND class_section.school_id = 'a0000000-0000-0000-0000-0000000000c1';
+
+UPDATE assignment_personalization_jobs
+SET status = 'succeeded',
+    processing_stage = 'ready',
+    completed_at = COALESCE(completed_at, NOW()),
+    lease_owner = NULL,
+    heartbeat_at = NULL,
+    last_error_code = NULL,
+    last_error_summary = NULL
+WHERE school_id = 'a0000000-0000-0000-0000-0000000000c1';
+
 COMMIT;

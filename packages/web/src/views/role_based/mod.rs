@@ -4,6 +4,7 @@ pub mod components;
 pub mod knowledge;
 pub mod parent;
 pub mod platform_admin;
+pub mod platform_admin_personalization;
 pub mod school_manager;
 pub mod shared;
 pub mod student;
