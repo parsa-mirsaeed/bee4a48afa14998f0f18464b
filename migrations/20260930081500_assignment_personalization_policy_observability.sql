@@ -466,6 +466,8 @@ $$;
 
 REVOKE ALL ON FUNCTION public.enqueue_assignment_personalization_job() FROM PUBLIC;
 
+DROP FUNCTION IF EXISTS public.claim_next_assignment_personalization_job(UUID);
+
 CREATE OR REPLACE FUNCTION public.claim_next_assignment_personalization_job(
     p_worker_id UUID
 )
