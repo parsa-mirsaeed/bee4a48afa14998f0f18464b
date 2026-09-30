@@ -6,6 +6,8 @@ use uuid::Uuid;
 pub const ASSIGNMENT_PERSONALIZATION_MODEL: &str = "deepseek-chat";
 pub const ASSIGNMENT_PERSONALIZATION_PROFILE: &str = "assignment_personalization_v1";
 pub const ASSIGNMENT_PERSONALIZATION_PROFILE_VERSION: i32 = 1;
+pub const ASSIGNMENT_PERSONALIZATION_LLM_PROFILE: &str = "deepseek-chat-v1";
+pub const ASSIGNMENT_PERSONALIZATION_LLM_PROVIDER: &str = "deepseek";
 
 #[derive(Debug, Clone)]
 pub struct ClaimedAssignmentPersonalizationJob {
@@ -18,7 +20,25 @@ pub struct ClaimedAssignmentPersonalizationJob {
     pub model_name: String,
     pub profile_name: String,
     pub profile_version: i32,
+    pub llm_profile_id: String,
+    pub llm_provider: String,
+    pub policy_scope: String,
+    pub policy_version: i32,
+    pub delivery_policy: String,
     pub lease_owner: Uuid,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PersonalizationExecutionDiagnostics {
+    pub talent_profile_present: bool,
+    pub teacher_report_count: i32,
+    pub performance_context_present: bool,
+    pub class_material_chunk_count: i32,
+    pub governed_knowledge_chunk_count: i32,
+    pub prompt_tokens: Option<i32>,
+    pub completion_tokens: Option<i32>,
+    pub total_tokens: Option<i32>,
+    pub generated_content_changed: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -78,6 +98,42 @@ pub struct PersonalizationQueueSummary {
     pub last_completed_at: Option<DateTime<Utc>>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdminPersonalizationJobRecord {
+    pub job_id: Uuid,
+    pub school_id: Uuid,
+    pub school_name: String,
+    pub teacher_user_id: Uuid,
+    pub teacher_name: String,
+    pub assignment_id: Uuid,
+    pub assignment_title: String,
+    pub student_reference: String,
+    pub status: String,
+    pub processing_stage: String,
+    pub attempt_count: i32,
+    pub llm_profile_id: String,
+    pub llm_provider: String,
+    pub model_name: String,
+    pub policy_scope: String,
+    pub policy_version: i32,
+    pub delivery_policy: String,
+    pub last_error_code: Option<String>,
+    pub last_error_summary: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub started_at: Option<DateTime<Utc>>,
+    pub completed_at: Option<DateTime<Utc>>,
+    pub heartbeat_at: Option<DateTime<Utc>>,
+    pub talent_profile_present: Option<bool>,
+    pub teacher_report_count: Option<i32>,
+    pub performance_context_present: Option<bool>,
+    pub class_material_chunk_count: Option<i32>,
+    pub governed_knowledge_chunk_count: Option<i32>,
+    pub prompt_tokens: Option<i32>,
+    pub completion_tokens: Option<i32>,
+    pub total_tokens: Option<i32>,
+    pub generated_content_changed: Option<bool>,
+}
+
 #[derive(Clone)]
 pub struct AssignmentPersonalizationJobRepository {
     base: BaseRepository,
@@ -88,6 +144,172 @@ impl AssignmentPersonalizationJobRepository {
         Self {
             base: BaseRepository::new(pool),
         }
+    }
+
+    async fn require_platform_admin(&self, actor_id: Uuid) -> RepositoryResult<()> {
+        let allowed = sqlx::query_scalar::<_, bool>(
+            r#"
+            SELECT public.get_role() = 'PlatformAdmin'
+               AND public.get_user_id() = $1
+            "#,
+        )
+        .bind(actor_id)
+        .fetch_one(&*self.base.pool())
+        .await?;
+        if !allowed {
+            return Err(RepositoryError::Unauthorized);
+        }
+        Ok(())
+    }
+
+    pub async fn list_for_platform_admin(
+        &self,
+        actor_id: Uuid,
+        school_id: Option<Uuid>,
+        teacher_user_id: Option<Uuid>,
+        limit: i64,
+    ) -> RepositoryResult<Vec<AdminPersonalizationJobRecord>> {
+        self.require_platform_admin(actor_id).await?;
+        let rows = sqlx::query(
+            r#"
+            SELECT
+                job.id AS job_id,
+                job.school_id,
+                school.name AS school_name,
+                job.requested_by AS teacher_user_id,
+                teacher_user.name AS teacher_name,
+                job.assignment_id,
+                assignment.title AS assignment_title,
+                LEFT(job.student_id::text, 8) AS student_reference,
+                job.status,
+                job.processing_stage,
+                job.attempt_count,
+                job.llm_profile_id,
+                job.llm_provider,
+                job.model_name,
+                job.policy_scope,
+                job.policy_version,
+                job.delivery_policy,
+                job.last_error_code,
+                job.last_error_summary,
+                job.created_at,
+                job.started_at,
+                job.completed_at,
+                job.heartbeat_at,
+                job.talent_profile_present,
+                job.teacher_report_count,
+                job.performance_context_present,
+                job.class_material_chunk_count,
+                job.governed_knowledge_chunk_count,
+                job.prompt_tokens,
+                job.completion_tokens,
+                job.total_tokens,
+                job.generated_content_changed
+            FROM assignment_personalization_jobs AS job
+            JOIN schools AS school ON school.id = job.school_id
+            JOIN users AS teacher_user ON teacher_user.id = job.requested_by
+            JOIN assignments AS assignment ON assignment.id = job.assignment_id
+            WHERE ($1::uuid IS NULL OR job.school_id = $1)
+              AND ($2::uuid IS NULL OR job.requested_by = $2)
+            ORDER BY job.created_at DESC, job.id
+            LIMIT $3
+            "#,
+        )
+        .bind(school_id)
+        .bind(teacher_user_id)
+        .bind(limit.clamp(1, 500))
+        .fetch_all(&*self.base.pool())
+        .await?;
+
+        rows.into_iter()
+            .map(|row| {
+                Ok(AdminPersonalizationJobRecord {
+                    job_id: row.try_get("job_id")?,
+                    school_id: row.try_get("school_id")?,
+                    school_name: row.try_get("school_name")?,
+                    teacher_user_id: row.try_get("teacher_user_id")?,
+                    teacher_name: row.try_get("teacher_name")?,
+                    assignment_id: row.try_get("assignment_id")?,
+                    assignment_title: row.try_get("assignment_title")?,
+                    student_reference: row.try_get("student_reference")?,
+                    status: row.try_get("status")?,
+                    processing_stage: row.try_get("processing_stage")?,
+                    attempt_count: row.try_get("attempt_count")?,
+                    llm_profile_id: row.try_get("llm_profile_id")?,
+                    llm_provider: row.try_get("llm_provider")?,
+                    model_name: row.try_get("model_name")?,
+                    policy_scope: row.try_get("policy_scope")?,
+                    policy_version: row.try_get("policy_version")?,
+                    delivery_policy: row.try_get("delivery_policy")?,
+                    last_error_code: row.try_get("last_error_code")?,
+                    last_error_summary: row.try_get("last_error_summary")?,
+                    created_at: row.try_get("created_at")?,
+                    started_at: row.try_get("started_at")?,
+                    completed_at: row.try_get("completed_at")?,
+                    heartbeat_at: row.try_get("heartbeat_at")?,
+                    talent_profile_present: row.try_get("talent_profile_present")?,
+                    teacher_report_count: row.try_get("teacher_report_count")?,
+                    performance_context_present: row.try_get("performance_context_present")?,
+                    class_material_chunk_count: row.try_get("class_material_chunk_count")?,
+                    governed_knowledge_chunk_count: row
+                        .try_get("governed_knowledge_chunk_count")?,
+                    prompt_tokens: row.try_get("prompt_tokens")?,
+                    completion_tokens: row.try_get("completion_tokens")?,
+                    total_tokens: row.try_get("total_tokens")?,
+                    generated_content_changed: row.try_get("generated_content_changed")?,
+                })
+            })
+            .collect()
+    }
+
+    pub async fn retry_for_platform_admin(
+        &self,
+        actor_id: Uuid,
+        job_id: Uuid,
+    ) -> RepositoryResult<()> {
+        self.require_platform_admin(actor_id).await?;
+        let result = sqlx::query(
+            r#"
+            UPDATE assignment_personalization_jobs AS job
+            SET status = 'queued',
+                attempt_count = 0,
+                available_at = NOW(),
+                lease_owner = NULL,
+                heartbeat_at = NULL,
+                completed_at = NULL,
+                last_error_code = NULL,
+                last_error_summary = NULL,
+                processing_stage = 'queued'
+            FROM assignments AS assignment,
+                 custom_assignments AS custom_assignment
+            WHERE job.id = $1
+              AND job.status IN ('failed', 'cancelled')
+              AND assignment.id = job.assignment_id
+              AND assignment.status = 'Published'::assignment_status
+              AND custom_assignment.assignment_id = job.assignment_id
+              AND custom_assignment.student_id = job.student_id
+              AND custom_assignment.prompt_ctx IS NULL
+              AND EXISTS (
+                  SELECT 1
+                  FROM public.resolve_assignment_personalization_policy(
+                      job.school_id,
+                      job.requested_by
+                  ) AS effective
+                  WHERE effective.enabled
+                    AND NOT effective.paused
+              )
+            "#,
+        )
+        .bind(job_id)
+        .execute(&*self.base.pool())
+        .await?;
+
+        if result.rows_affected() != 1 {
+            return Err(RepositoryError::Validation(
+                "Personalization job is not eligible for admin retry".to_string(),
+            ));
+        }
+        Ok(())
     }
 
     /// Explicit teacher retry remains durable. The target is re-authorized in
@@ -133,6 +355,14 @@ impl AssignmentPersonalizationJobRepository {
                   AND student_user.school_id = teacher.school_id
                   AND student_user.is_active = TRUE
             ),
+            effective AS (
+                SELECT target.*, policy.*
+                FROM target
+                CROSS JOIN LATERAL public.resolve_assignment_personalization_policy(
+                    target.school_id,
+                    $3
+                ) AS policy
+            ),
             upserted AS (
                 INSERT INTO assignment_personalization_jobs (
                     school_id,
@@ -151,34 +381,53 @@ impl AssignmentPersonalizationJobRepository {
                     idempotency_key,
                     model_name,
                     profile_name,
-                    profile_version
+                    profile_version,
+                    llm_profile_id,
+                    llm_provider,
+                    policy_scope,
+                    policy_version,
+                    delivery_policy,
+                    processing_stage
                 )
                 SELECT
-                    target.school_id,
+                    effective.school_id,
                     $1,
                     $2,
-                    target.class_section_id,
+                    effective.class_section_id,
                     $3,
-                    'queued',
+                    CASE WHEN effective.enabled THEN 'queued' ELSE 'cancelled' END,
                     0,
                     NOW(),
                     NULL,
                     NULL,
-                    NULL,
-                    NULL,
-                    NULL,
+                    CASE WHEN effective.enabled THEN NULL ELSE 'policy_disabled' END,
+                    CASE
+                        WHEN effective.enabled THEN NULL
+                        ELSE 'Assignment personalization is disabled by policy'
+                    END,
+                    CASE WHEN effective.enabled THEN NULL ELSE NOW() END,
                     concat($1::text, ':', $2::text, ':assignment_personalization_v1:1'),
                     $4,
                     $5,
-                    $6
-                FROM target
-                WHERE target.prompt_ctx IS NULL
+                    $6,
+                    effective.llm_profile_id,
+                    $7,
+                    effective.policy_scope,
+                    effective.policy_version,
+                    effective.delivery_policy,
+                    CASE
+                        WHEN NOT effective.enabled THEN 'cancelled'
+                        WHEN effective.paused THEN 'paused'
+                        ELSE 'queued'
+                    END
+                FROM effective
+                WHERE effective.prompt_ctx IS NULL
                 ON CONFLICT (assignment_id, student_id, profile_name, profile_version)
                 DO UPDATE SET
                     status = CASE
                         WHEN assignment_personalization_jobs.status = 'succeeded'
                             THEN assignment_personalization_jobs.status
-                        ELSE 'queued'
+                        ELSE EXCLUDED.status
                     END,
                     attempt_count = CASE
                         WHEN assignment_personalization_jobs.status = 'succeeded'
@@ -203,22 +452,27 @@ impl AssignmentPersonalizationJobRepository {
                     last_error_code = CASE
                         WHEN assignment_personalization_jobs.status = 'succeeded'
                             THEN assignment_personalization_jobs.last_error_code
-                        ELSE NULL
+                        ELSE EXCLUDED.last_error_code
                     END,
                     last_error_summary = CASE
                         WHEN assignment_personalization_jobs.status = 'succeeded'
                             THEN assignment_personalization_jobs.last_error_summary
-                        ELSE NULL
+                        ELSE EXCLUDED.last_error_summary
                     END,
                     completed_at = CASE
                         WHEN assignment_personalization_jobs.status = 'succeeded'
                             THEN assignment_personalization_jobs.completed_at
-                        ELSE NULL
+                        ELSE EXCLUDED.completed_at
+                    END,
+                    processing_stage = CASE
+                        WHEN assignment_personalization_jobs.status = 'succeeded'
+                            THEN assignment_personalization_jobs.processing_stage
+                        ELSE EXCLUDED.processing_stage
                     END
                 RETURNING id
             )
-            SELECT target.custom_assignment_id
-            FROM target
+            SELECT effective.custom_assignment_id
+            FROM effective
             LEFT JOIN upserted ON TRUE
             LIMIT 1
             "#,
@@ -229,6 +483,7 @@ impl AssignmentPersonalizationJobRepository {
         .bind(ASSIGNMENT_PERSONALIZATION_MODEL)
         .bind(ASSIGNMENT_PERSONALIZATION_PROFILE)
         .bind(ASSIGNMENT_PERSONALIZATION_PROFILE_VERSION)
+        .bind(ASSIGNMENT_PERSONALIZATION_LLM_PROVIDER)
         .fetch_optional(&*self.base.pool())
         .await?
         .ok_or(RepositoryError::Unauthorized)?;
@@ -321,6 +576,100 @@ impl AssignmentPersonalizationJobRepository {
         Ok(())
     }
 
+    pub async fn update_stage(
+        &self,
+        job_id: Uuid,
+        lease_owner: Uuid,
+        stage: &str,
+    ) -> RepositoryResult<()> {
+        if !matches!(
+            stage,
+            "authorizing"
+                | "building_student_context"
+                | "retrieving_context"
+                | "ai_gateway"
+                | "provider"
+                | "validating_response"
+                | "saving"
+        ) {
+            return Err(RepositoryError::Validation(
+                "Unsupported assignment personalization processing stage".to_string(),
+            ));
+        }
+        let result = sqlx::query(
+            r#"
+            UPDATE assignment_personalization_jobs
+            SET processing_stage = $3,
+                heartbeat_at = NOW()
+            WHERE id = $1
+              AND status = 'running'
+              AND lease_owner = $2
+            "#,
+        )
+        .bind(job_id)
+        .bind(lease_owner)
+        .bind(stage)
+        .execute(&*self.base.pool())
+        .await?;
+        if result.rows_affected() != 1 {
+            return Err(RepositoryError::Validation(
+                "Personalization job lease is no longer active".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    pub async fn complete_with_diagnostics(
+        &self,
+        job_id: Uuid,
+        lease_owner: Uuid,
+        diagnostics: &PersonalizationExecutionDiagnostics,
+    ) -> RepositoryResult<()> {
+        let result = sqlx::query(
+            r#"
+            UPDATE assignment_personalization_jobs
+            SET status = 'succeeded',
+                completed_at = NOW(),
+                lease_owner = NULL,
+                heartbeat_at = NULL,
+                last_error_code = NULL,
+                last_error_summary = NULL,
+                processing_stage = 'ready',
+                talent_profile_present = $3,
+                teacher_report_count = $4,
+                performance_context_present = $5,
+                class_material_chunk_count = $6,
+                governed_knowledge_chunk_count = $7,
+                prompt_tokens = $8,
+                completion_tokens = $9,
+                total_tokens = $10,
+                generated_content_changed = $11
+            WHERE id = $1
+              AND status = 'running'
+              AND lease_owner = $2
+            "#,
+        )
+        .bind(job_id)
+        .bind(lease_owner)
+        .bind(diagnostics.talent_profile_present)
+        .bind(diagnostics.teacher_report_count)
+        .bind(diagnostics.performance_context_present)
+        .bind(diagnostics.class_material_chunk_count)
+        .bind(diagnostics.governed_knowledge_chunk_count)
+        .bind(diagnostics.prompt_tokens)
+        .bind(diagnostics.completion_tokens)
+        .bind(diagnostics.total_tokens)
+        .bind(diagnostics.generated_content_changed)
+        .execute(&*self.base.pool())
+        .await?;
+        if result.rows_affected() != 1 {
+            return Err(RepositoryError::Validation(
+                "Personalization job lease changed before completion".into(),
+            ));
+        }
+        Ok(())
+    }
+
     pub async fn complete(&self, job_id: Uuid, lease_owner: Uuid) -> RepositoryResult<()> {
         let result = sqlx::query(
             r#"
@@ -330,7 +679,8 @@ impl AssignmentPersonalizationJobRepository {
                 lease_owner = NULL,
                 heartbeat_at = NULL,
                 last_error_code = NULL,
-                last_error_summary = NULL
+                last_error_summary = NULL,
+                processing_stage = 'ready'
             WHERE id = $1
               AND status = 'running'
               AND lease_owner = $2
@@ -361,7 +711,8 @@ impl AssignmentPersonalizationJobRepository {
                 lease_owner = NULL,
                 heartbeat_at = NULL,
                 last_error_code = 'authorization_revoked',
-                last_error_summary = 'Assignment personalization authorization is no longer valid'
+                last_error_summary = 'Assignment personalization authorization is no longer valid',
+                processing_stage = 'cancelled'
             WHERE id = $1
               AND status = 'running'
               AND lease_owner = $2
@@ -413,7 +764,8 @@ impl AssignmentPersonalizationJobRepository {
                     lease_owner = NULL,
                     heartbeat_at = NULL,
                     last_error_code = $4,
-                    last_error_summary = $5
+                    last_error_summary = $5,
+                    processing_stage = 'queued'
                 WHERE id = $1
                   AND status = 'running'
                   AND lease_owner = $2
@@ -437,7 +789,8 @@ impl AssignmentPersonalizationJobRepository {
                 lease_owner = NULL,
                 heartbeat_at = NULL,
                 last_error_code = $3,
-                last_error_summary = $4
+                last_error_summary = $4,
+                processing_stage = 'failed'
             WHERE id = $1
               AND status = 'running'
               AND lease_owner = $2

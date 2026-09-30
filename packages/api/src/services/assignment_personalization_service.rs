@@ -12,6 +12,7 @@ use crate::repositories::{
     KnowledgeAssetRepository,
 };
 use crate::rls_context::AuthorizedPool;
+use crate::services::llm_profile::resolve_llm_profile;
 use crate::services::llm_service::{
     AssignmentScope, BaseAssignment, DeepSeekClient, LlmError, MaterialContext,
     PersonalizedAssignment, PersonalizedRubric,
@@ -19,6 +20,7 @@ use crate::services::llm_service::{
 use crate::services::material_vectorization_service::MaterialVectorizationService;
 use crate::services::student_context_service::{StudentContextError, StudentContextService};
 use crate::services::KnowledgeAssetService;
+use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::sync::Arc;
 use thiserror::Error;
@@ -45,11 +47,25 @@ impl From<crate::repositories::RepositoryError> for PersonalizationError {
     }
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PersonalizationDiagnostics {
+    pub talent_profile_present: bool,
+    pub teacher_report_count: i32,
+    pub performance_context_present: bool,
+    pub class_material_chunk_count: i32,
+    pub governed_knowledge_chunk_count: i32,
+    pub prompt_tokens: Option<i32>,
+    pub completion_tokens: Option<i32>,
+    pub total_tokens: Option<i32>,
+    pub generated_content_changed: bool,
+}
+
 #[derive(Debug)]
 pub struct PersonalizationResult {
     pub custom_assignment_id: CustomAssignmentId,
     pub student_id: StudentId,
     pub personalized_content: PersonalizedAssignment,
+    pub diagnostics: PersonalizationDiagnostics,
     pub success: bool,
     pub error: Option<String>,
 }
@@ -60,6 +76,11 @@ pub struct PersonalizationProgress {
     pub completed: usize,
     pub failed: usize,
     pub current_student: Option<String>,
+}
+
+#[async_trait]
+pub trait PersonalizationStageReporter: Send + Sync {
+    async fn report(&self, stage: &'static str) -> Result<(), PersonalizationError>;
 }
 
 #[derive(Clone)]
@@ -100,17 +121,58 @@ impl AssignmentPersonalizationService {
             .is_some_and(DeepSeekClient::is_configured)
     }
 
+    pub fn validate_llm_execution_contract(
+        &self,
+        profile_id: &str,
+        provider: &str,
+        model: &str,
+    ) -> Result<(), PersonalizationError> {
+        let expected =
+            resolve_llm_profile(profile_id).map_err(|_| LlmError::ConfigurationUnavailable)?;
+        let client = self
+            .llm_client
+            .as_ref()
+            .ok_or(LlmError::ConfigurationUnavailable)?;
+        if expected.provider.as_str() != provider
+            || expected.model != model
+            || client.profile_id() != expected.id
+            || client.model() != expected.model
+        {
+            return Err(LlmError::ConfigurationUnavailable.into());
+        }
+        Ok(())
+    }
+
     pub async fn personalize_for_student(
         &self,
         assignment_id: AssignmentId,
         student_id: StudentId,
         precomputed_context: Option<&[MaterialContext]>,
     ) -> Result<PersonalizationResult, PersonalizationError> {
+        self.personalize_for_student_with_reporter(
+            assignment_id,
+            student_id,
+            precomputed_context,
+            None,
+        )
+        .await
+    }
+
+    pub async fn personalize_for_student_with_reporter(
+        &self,
+        assignment_id: AssignmentId,
+        student_id: StudentId,
+        precomputed_context: Option<&[MaterialContext]>,
+        reporter: Option<&dyn PersonalizationStageReporter>,
+    ) -> Result<PersonalizationResult, PersonalizationError> {
         let assignment = self
             .assignment_repo
             .find_with_details_by_id(assignment_id)
             .await
             .map_err(|_| PersonalizationError::AssignmentNotFound(assignment_id.to_string()))?;
+        if let Some(reporter) = reporter {
+            reporter.report("building_student_context").await?;
+        }
         let student_context = self
             .student_context_service
             .build_context(student_id)
@@ -128,18 +190,22 @@ impl AssignmentPersonalizationService {
                 )
             })?;
 
-        let material_context = match precomputed_context {
-            Some(context) => context.to_vec(),
-            None => {
-                self.retrieve_material_context(
-                    assignment.teacher_id,
-                    assignment.class_section_id,
-                    &assignment.body,
-                    &assignment.material_ids,
-                )
-                .await
-            }
-        };
+        if let Some(reporter) = reporter {
+            reporter.report("retrieving_context").await?;
+        }
+        let (material_context, class_material_chunk_count, governed_knowledge_chunk_count) =
+            match precomputed_context {
+                Some(context) => (context.to_vec(), context.len(), 0),
+                None => {
+                    self.retrieve_material_context(
+                        assignment.teacher_id,
+                        assignment.class_section_id,
+                        &assignment.body,
+                        &assignment.material_ids,
+                    )
+                    .await
+                }
+            };
         tracing::info!(
             material_chunk_count = material_context.len(),
             precomputed = precomputed_context.is_some(),
@@ -158,17 +224,55 @@ impl AssignmentPersonalizationService {
             lecture_title: assignment.lecture_title.clone(),
             lecture_number: assignment.lecture_number,
         };
-        let personalized = llm_client
-            .personalize_assignment_with_context(
+        if let Some(reporter) = reporter {
+            reporter.report("ai_gateway").await?;
+        }
+        let generation = llm_client
+            .personalize_assignment_with_context_with_usage(
                 &base_assignment,
                 &student_context,
                 &material_context,
             )
             .await?;
+        if let Some(reporter) = reporter {
+            reporter.report("validating_response").await?;
+        }
+        let personalized = generation.assignment;
+        let usage = generation.usage;
+        let diagnostics = PersonalizationDiagnostics {
+            talent_profile_present: student_context.talent_profile.is_some(),
+            teacher_report_count: i32::try_from(student_context.teacher_reports.len())
+                .unwrap_or(i32::MAX),
+            performance_context_present: performance_context_present(
+                &student_context.previous_performance,
+            ),
+            class_material_chunk_count: i32::try_from(class_material_chunk_count)
+                .unwrap_or(i32::MAX),
+            governed_knowledge_chunk_count: i32::try_from(governed_knowledge_chunk_count)
+                .unwrap_or(i32::MAX),
+            prompt_tokens: usage
+                .as_ref()
+                .and_then(|value| value.prompt_tokens)
+                .and_then(|value| i32::try_from(value).ok()),
+            completion_tokens: usage
+                .as_ref()
+                .and_then(|value| value.completion_tokens)
+                .and_then(|value| i32::try_from(value).ok()),
+            total_tokens: usage
+                .as_ref()
+                .and_then(|value| value.total_tokens)
+                .and_then(|value| i32::try_from(value).ok()),
+            generated_content_changed: personalized.personalized_title.trim()
+                != base_assignment.title.trim()
+                || personalized.personalized_body.trim() != base_assignment.body.trim(),
+        };
 
         let prompt_context =
             self.build_prompt_context(&base_assignment, &student_context, &personalized);
         let rubric = self.build_rubric_json(&personalized);
+        if let Some(reporter) = reporter {
+            reporter.report("saving").await?;
+        }
         self.custom_assignment_repo
             .update_with_ai_content(custom_assignment.id, prompt_context, rubric)
             .await?;
@@ -177,6 +281,7 @@ impl AssignmentPersonalizationService {
             custom_assignment_id: custom_assignment.id,
             student_id,
             personalized_content: personalized,
+            diagnostics,
             success: true,
             error: None,
         })
@@ -198,7 +303,7 @@ impl AssignmentPersonalizationService {
             .list_by_class_section(class_section_id)
             .await?;
         let total = enrollments.len();
-        let material_context = self
+        let (material_context, _, _) = self
             .retrieve_material_context(
                 assignment.teacher_id,
                 assignment.class_section_id,
@@ -245,6 +350,7 @@ impl AssignmentPersonalizationService {
                             &assignment.title,
                             &assignment.body,
                         ),
+                        diagnostics: PersonalizationDiagnostics::default(),
                         success: false,
                         error: Some(controlled_personalization_message(&error).to_string()),
                     });
@@ -303,20 +409,26 @@ impl AssignmentPersonalizationService {
         class_section_id: ClassSectionId,
         assignment_body: &str,
         material_ids: &[uuid::Uuid],
-    ) -> Vec<MaterialContext> {
+    ) -> (Vec<MaterialContext>, usize, usize) {
         let mut class_context = self
             .retrieve_class_material_context(class_section_id, assignment_body, material_ids)
             .await;
         let governed_context = self
             .retrieve_governed_knowledge_context(teacher_id, assignment_body)
             .await;
+        let class_material_chunk_count = class_context.len();
+        let governed_knowledge_chunk_count = governed_context.len();
         tracing::info!(
-            class_material_chunk_count = class_context.len(),
-            governed_knowledge_chunk_count = governed_context.len(),
+            class_material_chunk_count,
+            governed_knowledge_chunk_count,
             "Prepared assignment generation context"
         );
         class_context.extend(governed_context);
-        class_context
+        (
+            class_context,
+            class_material_chunk_count,
+            governed_knowledge_chunk_count,
+        )
     }
 
     async fn retrieve_class_material_context(
@@ -506,6 +618,16 @@ impl AssignmentPersonalizationService {
     }
 }
 
+fn performance_context_present(
+    performance: &crate::services::llm_service::PerformanceMetrics,
+) -> bool {
+    performance.average_grade.is_some()
+        || performance.submission_rate.is_some()
+        || performance.on_time_rate.is_some()
+        || !performance.strengths.is_empty()
+        || !performance.areas_for_improvement.is_empty()
+}
+
 fn fallback_assignment(title: &str, body: &str) -> PersonalizedAssignment {
     PersonalizedAssignment {
         personalized_title: title.to_string(),
@@ -600,6 +722,7 @@ mod tests {
             custom_assignment_id: CustomAssignmentId::from(uuid::Uuid::new_v4()),
             student_id: StudentId::from(uuid::Uuid::new_v4()),
             personalized_content: fallback_assignment("Test", "Test body"),
+            diagnostics: PersonalizationDiagnostics::default(),
             success: true,
             error: None,
         };
