@@ -17,6 +17,7 @@ pub mod knowledge_asset_service;
 pub mod knowledge_ingestion_worker;
 #[cfg(feature = "server")]
 pub mod knowledge_vector_store_service;
+pub mod llm_profile;
 pub mod llm_service;
 #[cfg(feature = "server")]
 pub mod material_vectorization_service;
@@ -35,6 +36,10 @@ pub use assignment_personalization_worker::start_assignment_personalization_work
 pub use audit_service::AuditService;
 #[cfg(feature = "server")]
 pub use demo_auth_repair::run_demo_auth_repair_if_enabled;
+pub use llm_profile::{
+    resolve_llm_profile, validate_llm_profile_override, LlmProfile, LlmProfileError,
+    LlmProviderKind, DEEPSEEK_CHAT_V1,
+};
 pub use llm_service::{DeepSeekClient, ExternalLlmClient, LlmConfig, LlmError};
 pub use student_context_service::{StudentContextError, StudentContextService};
 pub use supabase_auth::SupabaseAdminService;
