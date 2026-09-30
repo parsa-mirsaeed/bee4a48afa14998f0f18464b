@@ -148,7 +148,7 @@ INSERT INTO assignments (
     'd0000000-0000-0000-0000-0000000000a1',
     'E2E Personalization Preparing',
     'PREPARING SOURCE MUST NOT BE SHOWN',
-    NOW() + INTERVAL '12 days',
+    NOW() + INTERVAL '2 days',
     'Published',
     NOW()
   ),
@@ -159,7 +159,7 @@ INSERT INTO assignments (
     'd0000000-0000-0000-0000-0000000000a1',
     'E2E Personalization Unavailable',
     'UNAVAILABLE SOURCE MUST NOT BE SHOWN',
-    NOW() + INTERVAL '13 days',
+    NOW() + INTERVAL '3 days',
     'Published',
     NOW()
   ),
@@ -170,7 +170,7 @@ INSERT INTO assignments (
     'd0000000-0000-0000-0000-0000000000a1',
     'E2E Personalization Fallback',
     'E2E FALLBACK ORIGINAL CONTENT',
-    NOW() + INTERVAL '14 days',
+    NOW() + INTERVAL '4 days',
     'Published',
     NOW()
   ),
@@ -181,7 +181,7 @@ INSERT INTO assignments (
     'd0000000-0000-0000-0000-0000000000a1',
     'E2E Personalization Running',
     'RUNNING SOURCE MUST NOT BE SHOWN',
-    NOW() + INTERVAL '15 days',
+    NOW() + INTERVAL '5 days',
     'Published',
     NOW()
   ),
@@ -192,7 +192,7 @@ INSERT INTO assignments (
     'd0000000-0000-0000-0000-0000000000a1',
     'E2E Personalization Source Ready',
     'READY SOURCE MUST NOT BE SHOWN',
-    NOW() + INTERVAL '16 days',
+    NOW() + INTERVAL '6 days',
     'Published',
     NOW()
   )
@@ -207,28 +207,28 @@ INSERT INTO custom_assignments (
     'f1000000-0000-0000-0000-0000000000c1',
     'f0000000-0000-0000-0000-0000000000c1',
     'c0000000-0000-0000-0000-0000000000a3',
-    NOW() + INTERVAL '12 days',
+    NOW() + INTERVAL '2 days',
     'Assigned'
   ),
   (
     'f1000000-0000-0000-0000-0000000000c2',
     'f0000000-0000-0000-0000-0000000000c2',
     'c0000000-0000-0000-0000-0000000000a3',
-    NOW() + INTERVAL '13 days',
+    NOW() + INTERVAL '3 days',
     'Assigned'
   ),
   (
     'f1000000-0000-0000-0000-0000000000c4',
     'f0000000-0000-0000-0000-0000000000c4',
     'c0000000-0000-0000-0000-0000000000a3',
-    NOW() + INTERVAL '15 days',
+    NOW() + INTERVAL '5 days',
     'Assigned'
   ),
   (
     'f1000000-0000-0000-0000-0000000000c5',
     'f0000000-0000-0000-0000-0000000000c5',
     'c0000000-0000-0000-0000-0000000000a3',
-    NOW() + INTERVAL '16 days',
+    NOW() + INTERVAL '6 days',
     'Assigned'
   )
 ON CONFLICT DO NOTHING;
@@ -301,7 +301,7 @@ INSERT INTO custom_assignments (
   'f1000000-0000-0000-0000-0000000000c3',
   'f0000000-0000-0000-0000-0000000000c3',
   'c0000000-0000-0000-0000-0000000000a3',
-  NOW() + INTERVAL '14 days',
+  NOW() + INTERVAL '4 days',
   'Assigned'
 )
 ON CONFLICT DO NOTHING;
@@ -399,6 +399,30 @@ INSERT INTO custom_assignments (
   'c0000000-0000-0000-0000-0000000000a3',
   NOW() + INTERVAL '1 day', 'Assigned', NOW()
 ) ON CONFLICT (id) DO NOTHING;
+UPDATE custom_assignments AS custom_assignment
+SET prompt_ctx = jsonb_build_object(
+  'personalized_assignment',
+  jsonb_build_object(
+    'title', assignment.title,
+    'body', assignment.body,
+    'scope', jsonb_build_object('type', 'default', 'deliverables', '[]'::jsonb),
+    'estimated_difficulty', 'medium',
+    'personalization_notes', 'E2E deterministic accessibility fixture'
+  )
+)
+FROM assignments AS assignment
+WHERE custom_assignment.id = 'f1000000-0000-0000-0000-0000000000a6'
+  AND assignment.id = custom_assignment.assignment_id;
+
+UPDATE assignment_personalization_jobs
+SET status = 'succeeded',
+    processing_stage = 'ready',
+    completed_at = COALESCE(completed_at, NOW()),
+    lease_owner = NULL,
+    heartbeat_at = NULL,
+    last_error_code = NULL,
+    last_error_summary = NULL
+WHERE assignment_id = 'f0000000-0000-0000-0000-0000000000a6';
 
 -- The deterministic fixture must itself obey the application state model. Keep
 -- these assertions beside the seed so an invalid baseline fails before a
@@ -528,4 +552,35 @@ INSERT INTO assignments(id,teacher_id,class_section_id,subject_id,title,body,due
 INSERT INTO custom_assignments(id,assignment_id,student_id,due_at,status) VALUES('f1600000-0000-0000-0000-000000000204','f0600000-0000-0000-0000-000000000204','c0000000-0000-0000-0000-0000000000c3',NOW()+INTERVAL '14 days','Assigned') ON CONFLICT DO NOTHING;
 INSERT INTO assignments(id,teacher_id,class_section_id,subject_id,title,body,due_at,status,published_at) VALUES('f0600000-0000-0000-0000-000000000290','c0000000-0000-0000-0000-0000000000c2','e0000000-0000-0000-0000-0000000000c1','d0000000-0000-0000-0000-0000000000a1','E2E Attachment 290','Submit your work.',NOW()+INTERVAL '14 days','Published',NOW()) ON CONFLICT DO NOTHING;
 INSERT INTO custom_assignments(id,assignment_id,student_id,due_at,status) VALUES('f1600000-0000-0000-0000-000000000290','f0600000-0000-0000-0000-000000000290','c0000000-0000-0000-0000-0000000000c3',NOW()+INTERVAL '14 days','Assigned') ON CONFLICT DO NOTHING;
+
+-- Attachment acceptance exercises submission/storage, not AI availability.
+-- Snapshot deterministic ready content so delivery truth does not block
+-- unrelated attachment journeys while the browser gateway is offline.
+UPDATE custom_assignments AS custom_assignment
+SET prompt_ctx = jsonb_build_object(
+  'personalized_assignment',
+  jsonb_build_object(
+    'title', assignment.title,
+    'body', assignment.body,
+    'scope', jsonb_build_object('type', 'default', 'deliverables', '[]'::jsonb),
+    'estimated_difficulty', 'medium',
+    'personalization_notes', 'E2E deterministic attachment fixture'
+  )
+)
+FROM assignments AS assignment
+JOIN class_sections AS class_section
+  ON class_section.id = assignment.class_section_id
+WHERE assignment.id = custom_assignment.assignment_id
+  AND class_section.school_id = 'a0000000-0000-0000-0000-0000000000c1';
+
+UPDATE assignment_personalization_jobs
+SET status = 'succeeded',
+    processing_stage = 'ready',
+    completed_at = COALESCE(completed_at, NOW()),
+    lease_owner = NULL,
+    heartbeat_at = NULL,
+    last_error_code = NULL,
+    last_error_summary = NULL
+WHERE school_id = 'a0000000-0000-0000-0000-0000000000c1';
+
 COMMIT;
