@@ -233,6 +233,13 @@ INSERT INTO custom_assignments (
   )
 ON CONFLICT DO NOTHING;
 
+-- Keep the queued fixture deterministic while the real worker is running:
+-- it remains truthfully queued but is not eligible for claim during browser
+-- acceptance.
+UPDATE assignment_personalization_jobs
+SET available_at = NOW() + INTERVAL '1 day'
+WHERE assignment_id = 'f0000000-0000-0000-0000-0000000000c1';
+
 UPDATE assignment_personalization_jobs
 SET status = 'failed',
     processing_stage = 'failed',
