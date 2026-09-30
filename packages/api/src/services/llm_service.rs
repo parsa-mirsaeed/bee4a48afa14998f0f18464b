@@ -408,7 +408,7 @@ impl ExternalLlmClient {
         &self,
         base_assignment: &BaseAssignment,
         student_context: &StudentContext,
-    ) -> Result<(String, Option<GatewayUsage>), LlmError> {
+    ) -> Result<String, LlmError> {
         self.build_user_prompt_with_context(base_assignment, student_context, &[])
     }
 
@@ -495,7 +495,7 @@ impl ExternalLlmClient {
         school_id: Uuid,
         messages: Vec<ChatMessage>,
         json_mode: bool,
-    ) -> Result<String, LlmError> {
+    ) -> Result<(String, Option<GatewayUsage>), LlmError> {
         if school_id.is_nil() {
             return Err(LlmError::MissingSchoolId);
         }
