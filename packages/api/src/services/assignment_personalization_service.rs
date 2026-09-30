@@ -12,6 +12,7 @@ use crate::repositories::{
     KnowledgeAssetRepository,
 };
 use crate::rls_context::AuthorizedPool;
+use crate::services::llm_profile::resolve_llm_profile;
 use crate::services::llm_service::{
     AssignmentScope, BaseAssignment, DeepSeekClient, LlmError, MaterialContext,
     PersonalizedAssignment, PersonalizedRubric,
@@ -118,6 +119,28 @@ impl AssignmentPersonalizationService {
         self.llm_client
             .as_ref()
             .is_some_and(DeepSeekClient::is_configured)
+    }
+
+    pub fn validate_llm_execution_contract(
+        &self,
+        profile_id: &str,
+        provider: &str,
+        model: &str,
+    ) -> Result<(), PersonalizationError> {
+        let expected = resolve_llm_profile(profile_id)
+            .map_err(|_| LlmError::ConfigurationUnavailable)?;
+        let client = self
+            .llm_client
+            .as_ref()
+            .ok_or(LlmError::ConfigurationUnavailable)?;
+        if expected.provider.as_str() != provider
+            || expected.model != model
+            || client.profile_id() != expected.id
+            || client.model() != expected.model
+        {
+            return Err(LlmError::ConfigurationUnavailable.into());
+        }
+        Ok(())
     }
 
     pub async fn personalize_for_student(
