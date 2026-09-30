@@ -184,6 +184,17 @@ INSERT INTO assignments (
     NOW() + INTERVAL '15 days',
     'Published',
     NOW()
+  ),
+  (
+    'f0000000-0000-0000-0000-0000000000c5',
+    'c0000000-0000-0000-0000-0000000000a2',
+    'e0000000-0000-0000-0000-0000000000a1',
+    'd0000000-0000-0000-0000-0000000000a1',
+    'E2E Personalization Source Ready',
+    'READY SOURCE MUST NOT BE SHOWN',
+    NOW() + INTERVAL '16 days',
+    'Published',
+    NOW()
   )
 ON CONFLICT (id) DO NOTHING;
 
@@ -212,6 +223,13 @@ INSERT INTO custom_assignments (
     'c0000000-0000-0000-0000-0000000000a3',
     NOW() + INTERVAL '15 days',
     'Assigned'
+  ),
+  (
+    'f1000000-0000-0000-0000-0000000000c5',
+    'f0000000-0000-0000-0000-0000000000c5',
+    'c0000000-0000-0000-0000-0000000000a3',
+    NOW() + INTERVAL '16 days',
+    'Assigned'
   )
 ON CONFLICT DO NOTHING;
 
@@ -234,6 +252,33 @@ SET status = 'running',
     last_error_code = NULL,
     last_error_summary = NULL
 WHERE assignment_id = 'f0000000-0000-0000-0000-0000000000c4';
+
+UPDATE custom_assignments
+SET prompt_ctx = jsonb_build_object(
+    'personalized_assignment',
+    jsonb_build_object(
+      'title', 'E2E Personalized Ready',
+      'body', 'E2E GENERATED PERSONALIZED CONTENT',
+      'scope', jsonb_build_object(
+        'type', 'default',
+        'deliverables', '[]'::jsonb
+      ),
+      'estimated_difficulty', 'medium',
+      'personalization_notes', 'E2E generated personalization ready fixture'
+    )
+)
+WHERE id = 'f1000000-0000-0000-0000-0000000000c5';
+
+UPDATE assignment_personalization_jobs
+SET status = 'succeeded',
+    processing_stage = 'ready',
+    completed_at = NOW(),
+    lease_owner = NULL,
+    heartbeat_at = NULL,
+    last_error_code = NULL,
+    last_error_summary = NULL,
+    generated_content_changed = TRUE
+WHERE assignment_id = 'f0000000-0000-0000-0000-0000000000c5';
 
 -- Snapshot fallback as an explicit policy decision at enqueue time, then return
 -- the school default to require-personalized for subsequent fixtures.
