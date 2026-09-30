@@ -362,7 +362,9 @@ for (const scenario of [
     await expect(schoolCard.getByRole('button', { name: copy.retryFailedScope, exact: true })).toBeVisible();
     await schoolCard.getByRole('button', { name: copy.manageTeachers, exact: true }).click();
 
-    await expect(page.getByText(copy.teacherPolicy, { exact: true })).toBeVisible();
+    await expect(
+      page.locator('h2').filter({ hasText: copy.teacherPolicy }).first(),
+    ).toBeVisible();
     const teacherCard = page.locator('article').filter({
       has: page.getByText('E2E Teacher A', { exact: true }),
     });
