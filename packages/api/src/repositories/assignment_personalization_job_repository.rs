@@ -231,54 +231,25 @@ impl AssignmentPersonalizationJobRepository {
         limit: i64,
     ) -> RepositoryResult<u64> {
         self.require_platform_admin(actor_id).await?;
-        let result = sqlx::query(
+        let retried = sqlx::query_scalar::<_, i64>(
             r#"
-            WITH candidates AS (
-                SELECT job.id
-                FROM assignment_personalization_jobs AS job
-                JOIN assignments AS assignment
-                  ON assignment.id = job.assignment_id
-                JOIN custom_assignments AS custom_assignment
-                  ON custom_assignment.assignment_id = job.assignment_id
-                 AND custom_assignment.student_id = job.student_id
-                CROSS JOIN LATERAL public.resolve_assignment_personalization_policy(
-                    job.school_id,
-                    job.requested_by
-                ) AS effective
-                WHERE job.status IN ('failed', 'cancelled')
-                  AND assignment.status = 'Published'::assignment_status
-                  AND custom_assignment.prompt_ctx IS NULL
-                  AND effective.enabled
-                  AND NOT effective.paused
-                  AND ($1::uuid IS NULL OR job.school_id = $1)
-                  AND ($2::uuid IS NULL OR job.requested_by = $2)
-                  AND ($3::uuid IS NULL OR job.assignment_id = $3)
-                ORDER BY job.created_at, job.id
-                FOR UPDATE OF job SKIP LOCKED
-                LIMIT $4
+            SELECT public.retry_assignment_personalization_jobs_admin(
+                NULL,
+                $1,
+                $2,
+                $3,
+                $4
             )
-            UPDATE assignment_personalization_jobs AS job
-            SET status = 'queued',
-                attempt_count = 0,
-                available_at = NOW(),
-                lease_owner = NULL,
-                heartbeat_at = NULL,
-                completed_at = NULL,
-                last_error_code = NULL,
-                last_error_summary = NULL,
-                processing_stage = 'queued'
-            FROM candidates
-            WHERE job.id = candidates.id
             "#,
         )
         .bind(school_id)
         .bind(teacher_user_id)
         .bind(assignment_id)
-        .bind(limit.clamp(1, 100))
-        .execute(&*self.base.pool())
+        .bind(limit.clamp(1, 100) as i32)
+        .fetch_one(&*self.base.pool())
         .await?;
 
-        Ok(result.rows_affected())
+        Ok(retried.max(0) as u64)
     }
 
     pub async fn list_for_platform_admin(
@@ -387,43 +358,22 @@ impl AssignmentPersonalizationJobRepository {
         job_id: Uuid,
     ) -> RepositoryResult<()> {
         self.require_platform_admin(actor_id).await?;
-        let result = sqlx::query(
+        let retried = sqlx::query_scalar::<_, i64>(
             r#"
-            UPDATE assignment_personalization_jobs AS job
-            SET status = 'queued',
-                attempt_count = 0,
-                available_at = NOW(),
-                lease_owner = NULL,
-                heartbeat_at = NULL,
-                completed_at = NULL,
-                last_error_code = NULL,
-                last_error_summary = NULL,
-                processing_stage = 'queued'
-            FROM assignments AS assignment,
-                 custom_assignments AS custom_assignment
-            WHERE job.id = $1
-              AND job.status IN ('failed', 'cancelled')
-              AND assignment.id = job.assignment_id
-              AND assignment.status = 'Published'::assignment_status
-              AND custom_assignment.assignment_id = job.assignment_id
-              AND custom_assignment.student_id = job.student_id
-              AND custom_assignment.prompt_ctx IS NULL
-              AND EXISTS (
-                  SELECT 1
-                  FROM public.resolve_assignment_personalization_policy(
-                      job.school_id,
-                      job.requested_by
-                  ) AS effective
-                  WHERE effective.enabled
-                    AND NOT effective.paused
-              )
+            SELECT public.retry_assignment_personalization_jobs_admin(
+                $1,
+                NULL,
+                NULL,
+                NULL,
+                1
+            )
             "#,
         )
         .bind(job_id)
-        .execute(&*self.base.pool())
+        .fetch_one(&*self.base.pool())
         .await?;
 
-        if result.rows_affected() != 1 {
+        if retried != 1 {
             return Err(RepositoryError::Validation(
                 "Personalization job is not eligible for admin retry".to_string(),
             ));
