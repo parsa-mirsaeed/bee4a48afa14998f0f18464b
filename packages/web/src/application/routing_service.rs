@@ -40,8 +40,11 @@ impl RoutingService {
         let capabilities = PRODUCTION_PRODUCT_CAPABILITIES;
         match user.role {
             SystemRole::PlatformAdmin => {
-                matches!(section, "knowledge-assets" | "knowledge-audit" | "personalization")
-            },
+                matches!(
+                    section,
+                    "knowledge-assets" | "knowledge-audit" | "personalization"
+                )
+            }
             SystemRole::SchoolManager => match section {
                 "overview"
                 | "users"
