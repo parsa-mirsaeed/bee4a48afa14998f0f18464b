@@ -1,7 +1,6 @@
 use crate::repositories::{BaseRepository, Repository, RepositoryError, RepositoryResult};
 use crate::services::{
-    llm_profile::resolve_llm_profile,
-    llm_service::normalize_assignment_specialization_instructions,
+    llm_profile::resolve_llm_profile, llm_service::normalize_assignment_specialization_instructions,
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
