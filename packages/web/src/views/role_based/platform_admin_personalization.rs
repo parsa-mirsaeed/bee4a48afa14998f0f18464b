@@ -428,8 +428,7 @@ fn SchoolPolicyCard(
     let mut paused = use_signal(move || initial_paused);
     let mut profile = use_signal(move || initial_profile);
     let mut delivery = use_signal(move || initial_delivery);
-    let mut specialization_instructions =
-        use_signal(move || initial_specialization_instructions);
+    let mut specialization_instructions = use_signal(move || initial_specialization_instructions);
     let mut busy = use_signal(|| false);
     let mut error = use_signal(|| false);
 
