@@ -367,7 +367,7 @@ for (const scenario of [
     await expect(schoolCard).toBeVisible();
     await expect(schoolCard).toContainText('deepseek-chat-v1');
     await expect(schoolCard).toContainText(copy.requirePersonalized);
-    const specializationInstructions = schoolCard.getByLabel(copy.specializationInstructions, { exact: true });
+    const specializationInstructions = schoolCard.getByLabel(copy.specializationInstructions);
     await expect(specializationInstructions).toBeVisible();
     await specializationInstructions.fill(copy.specializationExample);
     await schoolCard.getByRole('button', { name: copy.savePolicy, exact: true }).click();
