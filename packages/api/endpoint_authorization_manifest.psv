@@ -9,7 +9,7 @@ server|auth/whoami|SessionOwner|-|session_school|session_user|read|standard|none
 server|assignments/get_all|TeacherOnly|Teacher|session_school|teacher_assignments|read|bounded_list|none|assignment_functions::get_all_assignments|-
 server|assignments/get_by_id|TeacherOnly|Teacher|session_school|assignment_owner|read|standard|none|assignment_functions::get_assignment_by_id|-
 server|assignments/create|TeacherOnly|Teacher|session_school|teacher_class|write|bounded_payload|required|assignment_functions::create_assignment|-
-server|assignments/publish|Disabled|-|none|none|write|disabled|required|assignment_functions::publish_assignment|2026-10-01
+server|assignments/publish|TeacherOnly|Teacher|session_school|assignment_owner|write|expensive|required|assignment_functions::publish_assignment|-
 server|assignments/form_classes|TeacherOnly|Teacher|session_school|teacher_classes|read|bounded_list|none|assignment_workflow::get_teacher_assignment_class_options|-
 server|assignments/publish_guided|TeacherOnly|Teacher|session_school|assignment_owner|write|expensive|required|assignment_workflow::publish_assignment_guided|-
 server|assignments/personalize|TeacherOnly|Teacher|session_school|teacher_class_student|write|expensive|required|assignment_functions::personalize_for_student|-
