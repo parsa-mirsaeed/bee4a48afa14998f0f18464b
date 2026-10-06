@@ -25,6 +25,7 @@ pub struct ClaimedAssignmentPersonalizationJob {
     pub policy_scope: String,
     pub policy_version: i32,
     pub delivery_policy: String,
+    pub specialization_instructions: String,
     pub lease_owner: Uuid,
 }
 
@@ -388,7 +389,7 @@ impl AssignmentPersonalizationJobRepository {
             effective AS (
                 SELECT target.*, policy.*
                 FROM target
-                CROSS JOIN LATERAL public.resolve_assignment_personalization_policy(
+                CROSS JOIN LATERAL public.resolve_assignment_personalization_policy_v2(
                     target.school_id,
                     $3
                 ) AS policy
@@ -417,6 +418,7 @@ impl AssignmentPersonalizationJobRepository {
                     policy_scope,
                     policy_version,
                     delivery_policy,
+                    specialization_instructions,
                     processing_stage
                 )
                 SELECT
@@ -445,6 +447,7 @@ impl AssignmentPersonalizationJobRepository {
                     effective.policy_scope,
                     effective.policy_version,
                     effective.delivery_policy,
+                    effective.specialization_instructions,
                     CASE
                         WHEN NOT effective.enabled THEN 'cancelled'
                         WHEN effective.paused THEN 'paused'

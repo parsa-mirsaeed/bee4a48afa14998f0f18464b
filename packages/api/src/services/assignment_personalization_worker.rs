@@ -279,11 +279,12 @@ async fn process_claimed_job(
         job: job.clone(),
     };
     let result = service
-        .personalize_for_student_with_reporter(
+        .personalize_for_student_with_reporter_and_instructions(
             AssignmentId::from(job.assignment_id),
             StudentId::from(job.student_id),
             None,
             Some(&reporter),
+            &job.specialization_instructions,
         )
         .await?;
 
@@ -466,6 +467,7 @@ async fn claim_next_job(
             policy_scope,
             policy_version,
             delivery_policy,
+            specialization_instructions,
             lease_owner
         FROM public.claim_next_assignment_personalization_job($1)
         "#,
@@ -490,6 +492,7 @@ async fn claim_next_job(
             policy_scope: row.try_get("policy_scope")?,
             policy_version: row.try_get("policy_version")?,
             delivery_policy: row.try_get("delivery_policy")?,
+            specialization_instructions: row.try_get("specialization_instructions")?,
             lease_owner: row.try_get("lease_owner")?,
         })
     })

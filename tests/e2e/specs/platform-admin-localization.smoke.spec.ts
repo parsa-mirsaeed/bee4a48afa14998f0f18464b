@@ -316,6 +316,9 @@ for (const scenario of [
             capability: 'قابلیت هوش مصنوعی',
             schoolPolicy: 'سیاست مدرسه',
             requirePersonalized: 'محتوای شخصی‌سازی‌شده الزامی است',
+            specializationInstructions: 'راهنمای تخصصی‌سازی تکلیف',
+            specializationExample: 'برای نمایش دموی فارسی، مراحل کوتاه و مثال‌های روشن را ترجیح بده.',
+            savePolicy: 'ذخیره سیاست',
             manageTeachers: 'مدیریت استثناهای معلم',
             teacherPolicy: 'سیاست معلم',
             recentJobs: 'کارهای اخیر شخصی‌سازی',
@@ -334,6 +337,9 @@ for (const scenario of [
             capability: 'AI capability',
             schoolPolicy: 'School policy',
             requirePersonalized: 'Require personalized content',
+            specializationInstructions: 'Specialization instructions',
+            specializationExample: 'Prefer short scaffolded steps and concrete examples for the demo.',
+            savePolicy: 'Save policy',
             manageTeachers: 'Manage teacher overrides',
             teacherPolicy: 'Teacher policy',
             recentJobs: 'Recent personalization jobs',
@@ -361,6 +367,12 @@ for (const scenario of [
     await expect(schoolCard).toBeVisible();
     await expect(schoolCard).toContainText('deepseek-chat-v1');
     await expect(schoolCard).toContainText(copy.requirePersonalized);
+    const specializationInstructions = schoolCard.getByLabel(copy.specializationInstructions, { exact: true });
+    await expect(specializationInstructions).toBeVisible();
+    await specializationInstructions.fill(copy.specializationExample);
+    await schoolCard.getByRole('button', { name: copy.savePolicy, exact: true }).click();
+    await expect(schoolCard.getByRole('button', { name: copy.savePolicy, exact: true })).toBeVisible();
+    await expect(specializationInstructions).toHaveValue(copy.specializationExample);
     await expect(schoolCard.getByRole('button', { name: copy.retryFailedScope, exact: true })).toBeVisible();
     await schoolCard.getByRole('button', { name: copy.manageTeachers, exact: true }).click();
 
