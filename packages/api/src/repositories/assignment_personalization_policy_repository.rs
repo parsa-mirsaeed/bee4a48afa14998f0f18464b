@@ -1,5 +1,8 @@
 use crate::repositories::{BaseRepository, Repository, RepositoryError, RepositoryResult};
-use crate::services::llm_profile::resolve_llm_profile;
+use crate::services::{
+    llm_profile::resolve_llm_profile,
+    llm_service::normalize_assignment_specialization_instructions,
+};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
@@ -8,9 +11,6 @@ use uuid::Uuid;
 
 pub const DELIVERY_REQUIRE_PERSONALIZED: &str = "require_personalized";
 pub const DELIVERY_ALLOW_ORIGINAL_FALLBACK: &str = "allow_original_fallback";
-pub const DEFAULT_ASSIGNMENT_SPECIALIZATION_INSTRUCTIONS: &str =
-    "Adapt difficulty, scope, format, and scaffolding to the learner profile while preserving the original learning objective, required knowledge, and grading intent.";
-pub const MAX_ASSIGNMENT_SPECIALIZATION_INSTRUCTIONS_CHARS: usize = 4_000;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SchoolPersonalizationPolicy {
@@ -102,17 +102,8 @@ impl AssignmentPersonalizationPolicyRepository {
     }
 
     fn normalize_specialization_instructions(value: &str) -> RepositoryResult<String> {
-        let trimmed = value.trim();
-        if trimmed.is_empty() {
-            return Ok(DEFAULT_ASSIGNMENT_SPECIALIZATION_INSTRUCTIONS.to_string());
-        }
-        if trimmed.chars().count() > MAX_ASSIGNMENT_SPECIALIZATION_INSTRUCTIONS_CHARS {
-            return Err(RepositoryError::Validation(format!(
-                "Assignment personalization specialization instructions must be at most {} characters",
-                MAX_ASSIGNMENT_SPECIALIZATION_INSTRUCTIONS_CHARS
-            )));
-        }
-        Ok(trimmed.to_string())
+        normalize_assignment_specialization_instructions(value)
+            .map_err(|error| RepositoryError::Validation(error.to_string()))
     }
 
     pub async fn list_school_policies(

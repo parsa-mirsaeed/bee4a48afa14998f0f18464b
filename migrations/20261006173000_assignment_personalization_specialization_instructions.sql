@@ -373,3 +373,57 @@ BEGIN
 END
 $$;
 REVOKE EXECUTE ON FUNCTION public.claim_next_assignment_personalization_job(UUID) FROM PUBLIC;
+
+
+CREATE OR REPLACE FUNCTION public.audit_assignment_personalization_school_policy()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = pg_catalog, public
+AS $$
+DECLARE
+    actor UUID := public.get_user_id();
+BEGIN
+    IF public.get_role() <> 'PlatformAdmin' THEN
+        RETURN COALESCE(NEW, OLD);
+    END IF;
+
+    INSERT INTO public.assignment_personalization_policy_audit (
+        actor_id,
+        scope_type,
+        school_id,
+        action,
+        before_policy,
+        after_policy
+    )
+    VALUES (
+        actor,
+        'school',
+        COALESCE(NEW.school_id, OLD.school_id),
+        CASE TG_OP WHEN 'INSERT' THEN 'created' WHEN 'UPDATE' THEN 'updated' ELSE 'deleted' END,
+        CASE WHEN TG_OP IN ('UPDATE', 'DELETE') THEN jsonb_build_object(
+            'enabled', OLD.enabled,
+            'paused', OLD.paused,
+            'llm_profile_id', OLD.llm_profile_id,
+            'delivery_policy', OLD.delivery_policy,
+            'specialization_instructions_fingerprint', 'md5:' || md5(OLD.specialization_instructions),
+            'specialization_instructions_chars', char_length(OLD.specialization_instructions),
+            'policy_version', OLD.policy_version
+        ) END,
+        CASE WHEN TG_OP IN ('INSERT', 'UPDATE') THEN jsonb_build_object(
+            'enabled', NEW.enabled,
+            'paused', NEW.paused,
+            'llm_profile_id', NEW.llm_profile_id,
+            'delivery_policy', NEW.delivery_policy,
+            'specialization_instructions_fingerprint', 'md5:' || md5(NEW.specialization_instructions),
+            'specialization_instructions_chars', char_length(NEW.specialization_instructions),
+            'policy_version', NEW.policy_version
+        ) END
+    );
+    RETURN COALESCE(NEW, OLD);
+END
+$$;
+
+COMMENT ON COLUMN public.assignment_personalization_school_policies.specialization_instructions IS
+    'Platform-admin governed pedagogical guidance; secret-shaped values are rejected at the application write boundary.';
+COMMENT ON COLUMN public.assignment_personalization_jobs.specialization_instructions IS
+    'Immutable per-job guidance snapshot; intentionally omitted from operator job telemetry.';
