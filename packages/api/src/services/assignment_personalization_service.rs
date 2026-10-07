@@ -15,7 +15,7 @@ use crate::rls_context::AuthorizedPool;
 use crate::services::llm_profile::resolve_llm_profile;
 use crate::services::llm_service::{
     AssignmentScope, BaseAssignment, DeepSeekClient, LlmError, MaterialContext,
-    PersonalizedAssignment, PersonalizedRubric,
+    PersonalizedAssignment, PersonalizedRubric, DEFAULT_ASSIGNMENT_SPECIALIZATION_INSTRUCTIONS,
 };
 use crate::services::material_vectorization_service::MaterialVectorizationService;
 use crate::services::student_context_service::{StudentContextError, StudentContextService};
@@ -165,6 +165,24 @@ impl AssignmentPersonalizationService {
         precomputed_context: Option<&[MaterialContext]>,
         reporter: Option<&dyn PersonalizationStageReporter>,
     ) -> Result<PersonalizationResult, PersonalizationError> {
+        self.personalize_for_student_with_reporter_and_instructions(
+            assignment_id,
+            student_id,
+            precomputed_context,
+            reporter,
+            DEFAULT_ASSIGNMENT_SPECIALIZATION_INSTRUCTIONS,
+        )
+        .await
+    }
+
+    pub async fn personalize_for_student_with_reporter_and_instructions(
+        &self,
+        assignment_id: AssignmentId,
+        student_id: StudentId,
+        precomputed_context: Option<&[MaterialContext]>,
+        reporter: Option<&dyn PersonalizationStageReporter>,
+        specialization_instructions: &str,
+    ) -> Result<PersonalizationResult, PersonalizationError> {
         let assignment = self
             .assignment_repo
             .find_with_details_by_id(assignment_id)
@@ -228,10 +246,12 @@ impl AssignmentPersonalizationService {
             reporter.report("ai_gateway").await?;
         }
         let generation = llm_client
-            .personalize_assignment_with_context_with_usage(
+            .personalize_assignment_with_context_for_school_with_usage_and_instructions(
+                student_context.school_id,
                 &base_assignment,
                 &student_context,
                 &material_context,
+                specialization_instructions,
             )
             .await?;
         if let Some(reporter) = reporter {

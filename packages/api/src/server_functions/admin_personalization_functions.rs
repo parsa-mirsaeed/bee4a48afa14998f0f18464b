@@ -40,6 +40,7 @@ pub struct AdminSchoolPersonalizationPolicyDto {
     pub paused: bool,
     pub llm_profile_id: String,
     pub delivery_policy: String,
+    pub specialization_instructions: String,
     pub policy_version: i32,
     pub updated_at: String,
 }
@@ -129,6 +130,7 @@ pub struct SetAdminSchoolPersonalizationPolicyRequest {
     pub paused: bool,
     pub llm_profile_id: String,
     pub delivery_policy: String,
+    pub specialization_instructions: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -234,6 +236,7 @@ fn school_dto(policy: SchoolPersonalizationPolicy) -> AdminSchoolPersonalization
         paused: policy.paused,
         llm_profile_id: policy.llm_profile_id,
         delivery_policy: policy.delivery_policy,
+        specialization_instructions: policy.specialization_instructions,
         policy_version: policy.policy_version,
         updated_at: policy.updated_at.to_rfc3339(),
     }
@@ -429,6 +432,7 @@ pub async fn set_admin_school_personalization_policy(
                 request.paused,
                 &request.llm_profile_id,
                 &request.delivery_policy,
+                &request.specialization_instructions,
             )
             .await
             .map(school_dto)

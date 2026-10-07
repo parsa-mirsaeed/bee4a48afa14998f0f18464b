@@ -420,6 +420,7 @@ fn SchoolPolicyCard(
     let initial_paused = policy.paused;
     let initial_profile = policy.llm_profile_id.clone();
     let initial_delivery = policy.delivery_policy.clone();
+    let initial_specialization_instructions = policy.specialization_instructions.clone();
     let school_id = policy.school_id.clone();
     let school_name = policy.school_name.clone();
 
@@ -427,6 +428,7 @@ fn SchoolPolicyCard(
     let mut paused = use_signal(move || initial_paused);
     let mut profile = use_signal(move || initial_profile);
     let mut delivery = use_signal(move || initial_delivery);
+    let mut specialization_instructions = use_signal(move || initial_specialization_instructions);
     let mut busy = use_signal(|| false);
     let mut error = use_signal(|| false);
 
@@ -499,6 +501,19 @@ fn SchoolPolicyCard(
                         option { value: "allow_original_fallback", {t("platform_admin.personalization.allow_fallback", locale)} }
                     }
                 }
+                label { class: "text-sm sm:col-span-2",
+                    span { class: "mb-1 block font-medium", {t("platform_admin.personalization.specialization_instructions", locale)} }
+                    textarea {
+                        class: "min-h-32 w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900",
+                        value: "{specialization_instructions}",
+                        maxlength: "4000",
+                        disabled: busy(),
+                        oninput: move |event| specialization_instructions.set(event.value()),
+                    }
+                    span { class: "mt-1 block text-xs text-gray-500",
+                        {t("platform_admin.personalization.specialization_instructions_help", locale)}
+                    }
+                }
             }
             if error() {
                 p { class: "mt-3 text-sm text-red-600", role: "alert",
@@ -521,6 +536,7 @@ fn SchoolPolicyCard(
                         paused: paused(),
                         llm_profile_id: profile(),
                         delivery_policy: delivery(),
+                        specialization_instructions: specialization_instructions(),
                     };
                     spawn(async move {
                         match set_admin_school_personalization_policy(request).await {

@@ -144,6 +144,29 @@ pub(crate) fn authorize_path(
 }
 
 fn disabled_by_product_capability(path: &str) -> bool {
+    if matches!(
+        path,
+        "/api/get_reports"
+            | "/api/change_admin_password"
+            | "/api/manager/knowledge-submissions"
+            | "/api/schools/update"
+            | "/api/schools/delete"
+            | "/api/students/update"
+            | "/api/user_management/create"
+            | "/api/user_creation/create_student"
+            | "/api/user_creation/create_teacher"
+            | "/api/user_creation/create_parent"
+            | "/api/user_creation/validate_auth"
+            | "/api/user_creation/send_password_reset"
+            | "/api/form_data/validate_email"
+            | "/api/form_data/validate_uuid"
+            | "/api/dashboard/parent/children"
+            | "/api/parent/child/grades"
+            | "/api/parent/child/assignments"
+    ) {
+        return true;
+    }
+
     let capabilities = crate::product_capabilities::PRODUCTION_PRODUCT_CAPABILITIES;
     match path {
         "/api/parent/child/attendance" => !capabilities.attendance,
@@ -275,6 +298,40 @@ mod tests {
             authorize_path(retired_path, Some("SchoolManager")),
             EndpointAuthorizationDecision::NotFound
         );
+    }
+
+    #[test]
+    fn retired_legacy_browser_endpoints_fail_closed_before_role_authorization() {
+        for path in [
+            "/api/get_reports",
+            "/api/change_admin_password",
+            "/api/manager/knowledge-submissions",
+            "/api/schools/update",
+            "/api/schools/delete",
+            "/api/students/update",
+            "/api/user_management/create",
+            "/api/user_creation/create_student",
+            "/api/user_creation/create_teacher",
+            "/api/user_creation/create_parent",
+            "/api/user_creation/validate_auth",
+            "/api/user_creation/send_password_reset",
+            "/api/form_data/validate_email",
+            "/api/form_data/validate_uuid",
+            "/api/dashboard/parent/children",
+            "/api/parent/child/grades",
+            "/api/parent/child/assignments",
+        ] {
+            assert_eq!(
+                authorize_path(path, Some("PlatformAdmin")),
+                EndpointAuthorizationDecision::NotFound,
+                "{path} must remain outside the contracted browser surface"
+            );
+            assert_eq!(
+                authorize_path(path, Some("SchoolManager")),
+                EndpointAuthorizationDecision::NotFound,
+                "{path} must remain outside the contracted browser surface"
+            );
+        }
     }
 
     #[test]

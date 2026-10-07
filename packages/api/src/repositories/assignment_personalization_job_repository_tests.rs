@@ -283,6 +283,7 @@ async fn claim_next(pool: &PgPool, worker_id: Uuid) -> Option<ClaimedAssignmentP
                 policy_scope,
                 policy_version,
                 delivery_policy,
+                specialization_instructions,
                 lease_owner
             FROM public.claim_next_assignment_personalization_job($1)
             "#,
@@ -307,6 +308,7 @@ async fn claim_next(pool: &PgPool, worker_id: Uuid) -> Option<ClaimedAssignmentP
             policy_scope: row.get("policy_scope"),
             policy_version: row.get("policy_version"),
             delivery_policy: row.get("delivery_policy"),
+            specialization_instructions: row.get("specialization_instructions"),
             lease_owner: row.get("lease_owner"),
         })
     })
@@ -674,6 +676,7 @@ async fn platform_admin_policy_is_authorized_audited_and_snapshotted_into_new_jo
             false,
             "deepseek-chat-v1",
             DELIVERY_ALLOW_ORIGINAL_FALLBACK,
+            "Unauthorized guidance must not persist.",
         ),
     )
     .await;
@@ -682,6 +685,8 @@ async fn platform_admin_policy_is_authorized_audited_and_snapshotted_into_new_jo
         Err(crate::repositories::RepositoryError::Unauthorized)
     ));
 
+    let specialization_instructions =
+        "Prefer short scaffolded steps, concrete examples, and accessible language.";
     let school_policy = run_as(
         fixture.pool.as_ref(),
         actor(platform_admin, "PlatformAdmin", fixture.school_id),
@@ -692,11 +697,38 @@ async fn platform_admin_policy_is_authorized_audited_and_snapshotted_into_new_jo
             false,
             "deepseek-chat-v1",
             DELIVERY_REQUIRE_PERSONALIZED,
+            specialization_instructions,
         ),
     )
     .await
     .expect("platform admin updates school policy");
     assert_eq!(school_policy.policy_version, 2);
+    assert_eq!(
+        school_policy.specialization_instructions,
+        specialization_instructions
+    );
+
+    let secret_shaped = run_as(
+        fixture.pool.as_ref(),
+        actor(platform_admin, "PlatformAdmin", fixture.school_id),
+        policy_repository.set_school_policy(
+            platform_admin,
+            fixture.school_id,
+            true,
+            false,
+            "deepseek-chat-v1",
+            DELIVERY_REQUIRE_PERSONALIZED,
+            "Authorization: Bearer should-never-be-stored",
+        ),
+    )
+    .await;
+    assert!(
+        matches!(
+            secret_shaped,
+            Err(crate::repositories::RepositoryError::Validation(_))
+        ),
+        "secret-shaped specialization guidance must be rejected before persistence"
+    );
 
     let teacher_policy = run_as(
         fixture.pool.as_ref(),
@@ -754,7 +786,7 @@ async fn platform_admin_policy_is_authorized_audited_and_snapshotted_into_new_jo
     let row = sqlx::query(
         r#"
         SELECT llm_profile_id, llm_provider, model_name, policy_scope,
-               policy_version, delivery_policy, processing_stage
+               policy_version, delivery_policy, specialization_instructions, processing_stage
         FROM assignment_personalization_jobs
         WHERE assignment_id = $1
         "#,
@@ -772,6 +804,10 @@ async fn platform_admin_policy_is_authorized_audited_and_snapshotted_into_new_jo
         row.get::<String, _>("delivery_policy"),
         DELIVERY_ALLOW_ORIGINAL_FALLBACK
     );
+    assert_eq!(
+        row.get::<String, _>("specialization_instructions"),
+        specialization_instructions
+    );
     assert_eq!(row.get::<String, _>("processing_stage"), "queued");
 
     let immutable = sqlx::query(
@@ -783,6 +819,16 @@ async fn platform_admin_policy_is_authorized_audited_and_snapshotted_into_new_jo
     assert!(
         immutable.is_err(),
         "queued execution contract must be immutable even to direct database writes"
+    );
+    let immutable_guidance = sqlx::query(
+        "UPDATE assignment_personalization_jobs SET specialization_instructions = 'rewritten' WHERE assignment_id = $1",
+    )
+    .bind(assignment_id)
+    .execute(&*fixture.pool)
+    .await;
+    assert!(
+        immutable_guidance.is_err(),
+        "queued specialization guidance snapshot must be immutable"
     );
 
     let audit_pool = AuthorizedPool::new();
@@ -802,6 +848,30 @@ async fn platform_admin_policy_is_authorized_audited_and_snapshotted_into_new_jo
         audit_count >= 2,
         "school and teacher policy writes must be audited"
     );
+    let school_audit: serde_json::Value = run_as(
+        fixture.pool.as_ref(),
+        actor(platform_admin, "PlatformAdmin", fixture.school_id),
+        sqlx::query_scalar(
+            r#"
+            SELECT after_policy
+            FROM assignment_personalization_policy_audit
+            WHERE actor_id = $1
+              AND school_id = $2
+              AND scope_type = 'school'
+            ORDER BY created_at DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(platform_admin)
+        .bind(fixture.school_id)
+        .fetch_one(&audit_pool),
+    )
+    .await
+    .expect("read school policy audit payload");
+    let audit_text = school_audit.to_string();
+    assert!(audit_text.contains("specialization_instructions_fingerprint"));
+    assert!(audit_text.contains("specialization_instructions_chars"));
+    assert!(!audit_text.contains(specialization_instructions));
 }
 
 #[cfg(feature = "server")]
@@ -904,6 +974,7 @@ async fn student_delivery_truth_hides_source_until_policy_allows_fallback() {
             false,
             "deepseek-chat-v1",
             DELIVERY_ALLOW_ORIGINAL_FALLBACK,
+            "Preserve the original learning objective while adapting the presentation.",
         ),
     )
     .await

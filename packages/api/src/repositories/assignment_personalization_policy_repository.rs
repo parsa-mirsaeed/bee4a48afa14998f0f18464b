@@ -1,5 +1,7 @@
 use crate::repositories::{BaseRepository, Repository, RepositoryError, RepositoryResult};
-use crate::services::llm_profile::resolve_llm_profile;
+use crate::services::{
+    llm_profile::resolve_llm_profile, llm_service::normalize_assignment_specialization_instructions,
+};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::Row;
@@ -17,6 +19,7 @@ pub struct SchoolPersonalizationPolicy {
     pub paused: bool,
     pub llm_profile_id: String,
     pub delivery_policy: String,
+    pub specialization_instructions: String,
     pub policy_version: i32,
     pub updated_by: Option<Uuid>,
     pub updated_at: DateTime<Utc>,
@@ -97,6 +100,11 @@ impl AssignmentPersonalizationPolicyRepository {
         Ok(profile.id)
     }
 
+    fn normalize_specialization_instructions(value: &str) -> RepositoryResult<String> {
+        normalize_assignment_specialization_instructions(value)
+            .map_err(|error| RepositoryError::Validation(error.to_string()))
+    }
+
     pub async fn list_school_policies(
         &self,
         actor_id: Uuid,
@@ -111,6 +119,10 @@ impl AssignmentPersonalizationPolicyRepository {
                 COALESCE(policy.paused, FALSE) AS paused,
                 COALESCE(policy.llm_profile_id, 'deepseek-chat-v1') AS llm_profile_id,
                 COALESCE(policy.delivery_policy, 'require_personalized') AS delivery_policy,
+                COALESCE(
+                    NULLIF(BTRIM(policy.specialization_instructions), ''),
+                    'Adapt difficulty, scope, format, and scaffolding to the learner profile while preserving the original learning objective, required knowledge, and grading intent.'
+                ) AS specialization_instructions,
                 COALESCE(policy.policy_version, 1) AS policy_version,
                 policy.updated_by,
                 COALESCE(policy.updated_at, school.created_at) AS updated_at
@@ -132,6 +144,7 @@ impl AssignmentPersonalizationPolicyRepository {
                     paused: row.try_get("paused")?,
                     llm_profile_id: row.try_get("llm_profile_id")?,
                     delivery_policy: row.try_get("delivery_policy")?,
+                    specialization_instructions: row.try_get("specialization_instructions")?,
                     policy_version: row.try_get("policy_version")?,
                     updated_by: row.try_get("updated_by")?,
                     updated_at: row.try_get("updated_at")?,
@@ -214,9 +227,12 @@ impl AssignmentPersonalizationPolicyRepository {
         paused: bool,
         llm_profile_id: &str,
         delivery_policy: &str,
+        specialization_instructions: &str,
     ) -> RepositoryResult<SchoolPersonalizationPolicy> {
         self.require_platform_admin(actor_id).await?;
         let canonical_profile_id = Self::validate_policy_values(llm_profile_id, delivery_policy)?;
+        let specialization_instructions =
+            Self::normalize_specialization_instructions(specialization_instructions)?;
 
         sqlx::query(
             r#"
@@ -226,16 +242,18 @@ impl AssignmentPersonalizationPolicyRepository {
                 paused,
                 llm_profile_id,
                 delivery_policy,
+                specialization_instructions,
                 policy_version,
                 updated_by
             )
-            VALUES ($1, $2, $3, $4, $5, 1, $6)
+            VALUES ($1, $2, $3, $4, $5, $6, 1, $7)
             ON CONFLICT (school_id)
             DO UPDATE SET
                 enabled = EXCLUDED.enabled,
                 paused = EXCLUDED.paused,
                 llm_profile_id = EXCLUDED.llm_profile_id,
                 delivery_policy = EXCLUDED.delivery_policy,
+                specialization_instructions = EXCLUDED.specialization_instructions,
                 policy_version = assignment_personalization_school_policies.policy_version + 1,
                 updated_by = EXCLUDED.updated_by
             "#,
@@ -245,6 +263,7 @@ impl AssignmentPersonalizationPolicyRepository {
         .bind(paused)
         .bind(canonical_profile_id)
         .bind(delivery_policy)
+        .bind(&specialization_instructions)
         .bind(actor_id)
         .execute(&*self.base.pool())
         .await?;
