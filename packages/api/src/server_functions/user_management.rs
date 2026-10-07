@@ -330,7 +330,6 @@ pub struct CreateUserPayload {
 /// transaction-scoped RLS context; returning an error rolls them back. If a
 /// local write fails after Auth creation, the newly created Auth user is
 /// deleted before the error is returned whenever compensation succeeds.
-#[server(endpoint = "user_management/create")]
 pub async fn create_user(payload: CreateUserPayload) -> Result<(), ServerFnError> {
     #[cfg(feature = "server")]
     {

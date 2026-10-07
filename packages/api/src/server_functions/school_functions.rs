@@ -73,12 +73,10 @@ pub async fn create(data: CreateSchoolRequest) -> Result<School, ServerFnError> 
     Err(ServerFnError::new("Server only"))
 }
 
-#[server(endpoint = "schools/update")]
 pub async fn update(_id: String, _data: serde_json::Value) -> Result<School, ServerFnError> {
     Err(ServerFnError::new("Endpoint unavailable"))
 }
 
-#[server(endpoint = "schools/delete")]
 pub async fn delete(_id: String) -> Result<(), ServerFnError> {
     Err(ServerFnError::new("Endpoint unavailable"))
 }

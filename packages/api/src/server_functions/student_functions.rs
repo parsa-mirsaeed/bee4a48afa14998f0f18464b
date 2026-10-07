@@ -177,7 +177,6 @@ pub async fn create(data: CreateStudentRequest) -> Result<StudentResponse, Serve
     Err(ServerFnError::new("Server only"))
 }
 
-#[server(endpoint = "students/update")]
 pub async fn update(
     _id: String,
     _data: serde_json::Value,

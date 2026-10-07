@@ -207,7 +207,6 @@ async fn authorize(allowed_roles: &[&str]) -> Result<AuthorizedActor, ServerFnEr
     })
 }
 
-#[server(endpoint = "manager/knowledge-submissions")]
 pub async fn create_manager_knowledge_submission(
     request: ManagerKnowledgeSubmissionRequest,
 ) -> Result<KnowledgeAssetDto, ServerFnError> {

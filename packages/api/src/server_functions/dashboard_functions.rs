@@ -338,7 +338,6 @@ fn map_assignment_dashboard_error(error: RepositoryError) -> ServerFnError {
 
 // ==================== Student Dashboard Functions ====================
 
-#[server(endpoint = "dashboard/student/stats")]
 pub async fn get_student_dashboard_stats() -> Result<StudentDashboardStats, ServerFnError> {
     #[cfg(feature = "server")]
     {
@@ -431,7 +430,6 @@ pub async fn get_student_dashboard_stats() -> Result<StudentDashboardStats, Serv
     })
 }
 
-#[server(endpoint = "dashboard/student/classes")]
 pub async fn get_student_classes() -> Result<Vec<StudentClassInfo>, ServerFnError> {
     #[cfg(feature = "server")]
     {
@@ -705,7 +703,6 @@ pub async fn get_teacher_dashboard_stats() -> Result<TeacherDashboardStats, Serv
     })
 }
 
-#[server(endpoint = "dashboard/teacher/classes")]
 pub async fn get_teacher_classes() -> Result<Vec<TeacherClassInfo>, ServerFnError> {
     #[cfg(feature = "server")]
     {
@@ -886,7 +883,6 @@ pub async fn get_teacher_assignments() -> Result<Vec<TeacherAssignmentInfo>, Ser
 
 // ==================== Parent Dashboard Functions ====================
 
-#[server(endpoint = "dashboard/parent/stats")]
 pub async fn get_parent_dashboard_stats() -> Result<ParentDashboardStats, ServerFnError> {
     #[cfg(feature = "server")]
     {
@@ -950,7 +946,6 @@ pub async fn get_parent_dashboard_stats() -> Result<ParentDashboardStats, Server
     })
 }
 
-#[server(endpoint = "dashboard/parent/children")]
 pub async fn get_parent_children() -> Result<Vec<ChildInfo>, ServerFnError> {
     #[cfg(feature = "server")]
     {
@@ -1812,7 +1807,6 @@ pub struct ChildAttendanceInfo {
 }
 
 /// Get child's grades for parent view
-#[server(endpoint = "parent/child/grades")]
 pub async fn get_child_grades_for_parent(
     child_id: String,
 ) -> Result<Vec<ChildGradeInfo>, ServerFnError> {
@@ -1902,7 +1896,6 @@ pub async fn get_child_grades_for_parent(
 }
 
 /// Get child's pending assignments for parent view
-#[server(endpoint = "parent/child/assignments")]
 pub async fn get_child_assignments_for_parent(
     child_id: String,
 ) -> Result<Vec<ChildAssignmentInfo>, ServerFnError> {
@@ -1995,7 +1988,6 @@ pub async fn get_child_assignments_for_parent(
 }
 
 /// Get child's attendance for parent view
-#[server(endpoint = "parent/child/attendance")]
 pub async fn get_child_attendance_for_parent(
     child_id: String,
 ) -> Result<ChildAttendanceInfo, ServerFnError> {
