@@ -30,6 +30,7 @@ pub mod student_functions;
 pub mod subject_functions;
 pub mod submission_functions;
 pub mod user_management;
+pub mod user_creation;
 pub mod user_preferences_functions;
 pub mod user_provisioning;
 pub mod validation;

@@ -153,6 +153,11 @@ fn disabled_by_product_capability(path: &str) -> bool {
             | "/api/schools/delete"
             | "/api/students/update"
             | "/api/user_management/create"
+            | "/api/user_creation/create_student"
+            | "/api/user_creation/create_teacher"
+            | "/api/user_creation/create_parent"
+            | "/api/user_creation/validate_auth"
+            | "/api/user_creation/send_password_reset"
             | "/api/form_data/validate_email"
             | "/api/form_data/validate_uuid"
             | "/api/dashboard/parent/children"
@@ -305,6 +310,11 @@ mod tests {
             "/api/schools/delete",
             "/api/students/update",
             "/api/user_management/create",
+            "/api/user_creation/create_student",
+            "/api/user_creation/create_teacher",
+            "/api/user_creation/create_parent",
+            "/api/user_creation/validate_auth",
+            "/api/user_creation/send_password_reset",
             "/api/form_data/validate_email",
             "/api/form_data/validate_uuid",
             "/api/dashboard/parent/children",
