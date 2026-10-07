@@ -559,6 +559,7 @@ pub async fn get_activity_summary() -> Result<serde_json::Value, ServerFnError> 
 // ==================== Reports ====================
 
 /// Get reports for the admin's school with optional filters
+#[server(endpoint = "get_reports")]
 pub async fn get_reports(
     class_id: Option<String>,
     teacher_id: Option<String>,
@@ -748,6 +749,7 @@ pub async fn update_admin_profile(data: serde_json::Value) -> Result<serde_json:
 }
 
 /// Change admin's password
+#[server(endpoint = "change_admin_password")]
 pub async fn change_admin_password(new_password: String) -> Result<serde_json::Value, ServerFnError> {
     #[cfg(feature = "server")]
     {

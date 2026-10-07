@@ -167,6 +167,7 @@ pub async fn get_parents_by_school(school_id: String) -> Result<Vec<ParentOption
 
 /// Retired cross-tenant existence oracle. Uniqueness is enforced atomically by
 /// the actual authorized mutation instead of exposing account existence.
+#[server(endpoint = "form_data/validate_email")]
 pub async fn validate_email_uniqueness(
     _email: String,
     _exclude_user_id: Option<String>,
@@ -176,6 +177,7 @@ pub async fn validate_email_uniqueness(
 
 /// Retired generic UUID existence oracle. Object validation belongs in the
 /// actor-scoped mutation that consumes the identifier.
+#[server(endpoint = "form_data/validate_uuid")]
 pub async fn validate_uuid_exists(
     _uuid: String,
     _entity_type: String,
