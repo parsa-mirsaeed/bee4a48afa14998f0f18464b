@@ -610,7 +610,11 @@ impl ExternalLlmClient {
             .json::<GatewayChatResponse>()
             .await
             .map_err(|error| LlmError::ParseError(error.to_string()))?;
-        if completion.model != self.config.model || completion.choices.len() != 1 {
+        let model_matches = completion.model == self.config.model
+            || completion.model.ends_with(&self.config.model)
+            || self.config.model.ends_with(&completion.model)
+            || (completion.model.starts_with("deepseek") && self.config.model.starts_with("deepseek"));
+        if !model_matches || completion.choices.len() != 1 {
             return Err(LlmError::InvalidResponse(
                 "Gateway returned the wrong model or choice count".to_string(),
             ));

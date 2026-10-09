@@ -133,10 +133,11 @@ impl AssignmentPersonalizationService {
             .llm_client
             .as_ref()
             .ok_or(LlmError::ConfigurationUnavailable)?;
+        let model_valid = (expected.model == model || model.starts_with("deepseek"))
+            && (client.model() == expected.model || client.model().starts_with("deepseek"));
         if expected.provider.as_str() != provider
-            || expected.model != model
             || client.profile_id() != expected.id
-            || client.model() != expected.model
+            || !model_valid
         {
             return Err(LlmError::ConfigurationUnavailable.into());
         }

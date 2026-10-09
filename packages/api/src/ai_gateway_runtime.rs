@@ -216,9 +216,8 @@ impl Config {
             .map_err(|error| StartupError::InvalidConfig(error.to_string()))?;
         let llm_provider = if llm_mode == LlmMode::Connected {
             Some(Provider {
-                base_url: exact_external_url(
+                base_url: exact_llm_url(
                     &env_value("AI_LLM_BASE_URL", LLM_BASE_URL),
-                    LLM_BASE_URL,
                 )?,
                 api_key: optional_secret("LLM_API_KEY")?,
                 model: configured_llm_model,
@@ -1056,9 +1055,10 @@ async fn forward_chat(
         {
             Ok(response) if response.status().is_success() => {
                 let body = bounded_body(response, state.config.max_provider_response_bytes).await?;
-                let parsed: GatewayChatResponse =
+                let mut parsed: GatewayChatResponse =
                     serde_json::from_slice(&body).map_err(|_| ProviderFailure::InvalidResponse)?;
                 validate_chat_response(provider, &parsed)?;
+                parsed.model = provider.model.clone();
                 return Ok(parsed);
             }
             Ok(response) => {
@@ -1142,7 +1142,13 @@ fn validate_chat_response(
     provider: &Provider,
     response: &GatewayChatResponse,
 ) -> Result<(), ProviderFailure> {
-    if response.model != provider.model || response.choices.len() != 1 {
+    let model_matches = response.model == provider.model
+        || response.model.trim_start_matches("deepseek/").trim_start_matches("deepseek-")
+            == provider.model.trim_start_matches("deepseek/").trim_start_matches("deepseek-")
+        || response.model.ends_with(&provider.model)
+        || provider.model.ends_with(&response.model);
+
+    if !model_matches || response.choices.len() != 1 {
         return Err(ProviderFailure::InvalidResponse);
     }
     let choice = &response.choices[0];
@@ -1181,6 +1187,30 @@ async fn sleep_before_retry(config: &Config, attempt: u32, retry_after: Option<u
             .saturating_mul(1u32 << attempt.min(8))
     });
     tokio::time::sleep(delay.min(Duration::from_secs(30))).await;
+}
+
+const APPROVED_LLM_URLS: &[&str] = &[
+    "https://api.deepseek.com/v1/",
+    "https://api.gapgpt.app/v1/",
+];
+
+fn exact_llm_url(value: &str) -> Result<Url, StartupError> {
+    let requested = normalized_url(value)?;
+    if requested.scheme() != "https" || requested.port_or_known_default() != Some(443) {
+        return Err(StartupError::InvalidConfig(
+            "External LLM URL must use HTTPS on port 443".to_string(),
+        ));
+    }
+    let is_approved = APPROVED_LLM_URLS.iter().any(|approved| {
+        normalized_url(approved).map(|url| url == requested).unwrap_or(false)
+    });
+    if !is_approved {
+        return Err(StartupError::InvalidConfig(format!(
+            "External LLM URL must be one of approved origins: {}",
+            APPROVED_LLM_URLS.join(", ")
+        )));
+    }
+    Ok(requested)
 }
 
 fn exact_external_url(value: &str, approved: &'static str) -> Result<Url, StartupError> {

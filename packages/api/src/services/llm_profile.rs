@@ -56,7 +56,15 @@ pub fn validate_llm_profile_override(
     model: Option<&str>,
 ) -> Result<(), LlmProfileError> {
     if let Some(model) = model.filter(|value| !value.trim().is_empty()) {
-        if model != profile.model {
+        let is_valid = match profile.provider {
+            LlmProviderKind::DeepSeek => {
+                model == profile.model
+                    || model == "deepseek-v4.1-flash"
+                    || model.starts_with("deepseek-")
+                    || model.starts_with("deepseek/")
+            }
+        };
+        if !is_valid {
             return Err(LlmProfileError::ModelMismatch {
                 profile: profile.id,
                 expected: profile.model,
@@ -91,5 +99,6 @@ mod tests {
     #[test]
     fn matching_model_is_accepted() {
         validate_llm_profile_override(DEEPSEEK_CHAT_V1, Some(DEEPSEEK_CHAT_V1.model)).unwrap();
+        validate_llm_profile_override(DEEPSEEK_CHAT_V1, Some("deepseek-v4.1-flash")).unwrap();
     }
 }
