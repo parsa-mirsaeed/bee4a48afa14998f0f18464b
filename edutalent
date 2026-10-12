@@ -291,7 +291,13 @@ case "${command}" in
         docker compose --env-file "${ENV_FILE}" -f compose.yaml config --quiet
         docker compose --env-file "${ENV_FILE}" -f compose.release.yaml config --quiet
         grep -Fq 'cargo chef cook' Dockerfile
-        grep -Fq 'dioxus-cli@${DIOXUS_CLI_VERSION}' Dockerfile
+        # The pinned official Dioxus archive replaces cargo-binstall's
+        # unlocked source fallback. Require both the fixed version and digest
+        # enforcement rather than merely looking for a tool name.
+        grep -Fq 'ARG DIOXUS_CLI_VERSION=0.7.2' Dockerfile
+        grep -Fq 'dx-${target}.tar.gz' Dockerfile
+        grep -Fq 'sha256sum --check --status' Dockerfile
+        ! grep -Fq 'cargo binstall "dioxus-cli@' Dockerfile
         grep -Fq 'bash scripts/package/build_web_release.sh' Dockerfile
         grep -Fq 'dx bundle --web --release --package web --debug-symbols false' scripts/package/build_web_release.sh
         bash -n scripts/package/build_web_release.sh

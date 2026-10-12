@@ -37,6 +37,12 @@ class Stage1BuildBoundaryTests(unittest.TestCase):
         )[0]
         cls.complete_package = cls.package.split("  package:\n", 1)[1]
 
+    def test_unified_validate_enforces_the_reproducible_cli_contract(self):
+        self.assertIn("ARG DIOXUS_CLI_VERSION=0.7.2", self.edutalent)
+        self.assertIn("dx-${target}.tar.gz", self.edutalent)
+        self.assertIn("sha256sum --check --status", self.edutalent)
+        self.assertNotIn("dioxus-cli@${DIOXUS_CLI_VERSION}", self.edutalent)
+
     def test_toolchain_uses_checksum_pinned_prebuilt_cli_on_both_architectures(self):
         # A failed unauthenticated GitHub API request must not trigger an
         # unlocked cargo-install fallback in the image build.
