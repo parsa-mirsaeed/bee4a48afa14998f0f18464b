@@ -1234,6 +1234,7 @@ fn custom_llm_url(value: &str) -> Result<Url, StartupError> {
     ];
     if url.scheme() != "https"
         || url.port_or_known_default() != Some(443)
+        || host.ends_with('.')
         || host.parse::<std::net::IpAddr>().is_ok()
         || !lowered.contains('.')
         || lowered == "localhost"
@@ -1492,6 +1493,7 @@ mod tests {
         for rejected in [
             "http://gateway.example.org/v1/",
             "https://localhost/v1/",
+            "https://localhost./v1/",
             "https://127.0.0.1/v1/",
             "https://169.254.169.254/latest/",
             "https://api.internal/v1/",
