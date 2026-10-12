@@ -32,6 +32,13 @@ pub const DEEPSEEK_CHAT_V1: LlmProfile = LlmProfile {
     model: "deepseek-chat",
 };
 
+// This is a separate, pinned profile, not a wildcard DeepSeek model override.
+pub const DEEPSEEK_V41_FLASH_V1: LlmProfile = LlmProfile {
+    id: "deepseek-v41-flash-v1",
+    provider: LlmProviderKind::DeepSeek,
+    model: "deepseek-v4.1-flash",
+};
+
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum LlmProfileError {
     #[error("Unsupported LLM profile: {0}")]
@@ -47,6 +54,7 @@ pub enum LlmProfileError {
 pub fn resolve_llm_profile(value: &str) -> Result<LlmProfile, LlmProfileError> {
     match value.trim().to_ascii_lowercase().as_str() {
         "deepseek" | "deepseek-chat" | "deepseek-chat-v1" => Ok(DEEPSEEK_CHAT_V1),
+        "deepseek-v41-flash-v1" => Ok(DEEPSEEK_V41_FLASH_V1),
         other => Err(LlmProfileError::Unsupported(other.to_string())),
     }
 }
@@ -56,15 +64,7 @@ pub fn validate_llm_profile_override(
     model: Option<&str>,
 ) -> Result<(), LlmProfileError> {
     if let Some(model) = model.filter(|value| !value.trim().is_empty()) {
-        let is_valid = match profile.provider {
-            LlmProviderKind::DeepSeek => {
-                model == profile.model
-                    || model == "deepseek-v4.1-flash"
-                    || model.starts_with("deepseek-")
-                    || model.starts_with("deepseek/")
-            }
-        };
-        if !is_valid {
+        if model != profile.model {
             return Err(LlmProfileError::ModelMismatch {
                 profile: profile.id,
                 expected: profile.model,
@@ -99,6 +99,27 @@ mod tests {
     #[test]
     fn matching_model_is_accepted() {
         validate_llm_profile_override(DEEPSEEK_CHAT_V1, Some(DEEPSEEK_CHAT_V1.model)).unwrap();
-        validate_llm_profile_override(DEEPSEEK_CHAT_V1, Some("deepseek-v4.1-flash")).unwrap();
+        validate_llm_profile_override(DEEPSEEK_V41_FLASH_V1, Some(DEEPSEEK_V41_FLASH_V1.model)).unwrap();
+        assert_eq!(resolve_llm_profile(DEEPSEEK_V41_FLASH_V1.id).unwrap(), DEEPSEEK_V41_FLASH_V1);
+    }
+
+    #[test]
+    fn models_are_exactly_pinned_per_profile() {
+        for rejected in [
+            "deepseek-v4.1-flash",
+            "deepseek-any-other-model",
+            "deepseek/another-model",
+            "prefix-deepseek-chat",
+            "deepseek-chat-suffix",
+        ] {
+            assert!(matches!(
+                validate_llm_profile_override(DEEPSEEK_CHAT_V1, Some(rejected)),
+                Err(LlmProfileError::ModelMismatch { .. })
+            ), "unexpected registered model {rejected}");
+        }
+        assert!(validate_llm_profile_override(
+            DEEPSEEK_V41_FLASH_V1, Some(DEEPSEEK_CHAT_V1.model)
+        ).is_err());
+        assert!(resolve_llm_profile("deepseek-user-model").is_err());
     }
 }

@@ -481,15 +481,19 @@ def main() -> None:
     gateway_llm_profile = str(ai_env.get("LLM_PROFILE", ""))
     app_llm_model = str(app_env.get("LLM_MODEL", ""))
     gateway_llm_model = str(ai_env.get("LLM_MODEL", ""))
-    if (app_llm_profile, gateway_llm_profile) != (
-        "deepseek-chat-v1",
-        "deepseek-chat-v1",
-    ):
-        fail("app and AI gateway must use the registered deepseek-chat-v1 LLM profile")
-    if (app_llm_model, gateway_llm_model) != ("deepseek-chat", "deepseek-chat"):
-        fail("app and AI gateway must use the registered deepseek-chat model")
-    if ai_env.get("AI_LLM_BASE_URL") != "https://api.deepseek.com/v1/":
-        fail("LLM requests must use the exact approved DeepSeek origin")
+    approved_llm_contracts = {
+        ("deepseek-chat-v1", "deepseek-chat", "https://api.deepseek.com/v1/"),
+        ("deepseek-v41-flash-v1", "deepseek-v4.1-flash", "https://api.gapgpt.app/v1/"),
+    }
+    selected_llm_contract = (
+        app_llm_profile,
+        app_llm_model,
+        str(ai_env.get("AI_LLM_BASE_URL", "")),
+    )
+    if (app_llm_profile, app_llm_model) != (gateway_llm_profile, gateway_llm_model):
+        fail("app and AI gateway LLM profile/model must match exactly")
+    if selected_llm_contract not in approved_llm_contracts:
+        fail("LLM origin/profile/model must be one of the fixed approved contracts")
 
     llm_mode = str(ai_env.get("AI_LLM_MODE", "")).strip().lower()
     llm_key = str(ai_env.get("LLM_API_KEY", ""))

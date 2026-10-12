@@ -148,10 +148,14 @@ llm_model="$(read_env "${APP_ENV}" LLM_MODEL)"
 llm_origin="$(read_env "${APP_ENV}" AI_LLM_BASE_URL)"
 llm_mode="$(read_env "${APP_ENV}" AI_LLM_MODE)"
 llm_key="$(read_env "${APP_ENV}" LLM_API_KEY)"
-[[ "${llm_profile}|${llm_model}|${llm_origin}" == "deepseek-chat-v1|deepseek-chat|https://api.deepseek.com/v1/" ]] || {
-  echo "Assignment personalization LLM profile values do not match the controlled registry." >&2
-  exit 1
-}
+case "${llm_profile}|${llm_model}|${llm_origin}" in
+  "deepseek-chat-v1|deepseek-chat|https://api.deepseek.com/v1/" | "deepseek-v41-flash-v1|deepseek-v4.1-flash|https://api.gapgpt.app/v1/")
+    ;;
+  *)
+    echo "Assignment personalization requires an exact approved origin/profile/model pair." >&2
+    exit 1
+    ;;
+esac
 case "${llm_mode}" in
   "")
     if [[ -n "${llm_key}" ]]; then
