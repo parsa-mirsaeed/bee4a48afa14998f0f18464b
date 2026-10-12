@@ -83,10 +83,7 @@ impl AssignmentPersonalizationPolicyRepository {
         Ok(())
     }
 
-    fn validate_policy_values(
-        profile_id: &str,
-        delivery_policy: &str,
-    ) -> RepositoryResult<String> {
+    fn validate_policy_values(profile_id: &str, delivery_policy: &str) -> RepositoryResult<String> {
         let profile = resolve_llm_profile(profile_id)
             .map_err(|error| RepositoryError::Validation(error.to_string()))?;
         if !matches!(
