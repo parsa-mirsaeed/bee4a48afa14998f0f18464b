@@ -107,7 +107,7 @@ def require_no_capabilities(service: dict[str, Any], name: str) -> None:
 
 def valid_custom_llm_origin(value: str) -> bool:
     """One operator-owned public HTTPS endpoint, never a runtime URL allowlist."""
-    if "%" in value or "\\\\" in value or len(value) > 512:
+    if "%" in value or chr(92) in value or len(value) > 512:
         return False
     try:
         url = urlsplit(value)
