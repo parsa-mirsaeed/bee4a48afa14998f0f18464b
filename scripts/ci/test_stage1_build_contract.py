@@ -37,6 +37,23 @@ class Stage1BuildBoundaryTests(unittest.TestCase):
         )[0]
         cls.complete_package = cls.package.split("  package:\n", 1)[1]
 
+    def test_toolchain_uses_checksum_pinned_prebuilt_cli_on_both_architectures(self):
+        # A failed unauthenticated GitHub API request must not trigger an
+        # unlocked cargo-install fallback in the image build.
+        toolchain = self.dockerfile.split("FROM ${RUST_IMAGE} AS toolchain", 1)[1].split(
+            "WORKDIR /workspace", 1
+        )[0]
+        self.assertIn("ARG TARGETARCH", toolchain)
+        self.assertIn("amd64|x86_64", toolchain)
+        self.assertIn("arm64|aarch64", toolchain)
+        self.assertIn("sha256sum --check --status", toolchain)
+        self.assertIn("cargo-chef-${target}.tar.xz", toolchain)
+        self.assertIn("dx-${target}.tar.gz", toolchain)
+        self.assertIn("cargo chef --version", toolchain)
+        self.assertIn("dx --version", toolchain)
+        self.assertNotIn("cargo binstall", toolchain)
+        self.assertNotIn("cargo install", toolchain)
+
     def test_gateway_and_web_source_builds_are_independent(self):
         self.assertIn("FROM toolchain AS build-deps", self.dockerfile)
         self.assertIn("FROM build-deps AS gateway-builder", self.dockerfile)
