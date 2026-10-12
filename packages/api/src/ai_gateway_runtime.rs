@@ -15,6 +15,7 @@ use crate::services::embedding_profile::{
 };
 use crate::services::llm_profile::{
     resolve_llm_profile, validate_llm_profile_override, LlmProfile, DEEPSEEK_CHAT_V1,
+    DEEPSEEK_V41_FLASH_V1,
 };
 use axum::{
     extract::{DefaultBodyLimit, State},
@@ -215,11 +216,10 @@ impl Config {
         validate_llm_profile_override(llm_profile, Some(&configured_llm_model))
             .map_err(|error| StartupError::InvalidConfig(error.to_string()))?;
         let llm_provider = if llm_mode == LlmMode::Connected {
+            let base_url = exact_llm_url(&env_value("AI_LLM_BASE_URL", LLM_BASE_URL))?;
+            validate_llm_origin_profile(&base_url, llm_profile)?;
             Some(Provider {
-                base_url: exact_external_url(
-                    &env_value("AI_LLM_BASE_URL", LLM_BASE_URL),
-                    LLM_BASE_URL,
-                )?,
+                base_url,
                 api_key: optional_secret("LLM_API_KEY")?,
                 model: configured_llm_model,
             })
@@ -1142,6 +1142,7 @@ fn validate_chat_response(
     provider: &Provider,
     response: &GatewayChatResponse,
 ) -> Result<(), ProviderFailure> {
+    // A provider must not be able to relabel another model as the requested one.
     if response.model != provider.model || response.choices.len() != 1 {
         return Err(ProviderFailure::InvalidResponse);
     }
@@ -1181,6 +1182,44 @@ async fn sleep_before_retry(config: &Config, attempt: u32, retry_after: Option<u
             .saturating_mul(1u32 << attempt.min(8))
     });
     tokio::time::sleep(delay.min(Duration::from_secs(30))).await;
+}
+
+const GAPGPT_LLM_BASE_URL: &str = "https://api.gapgpt.app/v1/";
+const APPROVED_LLM_URLS: &[&str] = &[LLM_BASE_URL, GAPGPT_LLM_BASE_URL];
+
+// The external origin and model are one fixed deployment-owned contract.
+// A syntactically approved hostname cannot be paired with an arbitrary model.
+fn validate_llm_origin_profile(url: &Url, profile: LlmProfile) -> Result<(), StartupError> {
+    if (url.as_str() == LLM_BASE_URL && profile == DEEPSEEK_CHAT_V1)
+        || (url.as_str() == GAPGPT_LLM_BASE_URL && profile == DEEPSEEK_V41_FLASH_V1)
+    {
+        Ok(())
+    } else {
+        Err(StartupError::InvalidConfig(
+            "LLM origin and profile must be an explicitly registered pair".to_string(),
+        ))
+    }
+}
+
+fn exact_llm_url(value: &str) -> Result<Url, StartupError> {
+    let requested = normalized_url(value)?;
+    if requested.scheme() != "https" || requested.port_or_known_default() != Some(443) {
+        return Err(StartupError::InvalidConfig(
+            "External LLM URL must use HTTPS on port 443".to_string(),
+        ));
+    }
+    let is_approved = APPROVED_LLM_URLS.iter().any(|approved| {
+        normalized_url(approved)
+            .map(|url| url == requested)
+            .unwrap_or(false)
+    });
+    if !is_approved {
+        return Err(StartupError::InvalidConfig(format!(
+            "External LLM URL must be one of approved origins: {}",
+            APPROVED_LLM_URLS.join(", ")
+        )));
+    }
+    Ok(requested)
 }
 
 fn exact_external_url(value: &str, approved: &'static str) -> Result<Url, StartupError> {
@@ -1367,6 +1406,62 @@ mod tests {
         );
         assert!(exact_external_url("http://api.openai.com/v1/", OPENAI_BASE_URL).is_err());
         assert!(exact_external_url("https://user@api.openai.com/v1/", OPENAI_BASE_URL).is_err());
+    }
+
+    #[test]
+    fn approved_llm_origins_require_the_matching_registered_profile() {
+        let direct = exact_llm_url(LLM_BASE_URL).expect("direct DeepSeek URL");
+        let gap = exact_llm_url(GAPGPT_LLM_BASE_URL).expect("GapGPT URL");
+        assert!(validate_llm_origin_profile(&direct, DEEPSEEK_CHAT_V1).is_ok());
+        assert!(validate_llm_origin_profile(&gap, DEEPSEEK_V41_FLASH_V1).is_ok());
+        assert!(validate_llm_origin_profile(&direct, DEEPSEEK_V41_FLASH_V1).is_err());
+        assert!(validate_llm_origin_profile(&gap, DEEPSEEK_CHAT_V1).is_err());
+        for rejected in [
+            "http://api.gapgpt.app/v1/",
+            "https://api.gapgpt.app.evil.invalid/v1/",
+            "https://api.gapgpt.app/v1/other/",
+            "https://api.gapgpt.app:8443/v1/",
+            "https://someone@api.gapgpt.app/v1/",
+            "https://api.gapgpt.app/v1/?redirect=https://evil.invalid/",
+        ] {
+            assert!(exact_llm_url(rejected).is_err(), "accepted {rejected}");
+        }
+    }
+
+    #[test]
+    fn gateway_rejects_loose_provider_model_names() {
+        let provider = Provider {
+            base_url: Url::parse(GAPGPT_LLM_BASE_URL).expect("URL"),
+            api_key: None,
+            model: DEEPSEEK_V41_FLASH_V1.model.to_string(),
+        };
+        for observed in [
+            "deepseek-v4.1-flash-extra",
+            "vendor/deepseek-v4.1-flash",
+            "deepseek-chat",
+            "deepseek-",
+            "deepseek-v4.1",
+        ] {
+            let response = GatewayChatResponse {
+                model: observed.to_string(),
+                choices: vec![GatewayChatChoice {
+                    index: 0,
+                    message: GatewayChatMessage {
+                        role: "assistant".to_string(),
+                        content: "{}".to_string(),
+                    },
+                    finish_reason: Some("stop".to_string()),
+                }],
+                usage: None,
+            };
+            assert!(
+                matches!(
+                    validate_chat_response(&provider, &response),
+                    Err(ProviderFailure::InvalidResponse)
+                ),
+                "accepted {observed}"
+            );
+        }
     }
 
     #[test]

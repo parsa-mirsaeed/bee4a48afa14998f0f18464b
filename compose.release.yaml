@@ -94,7 +94,7 @@ services:
       EMBEDDING_PROFILE: ${EMBEDDING_PROFILE:-local-bge-v1}
       AI_EMBEDDING_BASE_URL: ${AI_EMBEDDING_BASE_URL:-http://embedding:80/v1/}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      AI_LLM_BASE_URL: https://api.deepseek.com/v1/
+      AI_LLM_BASE_URL: ${AI_LLM_BASE_URL:-https://api.deepseek.com/v1/}
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_PROFILE: ${LLM_PROFILE:-deepseek-chat-v1}
       LLM_MODEL: ${LLM_MODEL:-deepseek-chat}

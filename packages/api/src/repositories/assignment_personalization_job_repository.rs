@@ -439,11 +439,17 @@ impl AssignmentPersonalizationJobRepository {
                     END,
                     CASE WHEN effective.enabled THEN NULL ELSE NOW() END,
                     concat($1::text, ':', $2::text, ':assignment_personalization_v1:1'),
+                    CASE effective.llm_profile_id
+                        WHEN 'deepseek-chat-v1' THEN 'deepseek-chat'
+                        WHEN 'deepseek-v41-flash-v1' THEN 'deepseek-v4.1-flash'
+                    END,
                     $4,
                     $5,
-                    $6,
                     effective.llm_profile_id,
-                    $7,
+                    CASE effective.llm_profile_id
+                        WHEN 'deepseek-chat-v1' THEN 'deepseek'
+                        WHEN 'deepseek-v41-flash-v1' THEN 'gapgpt'
+                    END,
                     effective.policy_scope,
                     effective.policy_version,
                     effective.delivery_policy,
@@ -513,10 +519,8 @@ impl AssignmentPersonalizationJobRepository {
         .bind(assignment_id)
         .bind(student_id)
         .bind(requested_by)
-        .bind(ASSIGNMENT_PERSONALIZATION_MODEL)
         .bind(ASSIGNMENT_PERSONALIZATION_PROFILE)
         .bind(ASSIGNMENT_PERSONALIZATION_PROFILE_VERSION)
-        .bind(ASSIGNMENT_PERSONALIZATION_LLM_PROVIDER)
         .fetch_optional(&*self.base.pool())
         .await?
         .ok_or(RepositoryError::Unauthorized)?;

@@ -4,14 +4,46 @@ FROM ${RUST_IMAGE} AS toolchain
 
 ARG DIOXUS_CLI_VERSION=0.7.2
 ARG CARGO_CHEF_VERSION=0.1.77
-RUN apt-get update \
-    && apt-get install --yes --no-install-recommends ca-certificates curl pkg-config libssl-dev \
-    && rm -rf /var/lib/apt/lists/* \
-    && rustup target add wasm32-unknown-unknown \
-    && curl -L --proto '=https' --tlsv1.2 -sSf \
-        https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash \
-    && cargo binstall "cargo-chef@${CARGO_CHEF_VERSION}" -y --force \
-    && cargo binstall "dioxus-cli@${DIOXUS_CLI_VERSION}" -y --force
+ARG TARGETARCH
+# Pin official release archive digests for each supported architecture.
+# Do not use cargo-binstall's rate-limited API/source fallback for build tools.
+RUN set -eux; \
+    apt-get update; \
+    apt-get install --yes --no-install-recommends ca-certificates curl pkg-config libssl-dev xz-utils; \
+    rm -rf /var/lib/apt/lists/*; \
+    rustup target add wasm32-unknown-unknown; \
+    case "${TARGETARCH:-$(uname -m)}" in \
+      amd64|x86_64) \
+        target=x86_64-unknown-linux-gnu; \
+        chef_sha=ff390181459f53c787a496c4ee9a52d8c9c7975ab8d02c8dbd1a0fa1626171f4; \
+        dx_sha=83a68cee967bba9e86aa6909c48544c8056be7df6af252517d8014b625314ce6 ;; \
+      arm64|aarch64) \
+        target=aarch64-unknown-linux-gnu; \
+        chef_sha=64cd1b405894f587a461a0dd0f60127330b1ebd204fd46b1a36fb0ff6da157e0; \
+        dx_sha=a59c71a4503514fc2ab1943baa157769353c4e83c81954223a8849c5461a1728 ;; \
+      *) echo "Unsupported build architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    curl --fail --silent --show-error --location --retry 6 --retry-connrefused \
+      --proto '=https' --proto-redir '=https' --tlsv1.2 \
+      "https://github.com/LukeMathWalker/cargo-chef/releases/download/v${CARGO_CHEF_VERSION}/cargo-chef-${target}.tar.xz" \
+      --output /tmp/cargo-chef.tar.xz; \
+    echo "${chef_sha}  /tmp/cargo-chef.tar.xz" | sha256sum --check --status; \
+    chef_entry="$(tar -tf /tmp/cargo-chef.tar.xz | grep -E '(^|/)cargo-chef$' | head -n 1)"; \
+    test -n "${chef_entry}"; \
+    tar -xOJf /tmp/cargo-chef.tar.xz "${chef_entry}" > /usr/local/cargo/bin/cargo-chef; \
+    chmod 0755 /usr/local/cargo/bin/cargo-chef; \
+    curl --fail --silent --show-error --location --retry 6 --retry-connrefused \
+      --proto '=https' --proto-redir '=https' --tlsv1.2 \
+      "https://github.com/DioxusLabs/dioxus/releases/download/v${DIOXUS_CLI_VERSION}/dx-${target}.tar.gz" \
+      --output /tmp/dx.tar.gz; \
+    echo "${dx_sha}  /tmp/dx.tar.gz" | sha256sum --check --status; \
+    dx_entry="$(tar -tzf /tmp/dx.tar.gz | grep -E '(^|/)dx$' | head -n 1)"; \
+    test -n "${dx_entry}"; \
+    tar -xOzf /tmp/dx.tar.gz "${dx_entry}" > /usr/local/cargo/bin/dx; \
+    chmod 0755 /usr/local/cargo/bin/dx; \
+    cargo chef --version; \
+    dx --version; \
+    rm -f /tmp/cargo-chef.tar.xz /tmp/dx.tar.gz
 
 WORKDIR /workspace
 

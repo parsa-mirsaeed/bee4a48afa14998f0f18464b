@@ -180,7 +180,14 @@ Production uses the server-side AI Gateway boundary. Embedding transport and cha
 
 The embedding profile registry includes the offline local BGE profile (`local-bge-v1`) and the approved connected OpenAI profile (`openai-v1`) with fixed model/vector/collection contracts. Different embedding dimensions/models use distinct versioned Qdrant collections.
 
-Assignment personalization uses the separate controlled LLM profile registry. The initial approved profile is `deepseek-chat-v1` / `deepseek-chat`. A deployment may therefore keep `AI_GATEWAY_MODE=offline` with `local-bge-v1` while supplying the gateway-only `LLM_API_KEY`. When `AI_LLM_MODE` is blank, a non-empty approved key enables connected chat automatically; operators may pin `AI_LLM_MODE=connected` or `disabled` explicitly. Air-gapped deployments should pin it to `disabled`. Arbitrary provider destinations and arbitrary model names remain rejected.
+Assignment personalization uses an exact allowlist of origin/profile/model triples:
+
+- Existing default: `AI_LLM_BASE_URL=https://api.deepseek.com/v1/`, `LLM_PROFILE=deepseek-chat-v1`, `LLM_MODEL=deepseek-chat`.
+- Explicit GapGPT opt-in: `AI_LLM_BASE_URL=https://api.gapgpt.app/v1/`, `LLM_PROFILE=deepseek-v41-flash-v1`, `LLM_MODEL=deepseek-v4.1-flash`.
+
+The three values must be changed together. Provider credentials (`LLM_API_KEY`) belong only in the protected production environment and are supplied only to the AI Gateway; verify the requested model is actually available to the operator's provider account before switching. Keep `AI_GATEWAY_MODE=offline` and `EMBEDDING_PROFILE=local-bge-v1` for the local 384-dimensional BGE/Qdrant collection. Set `AI_LLM_MODE=connected` to explicitly enable externally connected chat; blank mode safely auto-enables chat only when a valid key is present, while `disabled` forces it off (recommended for air-gapped deployments).
+
+**Durable-job compatibility:** deployment profile and each school's effective personalization policy are independent. After a controlled switch to the GapGPT triple, authorized Platform Admins must select `deepseek-v41-flash-v1` for the applicable school/teacher policies before expecting new jobs to succeed. Previously enqueued jobs retain their immutable original execution contract and must not be silently rewritten; drain them on the old gateway or resolve/retry through the approved operational process. Switching back requires the same policy alignment. Unknown model names, arbitrary origins, cross-profile jobs, and provider-response aliases fail closed.
 
 The application never receives provider API keys or external provider base URLs. AI Gateway `/healthz` reports the non-secret embedding profile plus LLM mode/profile/provider/model/configured state so operator/admin diagnostics can distinguish disabled, unconfigured and runtime-outage conditions.
 
