@@ -175,7 +175,7 @@ try:
     blocked = (".local", ".localhost", ".internal", ".test", ".invalid", ".example")
     if not (
         url.scheme == "https" and port in (None, 443)
-        and "." in host and not host.lower().endswith(blocked)
+        and "." in host and not host.endswith(".") and not host.lower().endswith(blocked)
         and not url.username and not url.password and not url.query
         and not url.fragment and len(url.path) <= 128
         and "//" not in url.path and ".." not in url.path
