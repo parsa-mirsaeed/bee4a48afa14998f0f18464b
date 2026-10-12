@@ -442,6 +442,7 @@ impl AssignmentPersonalizationJobRepository {
                     CASE effective.llm_profile_id
                         WHEN 'deepseek-chat-v1' THEN 'deepseek-chat'
                         WHEN 'deepseek-v41-flash-v1' THEN 'deepseek-v4.1-flash'
+                        ELSE substring(effective.llm_profile_id from 11)
                     END,
                     $4,
                     $5,
@@ -449,6 +450,7 @@ impl AssignmentPersonalizationJobRepository {
                     CASE effective.llm_profile_id
                         WHEN 'deepseek-chat-v1' THEN 'deepseek'
                         WHEN 'deepseek-v41-flash-v1' THEN 'gapgpt'
+                        ELSE 'custom'
                     END,
                     effective.policy_scope,
                     effective.policy_version,
