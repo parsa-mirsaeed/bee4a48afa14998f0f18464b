@@ -509,17 +509,6 @@ jobs:
             cargo test -p web --features server --locked
           fi
 
-      # TEMPORARY DIAGNOSTIC: never alters proof result or its --locked checks.
-      # If locked resolution fails, print cargo's canonical lockfile-only diff.
-      # Remove this block after committing the resolver-produced lockfile.
-      - name: Diagnose Cargo.lock exact resolution on failed proof
-        if: failure()
-        shell: bash
-        run: |
-          set -euo pipefail
-          cargo metadata --format-version 1 > /dev/null
-          git diff -- Cargo.lock
-
   browser-smoke:
     name: Browser smoke critical journeys
     needs: classify
