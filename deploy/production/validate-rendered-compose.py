@@ -142,6 +142,14 @@ def valid_custom_llm_origin(value: str) -> bool:
     )
 
 
+def valid_custom_public_ip(value: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(value)
+    except ValueError:
+        return False
+    return isinstance(ip, ipaddress.IPv4Address) and ip.is_global
+
+
 def main() -> None:
     if len(sys.argv) not in {2, 3}:
         fail(
@@ -538,6 +546,9 @@ def main() -> None:
             or app_llm_profile != "custom-v1:" + app_llm_model
             or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,95}", custom_model)
             or not valid_custom_llm_origin(selected_llm_contract[2])
+            or not valid_custom_public_ip(
+                str(ai_env.get("AI_LLM_CUSTOM_PUBLIC_IP", ""))
+            )
         ):
             fail("LLM origin/profile/model must be a pinned contract or one safe operator-owned custom contract")
 
