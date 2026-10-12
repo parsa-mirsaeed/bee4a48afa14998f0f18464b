@@ -392,6 +392,91 @@ async fn publication_enqueues_atomically_and_duplicate_publish_is_idempotent() {
     }
 }
 
+
+#[cfg(feature = "server")]
+#[tokio::test]
+async fn gapgpt_profile_is_stamped_at_enqueue_with_exact_model_and_provider() {
+    let _queue_guard = QUEUE_TEST_LOCK.lock().await;
+    let fixture = queue_fixture(1).await;
+
+    // Existing jobs retain their immutable execution contract even after a
+    // school switches its policy to the newly approved provider.
+    let previous: (String, String, String) = sqlx::query_as(
+        "SELECT llm_profile_id, llm_provider, model_name FROM assignment_personalization_jobs WHERE assignment_id = $1",
+    )
+    .bind(fixture.assignment_id)
+    .fetch_one(&*fixture.pool)
+    .await
+    .expect("read original job");
+    assert_eq!(previous, ("deepseek-chat-v1".into(), "deepseek".into(), "deepseek-chat".into()));
+
+    sqlx::query(
+        r#"INSERT INTO assignment_personalization_school_policies (school_id, llm_profile_id)
+           VALUES ($1, 'deepseek-v41-flash-v1')
+           ON CONFLICT (school_id) DO UPDATE SET llm_profile_id = EXCLUDED.llm_profile_id"#,
+    )
+    .bind(fixture.school_id)
+    .execute(&*fixture.pool)
+    .await
+    .expect("approve exact GapGPT school policy");
+
+    let new_assignment = run_as(
+        fixture.pool.as_ref(),
+        actor(fixture.teacher_user, "Teacher", fixture.school_id),
+        fixture.repository.create_for_teacher(
+            fixture.teacher,
+            CreateAssignmentRequest {
+                class_section_id: fixture.class_section_id.into(),
+                subject_id: fixture.subject_id.into(),
+                lecture_id: None,
+                lecture_title: None,
+                lecture_number: None,
+                title: "GapGPT exact-contract fixture".into(),
+                body: "Adapt the assignment".into(),
+                due_at: Utc::now() + Duration::days(7),
+                material_ids: None,
+            },
+        ),
+    )
+    .await
+    .expect("create second assignment");
+    run_as(
+        fixture.pool.as_ref(),
+        actor(fixture.teacher_user, "Teacher", fixture.school_id),
+        fixture.repository.publish_for_teacher(fixture.teacher, new_assignment.id),
+    )
+    .await
+    .expect("publish second assignment");
+    let new_id: Uuid = new_assignment.id.into();
+    let selected: (String, String, String) = sqlx::query_as(
+        "SELECT llm_profile_id, llm_provider, model_name FROM assignment_personalization_jobs WHERE assignment_id = $1",
+    )
+    .bind(new_id)
+    .fetch_one(&*fixture.pool)
+    .await
+    .expect("read approved job");
+    assert_eq!(selected, ("deepseek-v41-flash-v1".into(), "gapgpt".into(), "deepseek-v4.1-flash".into()));
+
+    let original_after: (String, String, String) = sqlx::query_as(
+        "SELECT llm_profile_id, llm_provider, model_name FROM assignment_personalization_jobs WHERE assignment_id = $1",
+    )
+    .bind(fixture.assignment_id)
+    .fetch_one(&*fixture.pool)
+    .await
+    .expect("read immutable previous job");
+    assert_eq!(original_after, previous);
+
+    let mut transaction = fixture.pool.begin().await.expect("start negative contract transaction");
+    assert!(sqlx::query(
+        "UPDATE assignment_personalization_jobs SET model_name = 'deepseek-unregistered' WHERE assignment_id = $1"
+    )
+    .bind(new_id)
+    .execute(&mut *transaction)
+    .await
+    .is_err(), "unregistered job model must be denied by DB");
+    transaction.rollback().await.expect("rollback intentional invalid update");
+}
+
 #[cfg(feature = "server")]
 #[tokio::test]
 async fn partial_completion_resumes_remaining_student_and_stale_lease_is_reclaimed() {

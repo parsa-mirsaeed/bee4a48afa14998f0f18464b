@@ -9,12 +9,14 @@ use thiserror::Error;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LlmProviderKind {
     DeepSeek,
+    GapGpt,
 }
 
 impl LlmProviderKind {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::DeepSeek => "deepseek",
+            Self::GapGpt => "gapgpt",
         }
     }
 }
@@ -35,7 +37,7 @@ pub const DEEPSEEK_CHAT_V1: LlmProfile = LlmProfile {
 // This is a separate, pinned profile, not a wildcard DeepSeek model override.
 pub const DEEPSEEK_V41_FLASH_V1: LlmProfile = LlmProfile {
     id: "deepseek-v41-flash-v1",
-    provider: LlmProviderKind::DeepSeek,
+    provider: LlmProviderKind::GapGpt,
     model: "deepseek-v4.1-flash",
 };
 
@@ -63,7 +65,7 @@ pub fn validate_llm_profile_override(
     profile: LlmProfile,
     model: Option<&str>,
 ) -> Result<(), LlmProfileError> {
-    if let Some(model) = model.filter(|value| !value.trim().is_empty()) {
+    if let Some(model) = model {
         if model != profile.model {
             return Err(LlmProfileError::ModelMismatch {
                 profile: profile.id,
@@ -82,6 +84,7 @@ mod tests {
     #[test]
     fn aliases_resolve_to_registered_profile() {
         assert_eq!(resolve_llm_profile("deepseek").unwrap(), DEEPSEEK_CHAT_V1);
+        assert_eq!(DEEPSEEK_V41_FLASH_V1.provider.as_str(), "gapgpt");
         assert_eq!(
             resolve_llm_profile("deepseek-chat-v1").unwrap(),
             DEEPSEEK_CHAT_V1
