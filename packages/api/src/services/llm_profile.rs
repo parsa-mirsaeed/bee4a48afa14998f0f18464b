@@ -51,8 +51,7 @@ pub fn valid_custom_model(model: &str) -> bool {
     (1..=96).contains(&model.len())
         && model.as_bytes()[0].is_ascii_alphanumeric()
         && model.bytes().all(|byte| {
-            byte.is_ascii_alphanumeric()
-                || matches!(byte, b'-' | b'_' | b'.' | b'/' | b':')
+            byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'/' | b':')
         })
 }
 
@@ -85,7 +84,9 @@ pub fn resolve_llm_profile(value: &str) -> Result<LlmProfile, LlmProfileError> {
     match value.to_ascii_lowercase().as_str() {
         "deepseek" | "deepseek-chat" | "deepseek-chat-v1" => Ok(DEEPSEEK_CHAT_V1),
         "deepseek-v41-flash-v1" => Ok(DEEPSEEK_V41_FLASH_V1),
-        other => Err(LlmProfileError::Unsupported(other.chars().take(128).collect())),
+        other => Err(LlmProfileError::Unsupported(
+            other.chars().take(128).collect(),
+        )),
     }
 }
 
@@ -197,10 +198,8 @@ mod tests {
                 "accepted unsafe model {model:?}"
             );
         }
-        assert!(resolve_llm_profile(&format!(
-            "{CUSTOM_PROFILE_PREFIX}{}",
-            "a".repeat(97)
-        ))
-        .is_err());
+        assert!(
+            resolve_llm_profile(&format!("{CUSTOM_PROFILE_PREFIX}{}", "a".repeat(97))).is_err()
+        );
     }
 }
