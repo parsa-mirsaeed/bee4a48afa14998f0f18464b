@@ -1201,7 +1201,7 @@ fn validate_llm_origin_profile(url: &Url, profile: &LlmProfile) -> Result<(), St
     if (url.as_str() == LLM_BASE_URL && profile == &DEEPSEEK_CHAT_V1)
         || (url.as_str() == GAPGPT_LLM_BASE_URL && profile == &DEEPSEEK_V41_FLASH_V1)
         || (profile.provider == LlmProviderKind::Custom
-            && custom_llm_url(url.as_str()).as_ref() == Ok(url))
+            && custom_llm_url(url.as_str()).is_ok_and(|accepted| accepted == *url))
     {
         Ok(())
     } else {
