@@ -34,7 +34,7 @@ use std::{
     collections::HashMap,
     env,
     hash::Hash,
-    net::SocketAddr,
+    net::{Ipv4Addr, SocketAddr},
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -143,6 +143,7 @@ struct Config {
     llm_mode: LlmMode,
     llm_profile: LlmProfile,
     llm_provider: Option<Provider>,
+    llm_custom_public_ip: Option<Ipv4Addr>,
     connect_timeout: Duration,
     request_timeout: Duration,
     max_retries: u32,
@@ -233,6 +234,31 @@ impl Config {
             None
         };
 
+        // Pin the custom hostname to an operator-verified public IP before
+        // building reqwest. A DNS rebind may never redirect student data or
+        // gateway credentials to an internal service.
+        let llm_custom_public_ip =
+            if llm_mode == LlmMode::Connected && llm_profile.provider == LlmProviderKind::Custom {
+                let address = env::var("AI_LLM_CUSTOM_PUBLIC_IP").map_err(|_| {
+                    StartupError::InvalidConfig(
+                        "Custom LLM requires AI_LLM_CUSTOM_PUBLIC_IP".to_string(),
+                    )
+                })?;
+                let ip = address.parse::<Ipv4Addr>().map_err(|_| {
+                    StartupError::InvalidConfig(
+                        "AI_LLM_CUSTOM_PUBLIC_IP must be a public IPv4 address".to_string(),
+                    )
+                })?;
+                if !public_llm_ipv4(ip) {
+                    return Err(StartupError::InvalidConfig(
+                        "AI_LLM_CUSTOM_PUBLIC_IP must be globally routable".to_string(),
+                    ));
+                }
+                Some(ip)
+            } else {
+                None
+            };
+
         let internal_token = required_internal_token()?;
         Ok(Self {
             listen_addr: env_value("AI_GATEWAY_LISTEN_ADDR", "0.0.0.0:8090")
@@ -249,6 +275,7 @@ impl Config {
             llm_mode,
             llm_profile,
             llm_provider,
+            llm_custom_public_ip,
             connect_timeout: Duration::from_secs(env_u64("AI_CONNECT_TIMEOUT_SECONDS", 5, 1, 30)),
             request_timeout: Duration::from_secs(env_u64("AI_REQUEST_TIMEOUT_SECONDS", 45, 5, 180)),
             max_retries: env_u64("AI_MAX_RETRIES", 2, 0, 3) as u32,
@@ -322,6 +349,7 @@ impl Config {
                 api_key: Some("test-llm-key-abcdefghijklmnopqrstuvwxyz".to_string()),
                 model: LLM_MODEL.to_string(),
             }),
+            llm_custom_public_ip: None,
             connect_timeout: Duration::from_secs(1),
             request_timeout: Duration::from_secs(2),
             max_retries: 0,
@@ -519,12 +547,26 @@ struct AppState {
 
 impl AppState {
     fn new(config: Config) -> Result<Self, StartupError> {
-        let client = reqwest::Client::builder()
+        let mut builder = reqwest::Client::builder()
             .connect_timeout(config.connect_timeout)
             .timeout(config.request_timeout)
             .redirect(RedirectPolicy::none())
-            .user_agent("edutalent-ai-gateway/1")
-            .build()?;
+            .user_agent("edutalent-ai-gateway/1");
+        if let Some(ip) = config.llm_custom_public_ip {
+            let provider = config.llm_provider.as_ref().ok_or_else(|| {
+                StartupError::InvalidConfig("Custom LLM provider is missing".to_string())
+            })?;
+            let host = provider.base_url.host_str().ok_or_else(|| {
+                StartupError::InvalidConfig("Custom LLM host is missing".to_string())
+            })?;
+            // Disable proxy environment inheritance and override the resolver:
+            // TLS still authenticates the original URL hostname, while actual
+            // connections are forced to the public operator-pinned address.
+            builder = builder
+                .no_proxy()
+                .resolve(host, SocketAddr::new(ip.into(), 443));
+        }
+        let client = builder.build()?;
         Ok(Self {
             embedding_slots: Arc::new(Semaphore::new(config.embedding_concurrency)),
             llm_slots: Arc::new(Semaphore::new(config.llm_concurrency)),
@@ -1255,6 +1297,26 @@ fn custom_llm_url(value: &str) -> Result<Url, StartupError> {
     Ok(url)
 }
 
+/// Conservative IPv4 allowlist: deny all non-public and reserved address
+/// ranges; a public DNS name alone is NOT adequate SSRF protection.
+fn public_llm_ipv4(ip: Ipv4Addr) -> bool {
+    let [a, b, c, _] = ip.octets();
+    !(a == 0
+        || a == 10
+        || a == 127
+        || a >= 224
+        || (a == 100 && (64..=127).contains(&b))
+        || (a == 169 && b == 254)
+        || (a == 172 && (16..=31).contains(&b))
+        || (a == 192 && b == 0 && c == 0)
+        || (a == 192 && b == 0 && c == 2)
+        || (a == 192 && b == 88 && c == 99)
+        || (a == 192 && b == 168)
+        || (a == 198 && (b == 18 || b == 19))
+        || (a == 198 && b == 51 && c == 100)
+        || (a == 203 && b == 0 && c == 113))
+}
+
 fn exact_llm_url(value: &str) -> Result<Url, StartupError> {
     let requested = normalized_url(value)?;
     if requested.scheme() != "https" || requested.port_or_known_default() != Some(443) {
@@ -1505,6 +1567,32 @@ mod tests {
             "https://gateway.example.org/v1/%2e%2e/",
         ] {
             assert!(custom_llm_url(rejected).is_err(), "accepted {rejected}");
+        }
+    }
+
+    #[test]
+    fn custom_ip_pin_requires_public_unicast_address() {
+        for approved in ["1.1.1.1", "8.8.8.8", "9.9.9.9"] {
+            assert!(public_llm_ipv4(approved.parse().unwrap()), "{approved}");
+        }
+        for denied in [
+            "0.0.0.0",
+            "10.0.0.1",
+            "127.0.0.1",
+            "100.64.0.1",
+            "169.254.169.254",
+            "172.16.0.1",
+            "192.0.0.1",
+            "192.0.2.1",
+            "192.88.99.1",
+            "192.168.1.1",
+            "198.18.0.1",
+            "198.51.100.1",
+            "203.0.113.1",
+            "224.0.0.1",
+            "255.255.255.255",
+        ] {
+            assert!(!public_llm_ipv4(denied.parse().unwrap()), "{denied}");
         }
     }
 
