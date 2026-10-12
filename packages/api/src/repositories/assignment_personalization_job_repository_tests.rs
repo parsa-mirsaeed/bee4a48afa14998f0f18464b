@@ -544,7 +544,9 @@ async fn custom_operator_profile_stamps_exact_model_and_rejects_tampering() {
     run_as(
         fixture.pool.as_ref(),
         actor(fixture.teacher_user, "Teacher", fixture.school_id),
-        fixture.repository.publish_for_teacher(fixture.teacher, new_assignment.id),
+        fixture
+            .repository
+            .publish_for_teacher(fixture.teacher, new_assignment.id),
     )
     .await
     .expect("publish custom profile assignment");
@@ -575,7 +577,11 @@ async fn custom_operator_profile_stamps_exact_model_and_rejects_tampering() {
     .expect("read original job after custom policy");
     assert_eq!(original_after, previous);
 
-    let mut transaction = fixture.pool.begin().await.expect("negative contract transaction");
+    let mut transaction = fixture
+        .pool
+        .begin()
+        .await
+        .expect("negative contract transaction");
     assert!(
         sqlx::query("UPDATE assignment_personalization_jobs SET model_name = 'different-model' WHERE assignment_id = $1")
             .bind(new_id)
@@ -584,9 +590,16 @@ async fn custom_operator_profile_stamps_exact_model_and_rejects_tampering() {
             .is_err(),
         "custom job model may not diverge from the approved immutable profile"
     );
-    transaction.rollback().await.expect("rollback negative job model test");
+    transaction
+        .rollback()
+        .await
+        .expect("rollback negative job model test");
 
-    let mut transaction = fixture.pool.begin().await.expect("negative policy transaction");
+    let mut transaction = fixture
+        .pool
+        .begin()
+        .await
+        .expect("negative policy transaction");
     assert!(
         sqlx::query("UPDATE assignment_personalization_school_policies SET llm_profile_id = 'custom-v1:../../metadata' WHERE school_id = $1")
             .bind(fixture.school_id)
@@ -595,7 +608,10 @@ async fn custom_operator_profile_stamps_exact_model_and_rejects_tampering() {
             .is_err(),
         "unsafe custom policy identifiers must be denied in PostgreSQL"
     );
-    transaction.rollback().await.expect("rollback negative profile test");
+    transaction
+        .rollback()
+        .await
+        .expect("rollback negative profile test");
 }
 
 #[cfg(feature = "server")]
