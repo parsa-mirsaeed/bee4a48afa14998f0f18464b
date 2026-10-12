@@ -8,7 +8,10 @@ use {
         AssignmentPersonalizationJobRepository, AssignmentPersonalizationPolicyRepository,
         SchoolPersonalizationPolicy, TeacherPersonalizationPolicy,
     },
-    crate::services::{llm_service::INTERNAL_GATEWAY_ORIGIN, DEEPSEEK_CHAT_V1},
+    crate::services::{
+        llm_profile::DEEPSEEK_V41_FLASH_V1, llm_service::INTERNAL_GATEWAY_ORIGIN,
+        DEEPSEEK_CHAT_V1,
+    },
     reqwest::redirect::Policy as RedirectPolicy,
     std::time::Duration,
     uuid::Uuid,
@@ -363,11 +366,14 @@ pub async fn get_admin_personalization_overview(
 
         Ok(AdminPersonalizationOverviewDto {
             capability,
-            methods: vec![AdminPersonalizationMethodDto {
-                profile_id: DEEPSEEK_CHAT_V1.id.to_string(),
-                provider: DEEPSEEK_CHAT_V1.provider.as_str().to_string(),
-                model: DEEPSEEK_CHAT_V1.model.to_string(),
-            }],
+            methods: [DEEPSEEK_CHAT_V1, DEEPSEEK_V41_FLASH_V1]
+                .into_iter()
+                .map(|method| AdminPersonalizationMethodDto {
+                    profile_id: method.id.to_string(),
+                    provider: method.provider.as_str().to_string(),
+                    model: method.model.to_string(),
+                })
+                .collect(),
             schools,
             summaries,
             recent_jobs,
