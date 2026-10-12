@@ -134,9 +134,9 @@ impl AssignmentPersonalizationService {
             .as_ref()
             .ok_or(LlmError::ConfigurationUnavailable)?;
         if expected.provider.as_str() != provider
-            || model != expected.model
-            || client.profile_id() != expected.id
-            || client.model() != expected.model
+            || model != expected.model.as_ref()
+            || client.profile_id() != expected.id.as_ref()
+            || client.model() != expected.model.as_ref()
         {
             return Err(LlmError::ConfigurationUnavailable.into());
         }

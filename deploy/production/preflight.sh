@@ -152,8 +152,44 @@ case "${llm_profile}|${llm_model}|${llm_origin}" in
   "deepseek-chat-v1|deepseek-chat|https://api.deepseek.com/v1/" | "deepseek-v41-flash-v1|deepseek-v4.1-flash|https://api.gapgpt.app/v1/")
     ;;
   *)
-    echo "Assignment personalization requires an exact approved origin/profile/model pair." >&2
-    exit 1
+    if [[ "${llm_profile}" != custom-v1:* || "${llm_profile}" != "custom-v1:${llm_model}" || ! "${llm_model}" =~ ^[A-Za-z0-9][A-Za-z0-9._:/-]{0,95}$ ]]; then
+      echo "Assignment personalization requires a pinned contract or exact custom-v1:<model>." >&2
+      exit 1
+    fi
+    llm_custom_public_ip="$(read_env "${APP_ENV}" AI_LLM_CUSTOM_PUBLIC_IP)"
+    python3 - "${llm_origin}" "${llm_custom_public_ip}" <<'PY'
+import ipaddress
+import sys
+from urllib.parse import urlsplit
+
+value = sys.argv[1]
+try:
+    pinned_ip = ipaddress.ip_address(sys.argv[2])
+    if not isinstance(pinned_ip, ipaddress.IPv4Address) or not pinned_ip.is_global:
+        raise ValueError("custom provider public IPv4 pin must be globally routable")
+    url = urlsplit(value)
+    host = url.hostname or ""
+    port = url.port
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        pass
+    else:
+        raise ValueError("IP literals are forbidden")
+    blocked = (".local", ".localhost", ".internal", ".test", ".invalid", ".example")
+    if not (
+        url.scheme == "https" and port in (None, 443)
+        and "." in host and not host.endswith(".") and not host.lower().endswith(blocked)
+        and not url.username and not url.password and not url.query
+        and not url.fragment and len(url.path) <= 128
+        and "//" not in url.path and ".." not in url.path
+        and "%" not in value and chr(92) not in value
+        and len(value) <= 512
+    ):
+        raise ValueError("custom gateway URL must be a public HTTPS API endpoint")
+except ValueError as error:
+    raise SystemExit(f"Invalid custom AI provider origin: {error}") from error
+PY
     ;;
 esac
 case "${llm_mode}" in

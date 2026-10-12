@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import ipaddress
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -101,6 +103,51 @@ def require_no_capabilities(service: dict[str, Any], name: str) -> None:
     cap_drop = {str(value).upper() for value in service.get("cap_drop", []) or []}
     if "ALL" not in cap_drop:
         fail(f"{name} must drop all Linux capabilities")
+
+
+def valid_custom_llm_origin(value: str) -> bool:
+    """One operator-owned public HTTPS endpoint, never a runtime URL allowlist."""
+    if "%" in value or chr(92) in value or len(value) > 512:
+        return False
+    try:
+        url = urlsplit(value)
+        host = url.hostname or ""
+        port = url.port
+        ipaddress.ip_address(host)
+        return False
+    except ValueError:
+        # Invalid port/URL must fail; valid public DNS hostnames aren't IPs.
+        try:
+            url = urlsplit(value)
+            host = url.hostname or ""
+            port = url.port
+        except ValueError:
+            return False
+    blocked = (".local", ".localhost", ".internal", ".test", ".invalid", ".example")
+    return (
+        url.scheme == "https"
+        and port in (None, 443)
+        and bool(host)
+        and not host.endswith(".")
+        and "." in host
+        and host.lower() != "localhost"
+        and not host.lower().endswith(blocked)
+        and url.username is None
+        and url.password is None
+        and not url.query
+        and not url.fragment
+        and len(url.path) <= 128
+        and "//" not in url.path
+        and ".." not in url.path
+    )
+
+
+def valid_custom_public_ip(value: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(value)
+    except ValueError:
+        return False
+    return isinstance(ip, ipaddress.IPv4Address) and ip.is_global
 
 
 def main() -> None:
@@ -493,7 +540,17 @@ def main() -> None:
     if (app_llm_profile, app_llm_model) != (gateway_llm_profile, gateway_llm_model):
         fail("app and AI gateway LLM profile/model must match exactly")
     if selected_llm_contract not in approved_llm_contracts:
-        fail("LLM origin/profile/model must be one of the fixed approved contracts")
+        custom_model = app_llm_profile.removeprefix("custom-v1:")
+        if (
+            not app_llm_profile.startswith("custom-v1:")
+            or app_llm_profile != "custom-v1:" + app_llm_model
+            or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,95}", custom_model)
+            or not valid_custom_llm_origin(selected_llm_contract[2])
+            or not valid_custom_public_ip(
+                str(ai_env.get("AI_LLM_CUSTOM_PUBLIC_IP", ""))
+            )
+        ):
+            fail("LLM origin/profile/model must be a pinned contract or one safe operator-owned custom contract")
 
     llm_mode = str(ai_env.get("AI_LLM_MODE", "")).strip().lower()
     llm_key = str(ai_env.get("LLM_API_KEY", ""))

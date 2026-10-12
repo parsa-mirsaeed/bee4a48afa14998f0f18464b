@@ -501,6 +501,121 @@ async fn gapgpt_profile_is_stamped_at_enqueue_with_exact_model_and_provider() {
 
 #[cfg(feature = "server")]
 #[tokio::test]
+async fn custom_operator_profile_stamps_exact_model_and_rejects_tampering() {
+    let _queue_guard = QUEUE_TEST_LOCK.lock().await;
+    let fixture = queue_fixture(1).await;
+    let previous: (String, String, String) = sqlx::query_as(
+        "SELECT llm_profile_id, llm_provider, model_name FROM assignment_personalization_jobs WHERE assignment_id = $1",
+    )
+    .bind(fixture.assignment_id)
+    .fetch_one(&*fixture.pool)
+    .await
+    .expect("read immutable original profile");
+
+    sqlx::query(
+        "UPDATE assignment_personalization_school_policies SET llm_profile_id = $2 WHERE school_id = $1",
+    )
+    .bind(fixture.school_id)
+    .bind("custom-v1:vendor/model-name:fast")
+    .execute(&*fixture.pool)
+    .await
+    .expect("register exact custom model policy");
+
+    let new_assignment = run_as(
+        fixture.pool.as_ref(),
+        actor(fixture.teacher_user, "Teacher", fixture.school_id),
+        fixture.repository.create_for_teacher(
+            fixture.teacher,
+            CreateAssignmentRequest {
+                class_section_id: fixture.class_section_id.into(),
+                subject_id: fixture.subject_id.into(),
+                lecture_id: None,
+                lecture_title: None,
+                lecture_number: None,
+                title: "Custom operator model fixture".into(),
+                body: "Personalize using the selected policy contract".into(),
+                due_at: Utc::now() + Duration::days(7),
+                material_ids: None,
+            },
+        ),
+    )
+    .await
+    .expect("create custom profile assignment");
+    run_as(
+        fixture.pool.as_ref(),
+        actor(fixture.teacher_user, "Teacher", fixture.school_id),
+        fixture
+            .repository
+            .publish_for_teacher(fixture.teacher, new_assignment.id),
+    )
+    .await
+    .expect("publish custom profile assignment");
+
+    let new_id: Uuid = new_assignment.id.into();
+    let observed: (String, String, String) = sqlx::query_as(
+        "SELECT llm_profile_id, llm_provider, model_name FROM assignment_personalization_jobs WHERE assignment_id = $1",
+    )
+    .bind(new_id)
+    .fetch_one(&*fixture.pool)
+    .await
+    .expect("read custom job audit contract");
+    assert_eq!(
+        observed,
+        (
+            "custom-v1:vendor/model-name:fast".into(),
+            "custom".into(),
+            "vendor/model-name:fast".into()
+        )
+    );
+
+    let original_after: (String, String, String) = sqlx::query_as(
+        "SELECT llm_profile_id, llm_provider, model_name FROM assignment_personalization_jobs WHERE assignment_id = $1",
+    )
+    .bind(fixture.assignment_id)
+    .fetch_one(&*fixture.pool)
+    .await
+    .expect("read original job after custom policy");
+    assert_eq!(original_after, previous);
+
+    let mut transaction = fixture
+        .pool
+        .begin()
+        .await
+        .expect("negative contract transaction");
+    assert!(
+        sqlx::query("UPDATE assignment_personalization_jobs SET model_name = 'different-model' WHERE assignment_id = $1")
+            .bind(new_id)
+            .execute(&mut *transaction)
+            .await
+            .is_err(),
+        "custom job model may not diverge from the approved immutable profile"
+    );
+    transaction
+        .rollback()
+        .await
+        .expect("rollback negative job model test");
+
+    let mut transaction = fixture
+        .pool
+        .begin()
+        .await
+        .expect("negative policy transaction");
+    assert!(
+        sqlx::query("UPDATE assignment_personalization_school_policies SET llm_profile_id = 'custom-v1:../../metadata' WHERE school_id = $1")
+            .bind(fixture.school_id)
+            .execute(&mut *transaction)
+            .await
+            .is_err(),
+        "unsafe custom policy identifiers must be denied in PostgreSQL"
+    );
+    transaction
+        .rollback()
+        .await
+        .expect("rollback negative profile test");
+}
+
+#[cfg(feature = "server")]
+#[tokio::test]
 async fn partial_completion_resumes_remaining_student_and_stale_lease_is_reclaimed() {
     let _queue_guard = QUEUE_TEST_LOCK.lock().await;
     let fixture = queue_fixture(2).await;
