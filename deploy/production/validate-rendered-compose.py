@@ -128,6 +128,7 @@ def valid_custom_llm_origin(value: str) -> bool:
         url.scheme == "https"
         and port in (None, 443)
         and bool(host)
+        and not host.endswith(".")
         and "." in host
         and host.lower() != "localhost"
         and not host.lower().endswith(blocked)
