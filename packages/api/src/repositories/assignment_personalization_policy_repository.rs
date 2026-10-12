@@ -86,7 +86,7 @@ impl AssignmentPersonalizationPolicyRepository {
     fn validate_policy_values(
         profile_id: &str,
         delivery_policy: &str,
-    ) -> RepositoryResult<&'static str> {
+    ) -> RepositoryResult<String> {
         let profile = resolve_llm_profile(profile_id)
             .map_err(|error| RepositoryError::Validation(error.to_string()))?;
         if !matches!(
@@ -97,7 +97,16 @@ impl AssignmentPersonalizationPolicyRepository {
                 "Unsupported assignment personalization delivery policy".to_string(),
             ));
         }
-        Ok(profile.id)
+        if profile.provider == crate::services::llm_profile::LlmProviderKind::Custom {
+            let active = std::env::var("LLM_PROFILE").unwrap_or_default();
+            if active != profile.id.as_ref() {
+                return Err(RepositoryError::Validation(
+                    "Custom LLM policies require the exact operator-configured active model"
+                        .to_string(),
+                ));
+            }
+        }
+        Ok(profile.id.to_string())
     }
 
     fn normalize_specialization_instructions(value: &str) -> RepositoryResult<String> {
