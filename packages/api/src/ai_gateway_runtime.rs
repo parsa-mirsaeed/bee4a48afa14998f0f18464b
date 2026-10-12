@@ -210,8 +210,9 @@ impl Config {
         } else {
             LlmMode::parse(&llm_mode_setting)?
         };
-        let llm_profile = resolve_llm_profile(&env_value("LLM_PROFILE", DEEPSEEK_CHAT_V1.id.as_ref()))
-            .map_err(|error| StartupError::InvalidConfig(error.to_string()))?;
+        let llm_profile =
+            resolve_llm_profile(&env_value("LLM_PROFILE", DEEPSEEK_CHAT_V1.id.as_ref()))
+                .map_err(|error| StartupError::InvalidConfig(error.to_string()))?;
         let configured_llm_model = env_value("LLM_MODEL", llm_profile.model.as_ref());
         validate_llm_profile_override(&llm_profile, Some(&configured_llm_model))
             .map_err(|error| StartupError::InvalidConfig(error.to_string()))?;
@@ -799,7 +800,10 @@ async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
         llm_mode: state.config.llm_mode.as_str(),
         llm_profile: state.config.llm_profile.id.to_string(),
         llm_provider: state.config.llm_profile.provider.as_str(),
-        llm_model: state.config.llm_provider.as_ref()
+        llm_model: state
+            .config
+            .llm_provider
+            .as_ref()
             .map(|provider| provider.model.clone())
             .unwrap_or_else(|| state.config.llm_profile.model.to_string()),
         llm_configured: state
@@ -1216,17 +1220,26 @@ fn validate_llm_origin_profile(url: &Url, profile: &LlmProfile) -> Result<(), St
 /// never taken from a browser request, tenant policy, or queued job.
 fn custom_llm_url(value: &str) -> Result<Url, StartupError> {
     let url = normalized_url(value)?;
-    let host = url.host_str().ok_or_else(|| StartupError::InvalidConfig(
-        "Custom LLM URL must have a public DNS hostname".to_string(),
-    ))?;
+    let host = url.host_str().ok_or_else(|| {
+        StartupError::InvalidConfig("Custom LLM URL must have a public DNS hostname".to_string())
+    })?;
     let lowered = host.to_ascii_lowercase();
-    let blocked_suffixes = [".local", ".localhost", ".internal", ".test", ".invalid", ".example"];
+    let blocked_suffixes = [
+        ".local",
+        ".localhost",
+        ".internal",
+        ".test",
+        ".invalid",
+        ".example",
+    ];
     if url.scheme() != "https"
         || url.port_or_known_default() != Some(443)
         || host.parse::<std::net::IpAddr>().is_ok()
         || !lowered.contains('.')
         || lowered == "localhost"
-        || blocked_suffixes.iter().any(|suffix| lowered.ends_with(suffix))
+        || blocked_suffixes
+            .iter()
+            .any(|suffix| lowered.ends_with(suffix))
         || url.path().len() > 128
         || value.contains('%')
         || value.contains('\\')
@@ -1475,10 +1488,7 @@ mod tests {
         assert_eq!(allowed.path(), "/openai/v1/");
         assert!(validate_llm_origin_profile(&allowed, &profile).is_ok());
         assert!(validate_llm_origin_profile(&allowed, &DEEPSEEK_CHAT_V1).is_err());
-        assert!(validate_llm_origin_profile(
-            &Url::parse(LLM_BASE_URL).unwrap(),
-            &profile
-        ).is_ok());
+        assert!(validate_llm_origin_profile(&Url::parse(LLM_BASE_URL).unwrap(), &profile).is_ok());
         for rejected in [
             "http://gateway.example.org/v1/",
             "https://localhost/v1/",
