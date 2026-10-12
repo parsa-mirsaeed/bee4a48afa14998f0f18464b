@@ -14,8 +14,8 @@ use crate::services::embedding_profile::{
     resolve_embedding_profile, EmbeddingProfile, EmbeddingProviderKind,
 };
 use crate::services::llm_profile::{
-    resolve_llm_profile, validate_llm_profile_override, LlmProfile, DEEPSEEK_CHAT_V1,
-    DEEPSEEK_V41_FLASH_V1,
+    resolve_llm_profile, validate_llm_profile_override, LlmProfile, LlmProviderKind,
+    DEEPSEEK_CHAT_V1, DEEPSEEK_V41_FLASH_V1,
 };
 use axum::{
     extract::{DefaultBodyLimit, State},
@@ -49,7 +49,7 @@ const SCHOOL_HEADER: &str = "x-edutalent-school-id";
 const REQUEST_HEADER: &str = "x-edutalent-request-id";
 const OPENAI_BASE_URL: &str = "https://api.openai.com/v1/";
 const LLM_BASE_URL: &str = "https://api.deepseek.com/v1/";
-const LLM_MODEL: &str = DEEPSEEK_CHAT_V1.model;
+const LLM_MODEL: &str = "deepseek-chat";
 const LOCAL_TEI_BASE_URL: &str = "http://embedding:80/v1/";
 
 #[derive(Debug, Error)]
@@ -210,14 +210,19 @@ impl Config {
         } else {
             LlmMode::parse(&llm_mode_setting)?
         };
-        let llm_profile = resolve_llm_profile(&env_value("LLM_PROFILE", DEEPSEEK_CHAT_V1.id))
+        let llm_profile = resolve_llm_profile(&env_value("LLM_PROFILE", DEEPSEEK_CHAT_V1.id.as_ref()))
             .map_err(|error| StartupError::InvalidConfig(error.to_string()))?;
-        let configured_llm_model = env_value("LLM_MODEL", llm_profile.model);
-        validate_llm_profile_override(llm_profile, Some(&configured_llm_model))
+        let configured_llm_model = env_value("LLM_MODEL", llm_profile.model.as_ref());
+        validate_llm_profile_override(&llm_profile, Some(&configured_llm_model))
             .map_err(|error| StartupError::InvalidConfig(error.to_string()))?;
         let llm_provider = if llm_mode == LlmMode::Connected {
-            let base_url = exact_llm_url(&env_value("AI_LLM_BASE_URL", LLM_BASE_URL))?;
-            validate_llm_origin_profile(&base_url, llm_profile)?;
+            let configured_origin = env_value("AI_LLM_BASE_URL", LLM_BASE_URL);
+            let base_url = if llm_profile.provider == LlmProviderKind::Custom {
+                custom_llm_url(&configured_origin)?
+            } else {
+                exact_llm_url(&configured_origin)?
+            };
+            validate_llm_origin_profile(&base_url, &llm_profile)?;
             Some(Provider {
                 base_url,
                 api_key: optional_secret("LLM_API_KEY")?,
@@ -759,9 +764,9 @@ struct HealthResponse {
     embedding_profile: &'static str,
     embedding_circuit: &'static str,
     llm_mode: &'static str,
-    llm_profile: &'static str,
+    llm_profile: String,
     llm_provider: &'static str,
-    llm_model: &'static str,
+    llm_model: String,
     llm_configured: bool,
     llm_circuit: &'static str,
     external_providers_required_for_health: bool,
@@ -792,9 +797,11 @@ async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
         embedding_profile: state.config.embedding_profile.id,
         embedding_circuit: state.embedding_breaker.status().await,
         llm_mode: state.config.llm_mode.as_str(),
-        llm_profile: state.config.llm_profile.id,
+        llm_profile: state.config.llm_profile.id.to_string(),
         llm_provider: state.config.llm_profile.provider.as_str(),
-        llm_model: state.config.llm_profile.model,
+        llm_model: state.config.llm_provider.as_ref()
+            .map(|provider| provider.model.clone())
+            .unwrap_or_else(|| state.config.llm_profile.model.to_string()),
         llm_configured: state
             .config
             .llm_provider
@@ -1187,18 +1194,51 @@ async fn sleep_before_retry(config: &Config, attempt: u32, retry_after: Option<u
 const GAPGPT_LLM_BASE_URL: &str = "https://api.gapgpt.app/v1/";
 const APPROVED_LLM_URLS: &[&str] = &[LLM_BASE_URL, GAPGPT_LLM_BASE_URL];
 
-// The external origin and model are one fixed deployment-owned contract.
-// A syntactically approved hostname cannot be paired with an arbitrary model.
-fn validate_llm_origin_profile(url: &Url, profile: LlmProfile) -> Result<(), StartupError> {
-    if (url.as_str() == LLM_BASE_URL && profile == DEEPSEEK_CHAT_V1)
-        || (url.as_str() == GAPGPT_LLM_BASE_URL && profile == DEEPSEEK_V41_FLASH_V1)
+// Fixed profiles retain their exact approved origin/model contract. A custom
+// profile may use one operator-declared HTTPS origin; no untrusted request may
+// influence it or the provider model.
+fn validate_llm_origin_profile(url: &Url, profile: &LlmProfile) -> Result<(), StartupError> {
+    if (url.as_str() == LLM_BASE_URL && profile == &DEEPSEEK_CHAT_V1)
+        || (url.as_str() == GAPGPT_LLM_BASE_URL && profile == &DEEPSEEK_V41_FLASH_V1)
+        || (profile.provider == LlmProviderKind::Custom
+            && custom_llm_url(url.as_str()).as_ref() == Ok(url))
     {
         Ok(())
     } else {
         Err(StartupError::InvalidConfig(
-            "LLM origin and profile must be an explicitly registered pair".to_string(),
+            "LLM origin and profile must be an explicitly registered pair or a safe operator-owned custom HTTPS contract".to_string(),
         ))
     }
+}
+
+/// Operator-only configuration: a custom endpoint must be public HTTPS on the
+/// standard port and must not be a local service or an IP literal. The URL is
+/// never taken from a browser request, tenant policy, or queued job.
+fn custom_llm_url(value: &str) -> Result<Url, StartupError> {
+    let url = normalized_url(value)?;
+    let host = url.host_str().ok_or_else(|| StartupError::InvalidConfig(
+        "Custom LLM URL must have a public DNS hostname".to_string(),
+    ))?;
+    let lowered = host.to_ascii_lowercase();
+    let blocked_suffixes = [".local", ".localhost", ".internal", ".test", ".invalid", ".example"];
+    if url.scheme() != "https"
+        || url.port_or_known_default() != Some(443)
+        || host.parse::<std::net::IpAddr>().is_ok()
+        || !lowered.contains('.')
+        || lowered == "localhost"
+        || blocked_suffixes.iter().any(|suffix| lowered.ends_with(suffix))
+        || url.path().len() > 128
+        || value.contains('%')
+        || value.contains('\\')
+        || value.contains("//") && !value.starts_with("https://")
+        || url.path().contains("//")
+    {
+        return Err(StartupError::InvalidConfig(
+            "Custom LLM URL must be a public HTTPS hostname on port 443 with a safe API prefix"
+                .to_string(),
+        ));
+    }
+    Ok(url)
 }
 
 fn exact_llm_url(value: &str) -> Result<Url, StartupError> {
@@ -1412,10 +1452,10 @@ mod tests {
     fn approved_llm_origins_require_the_matching_registered_profile() {
         let direct = exact_llm_url(LLM_BASE_URL).expect("direct DeepSeek URL");
         let gap = exact_llm_url(GAPGPT_LLM_BASE_URL).expect("GapGPT URL");
-        assert!(validate_llm_origin_profile(&direct, DEEPSEEK_CHAT_V1).is_ok());
-        assert!(validate_llm_origin_profile(&gap, DEEPSEEK_V41_FLASH_V1).is_ok());
-        assert!(validate_llm_origin_profile(&direct, DEEPSEEK_V41_FLASH_V1).is_err());
-        assert!(validate_llm_origin_profile(&gap, DEEPSEEK_CHAT_V1).is_err());
+        assert!(validate_llm_origin_profile(&direct, &DEEPSEEK_CHAT_V1).is_ok());
+        assert!(validate_llm_origin_profile(&gap, &DEEPSEEK_V41_FLASH_V1).is_ok());
+        assert!(validate_llm_origin_profile(&direct, &DEEPSEEK_V41_FLASH_V1).is_err());
+        assert!(validate_llm_origin_profile(&gap, &DEEPSEEK_CHAT_V1).is_err());
         for rejected in [
             "http://api.gapgpt.app/v1/",
             "https://api.gapgpt.app.evil.invalid/v1/",
@@ -1425,6 +1465,34 @@ mod tests {
             "https://api.gapgpt.app/v1/?redirect=https://evil.invalid/",
         ] {
             assert!(exact_llm_url(rejected).is_err(), "accepted {rejected}");
+        }
+    }
+
+    #[test]
+    fn custom_origin_requires_operator_approved_public_https() {
+        let profile = resolve_llm_profile("custom-v1:openai/gpt-4o-mini").unwrap();
+        let allowed = custom_llm_url("https://gateway.example.org/openai/v1/").unwrap();
+        assert_eq!(allowed.path(), "/openai/v1/");
+        assert!(validate_llm_origin_profile(&allowed, &profile).is_ok());
+        assert!(validate_llm_origin_profile(&allowed, &DEEPSEEK_CHAT_V1).is_err());
+        assert!(validate_llm_origin_profile(
+            &Url::parse(LLM_BASE_URL).unwrap(),
+            &profile
+        ).is_ok());
+        for rejected in [
+            "http://gateway.example.org/v1/",
+            "https://localhost/v1/",
+            "https://127.0.0.1/v1/",
+            "https://169.254.169.254/latest/",
+            "https://api.internal/v1/",
+            "https://metadata.google.internal/v1/",
+            "https://gateway.example.org:8443/v1/",
+            "https://name:secret@gateway.example.org/v1/",
+            "https://gateway.example.org/v1/?key=unsafe",
+            "https://gateway.example.org/v1/#fragment",
+            "https://gateway.example.org/v1/%2e%2e/",
+        ] {
+            assert!(custom_llm_url(rejected).is_err(), "accepted {rejected}");
         }
     }
 
