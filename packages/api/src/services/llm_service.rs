@@ -110,7 +110,7 @@ impl LlmConfig {
         let resolved_profile = resolve_llm_profile(&profile)
             .map_err(|error| LlmError::InvalidResponse(error.to_string()))?;
         let model = env::var("LLM_MODEL").unwrap_or_else(|_| resolved_profile.model.to_string());
-        validate_llm_profile_override(resolved_profile, Some(&model))
+        validate_llm_profile_override(&resolved_profile, Some(&model))
             .map_err(|error| LlmError::InvalidResponse(error.to_string()))?;
         let temperature = env::var("LLM_TEMPERATURE")
             .ok()
@@ -294,7 +294,7 @@ impl ExternalLlmClient {
         validate_internal_gateway_url(&config.base_url)?;
         let profile = resolve_llm_profile(&config.profile)
             .map_err(|error| LlmError::InvalidResponse(error.to_string()))?;
-        validate_llm_profile_override(profile, Some(&config.model))
+        validate_llm_profile_override(&profile, Some(&config.model))
             .map_err(|error| LlmError::InvalidResponse(error.to_string()))?;
         if config.api_key.len() < 32 || looks_like_placeholder(&config.api_key) {
             return Err(LlmError::MissingApiKey);
