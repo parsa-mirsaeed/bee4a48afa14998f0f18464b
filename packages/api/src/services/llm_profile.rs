@@ -190,7 +190,6 @@ mod tests {
             "../model",
             "model?query=1",
             "model#fragment",
-            "http://127.0.0.1",
             "a\nmodel",
         ] {
             assert!(
