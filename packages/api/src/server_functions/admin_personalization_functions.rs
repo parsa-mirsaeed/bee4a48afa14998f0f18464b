@@ -9,7 +9,8 @@ use {
         SchoolPersonalizationPolicy, TeacherPersonalizationPolicy,
     },
     crate::services::{
-        llm_profile::DEEPSEEK_V41_FLASH_V1, llm_service::INTERNAL_GATEWAY_ORIGIN, DEEPSEEK_CHAT_V1,
+        llm_profile::{resolve_llm_profile, LlmProviderKind, DEEPSEEK_V41_FLASH_V1},
+        llm_service::INTERNAL_GATEWAY_ORIGIN, DEEPSEEK_CHAT_V1,
     },
     reqwest::redirect::Policy as RedirectPolicy,
     std::time::Duration,
@@ -193,7 +194,7 @@ async fn load_personalization_capability() -> AdminPersonalizationCapabilityDto 
         llm_profile: value
             .get("llm_profile")
             .and_then(|item| item.as_str())
-            .unwrap_or(DEEPSEEK_CHAT_V1.id)
+            .unwrap_or(DEEPSEEK_CHAT_V1.id.as_ref())
             .to_string(),
         provider: value
             .get("llm_provider")
@@ -203,7 +204,7 @@ async fn load_personalization_capability() -> AdminPersonalizationCapabilityDto 
         model: value
             .get("llm_model")
             .and_then(|item| item.as_str())
-            .unwrap_or(DEEPSEEK_CHAT_V1.model)
+            .unwrap_or(DEEPSEEK_CHAT_V1.model.as_ref())
             .to_string(),
         configured: value
             .get("llm_configured")
@@ -365,14 +366,24 @@ pub async fn get_admin_personalization_overview(
 
         Ok(AdminPersonalizationOverviewDto {
             capability,
-            methods: [DEEPSEEK_CHAT_V1, DEEPSEEK_V41_FLASH_V1]
-                .into_iter()
-                .map(|method| AdminPersonalizationMethodDto {
-                    profile_id: method.id.to_string(),
-                    provider: method.provider.as_str().to_string(),
-                    model: method.model.to_string(),
-                })
-                .collect(),
+            methods: {
+                let mut profiles = vec![DEEPSEEK_CHAT_V1, DEEPSEEK_V41_FLASH_V1];
+                if let Ok(configured_id) = std::env::var("LLM_PROFILE") {
+                    if let Ok(profile) = resolve_llm_profile(&configured_id) {
+                        if profile.provider == LlmProviderKind::Custom {
+                            profiles.push(profile);
+                        }
+                    }
+                }
+                profiles
+                    .into_iter()
+                    .map(|method| AdminPersonalizationMethodDto {
+                        profile_id: method.id.to_string(),
+                        provider: method.provider.as_str().to_string(),
+                        model: method.model.to_string(),
+                    })
+                    .collect()
+            },
             schools,
             summaries,
             recent_jobs,
