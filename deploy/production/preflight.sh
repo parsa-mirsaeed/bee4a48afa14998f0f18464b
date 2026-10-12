@@ -179,7 +179,7 @@ try:
         and not url.username and not url.password and not url.query
         and not url.fragment and len(url.path) <= 128
         and "//" not in url.path and ".." not in url.path
-        and "%" not in value and "\\\\" not in value
+        and "%" not in value and chr(92) not in value
         and len(value) <= 512
     ):
         raise ValueError("custom gateway URL must be a public HTTPS API endpoint")
