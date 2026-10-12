@@ -8,8 +8,28 @@ ALTER TABLE public.assignment_personalization_school_policies
     ADD CONSTRAINT assignment_personalization_school_llm_profile_allowlist
     CHECK (llm_profile_id IN ('deepseek-chat-v1', 'deepseek-v41-flash-v1'));
 
-ALTER TABLE public.assignment_personalization_teacher_overrides
-    DROP CONSTRAINT assignment_personalization_teacher_overrides_llm_profile_id_ove;
+-- PostgreSQL shortens generated CHECK names to its 63-byte identifier limit.
+-- Identify the historical single-column CHECK by its exact column, never by
+-- a guessed truncation, and fail if it is absent or ambiguous.
+DO $contract$
+DECLARE
+    historical_constraint name;
+BEGIN
+    SELECT constraint_record.conname INTO STRICT historical_constraint
+    FROM pg_catalog.pg_constraint AS constraint_record
+    JOIN pg_catalog.pg_attribute AS column_record
+      ON column_record.attrelid = constraint_record.conrelid
+    WHERE constraint_record.conrelid =
+          'public.assignment_personalization_teacher_overrides'::regclass
+      AND constraint_record.contype = 'c'
+      AND column_record.attname = 'llm_profile_id_override'
+      AND constraint_record.conkey = ARRAY[column_record.attnum]::smallint[];
+    EXECUTE format(
+        'ALTER TABLE public.assignment_personalization_teacher_overrides DROP CONSTRAINT %I',
+        historical_constraint
+    );
+END
+$contract$;
 ALTER TABLE public.assignment_personalization_teacher_overrides
     ADD CONSTRAINT assignment_personalization_teacher_llm_profile_allowlist
     CHECK (llm_profile_id_override IS NULL
