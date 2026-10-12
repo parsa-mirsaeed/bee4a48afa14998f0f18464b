@@ -99,8 +99,12 @@ mod tests {
     #[test]
     fn matching_model_is_accepted() {
         validate_llm_profile_override(DEEPSEEK_CHAT_V1, Some(DEEPSEEK_CHAT_V1.model)).unwrap();
-        validate_llm_profile_override(DEEPSEEK_V41_FLASH_V1, Some(DEEPSEEK_V41_FLASH_V1.model)).unwrap();
-        assert_eq!(resolve_llm_profile(DEEPSEEK_V41_FLASH_V1.id).unwrap(), DEEPSEEK_V41_FLASH_V1);
+        validate_llm_profile_override(DEEPSEEK_V41_FLASH_V1, Some(DEEPSEEK_V41_FLASH_V1.model))
+            .unwrap();
+        assert_eq!(
+            resolve_llm_profile(DEEPSEEK_V41_FLASH_V1.id).unwrap(),
+            DEEPSEEK_V41_FLASH_V1
+        );
     }
 
     #[test]
@@ -112,14 +116,18 @@ mod tests {
             "prefix-deepseek-chat",
             "deepseek-chat-suffix",
         ] {
-            assert!(matches!(
-                validate_llm_profile_override(DEEPSEEK_CHAT_V1, Some(rejected)),
-                Err(LlmProfileError::ModelMismatch { .. })
-            ), "unexpected registered model {rejected}");
+            assert!(
+                matches!(
+                    validate_llm_profile_override(DEEPSEEK_CHAT_V1, Some(rejected)),
+                    Err(LlmProfileError::ModelMismatch { .. })
+                ),
+                "unexpected registered model {rejected}"
+            );
         }
-        assert!(validate_llm_profile_override(
-            DEEPSEEK_V41_FLASH_V1, Some(DEEPSEEK_CHAT_V1.model)
-        ).is_err());
+        assert!(
+            validate_llm_profile_override(DEEPSEEK_V41_FLASH_V1, Some(DEEPSEEK_CHAT_V1.model))
+                .is_err()
+        );
         assert!(resolve_llm_profile("deepseek-user-model").is_err());
     }
 }

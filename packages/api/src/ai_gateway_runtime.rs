@@ -1209,7 +1209,9 @@ fn exact_llm_url(value: &str) -> Result<Url, StartupError> {
         ));
     }
     let is_approved = APPROVED_LLM_URLS.iter().any(|approved| {
-        normalized_url(approved).map(|url| url == requested).unwrap_or(false)
+        normalized_url(approved)
+            .map(|url| url == requested)
+            .unwrap_or(false)
     });
     if !is_approved {
         return Err(StartupError::InvalidConfig(format!(
@@ -1452,10 +1454,13 @@ mod tests {
                 }],
                 usage: None,
             };
-            assert!(matches!(
-                validate_chat_response(&provider, &response),
-                Err(ProviderFailure::InvalidResponse)
-            ), "accepted {observed}");
+            assert!(
+                matches!(
+                    validate_chat_response(&provider, &response),
+                    Err(ProviderFailure::InvalidResponse)
+                ),
+                "accepted {observed}"
+            );
         }
     }
 
