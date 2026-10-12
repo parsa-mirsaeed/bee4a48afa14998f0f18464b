@@ -89,6 +89,14 @@ jobs:
             done
           }
 
+          # A burst of PR-label events can spawn multiple exact-head runs,
+          # some cancelled by concurrency. Never choose a cancelled duplicate,
+          # but do NOT ignore failed runs: wait_for_run still rejects failures.
+          select_pr_run_id() {
+            jq -r --arg head "$HEAD_SHA" \
+              '[.[] | select(.headSha == $head and .conclusion != "cancelled")] | if length == 0 then empty else max_by(.databaseId).databaseId end'
+          }
+
           find_pr_run_id() {
             local workflow="$1"
             retry_gh gh run list \
@@ -97,8 +105,8 @@ jobs:
               --branch "$HEAD_REF" \
               --event pull_request \
               --limit 50 \
-              --json databaseId,headSha \
-              --jq "[.[] | select(.headSha == \"$HEAD_SHA\")] | if length == 0 then empty else max_by(.databaseId).databaseId end"
+              --json databaseId,headSha,conclusion |
+              select_pr_run_id
           }
 
           find_dispatch_run_id() {
@@ -210,6 +218,26 @@ jobs:
           GH_API_RETRY_MAX_SECONDS=0 \
             retry_gh flaky_command | grep -Fx 'recovered'
           [[ "$(cat "$retry_counter")" == "3" ]]
+
+          # Regression: a higher cancelled run must not hide the authoritative
+          # exact-head run. A higher failed run must still be selected and fail.
+          selected="$(jq -n --arg sha "$HEAD_SHA" '[
+            {databaseId: 30, headSha: $sha, conclusion: "success"},
+            {databaseId: 31, headSha: $sha, conclusion: "cancelled"},
+            {databaseId: 32, headSha: "different-head", conclusion: "success"}
+          ]' | select_pr_run_id)"
+          [[ "$selected" == "30" ]] || {
+            echo "Exact-head run selector accepted a cancelled duplicate." >&2
+            exit 1
+          }
+          selected="$(jq -n --arg sha "$HEAD_SHA" '[
+            {databaseId: 40, headSha: $sha, conclusion: "success"},
+            {databaseId: 41, headSha: $sha, conclusion: "failure"}
+          ]' | select_pr_run_id)"
+          [[ "$selected" == "41" ]] || {
+            echo "Exact-head run selector hid a required failure." >&2
+            exit 1
+          }
 
       - name: Resolve exact-head pull-request gates
         id: pr-runs
