@@ -18,6 +18,7 @@ In the local mode-600 `deploy/production/.env.edutalent`:
 AI_GATEWAY_MODE=offline
 AI_LLM_MODE=connected
 AI_LLM_BASE_URL=https://api.your-provider.tld/openai/v1/
+AI_LLM_CUSTOM_PUBLIC_IP=<verified-public-ipv4-for-the-provider>
 LLM_PROFILE=custom-v1:vendor/model-name
 LLM_MODEL=vendor/model-name
 LLM_API_KEY=<operator-provided-secret>
@@ -28,7 +29,12 @@ model names are 1–96 ASCII characters, start with a letter or digit, and
 otherwise contain only letters, digits, `.`, `_`, `-`, `/`, or `:`.
 The HTTPS endpoint must have a public DNS hostname (no IP literals, localhost,
 or private/internal naming suffixes), use port 443, and have no URL credentials,
-query or fragment. Prefix paths such as `/openai/v1/` are supported.
+query or fragment. The operator must also supply a **globally routable IPv4 address
+pin** for the chosen hostname. The gateway bypasses proxies and pins every HTTPS
+connection to that address while verifying the hostname against the provider's
+TLS certificate. This prevents DNS rebinding toward private/metadata addresses;
+refresh and review the IP pin if the provider rotates its addresses. Use a
+real provider IP, not the example address in configuration comments. Prefix paths such as `/openai/v1/` are supported.
 
 The app receives **only** `LLM_PROFILE` and `LLM_MODEL`; no provider credentials
 or external URL. Compose passes those variables to the AI gateway, which
