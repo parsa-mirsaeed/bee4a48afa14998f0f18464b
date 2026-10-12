@@ -10,7 +10,8 @@ use {
     },
     crate::services::{
         llm_profile::{resolve_llm_profile, LlmProviderKind, DEEPSEEK_V41_FLASH_V1},
-        llm_service::INTERNAL_GATEWAY_ORIGIN, DEEPSEEK_CHAT_V1,
+        llm_service::INTERNAL_GATEWAY_ORIGIN,
+        DEEPSEEK_CHAT_V1,
     },
     reqwest::redirect::Policy as RedirectPolicy,
     std::time::Duration,
