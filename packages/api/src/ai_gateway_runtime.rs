@@ -1160,8 +1160,9 @@ async fn forward_chat(
         {
             Ok(response) if response.status().is_success() => {
                 let body = bounded_body(response, state.config.max_provider_response_bytes).await?;
-                let parsed: GatewayChatResponse =
+                let mut parsed: GatewayChatResponse =
                     serde_json::from_slice(&body).map_err(|_| ProviderFailure::InvalidResponse)?;
+                normalize_known_gapgpt_model(&state.config.llm_profile, provider, &mut parsed);
                 validate_chat_response(provider, &parsed)?;
                 return Ok(parsed);
             }
@@ -1240,6 +1241,24 @@ fn validate_embedding_response(
         return Err(ProviderFailure::InvalidResponse);
     }
     Ok(())
+}
+
+/// GapGPT's verified DeepSeek v4.1 Flash endpoint accepts the unprefixed
+/// request model, but identifies that exact model with a vendor namespace in
+/// its response. Normalize only this known fixed-profile response alias. All
+/// other profiles, origins, requested models, and reported IDs stay strict.
+fn normalize_known_gapgpt_model(
+    profile: &LlmProfile,
+    provider: &Provider,
+    response: &mut GatewayChatResponse,
+) {
+    if profile == &DEEPSEEK_V41_FLASH_V1
+        && provider.base_url.as_str() == GAPGPT_LLM_BASE_URL
+        && provider.model == DEEPSEEK_V41_FLASH_V1.model.as_ref()
+        && response.model == "deepseek/deepseek-v4.1-flash"
+    {
+        response.model = provider.model.clone();
+    }
 }
 
 fn validate_chat_response(
@@ -1713,6 +1732,90 @@ mod tests {
         ] {
             assert!(!public_llm_ipv4(denied.parse().unwrap()), "{denied}");
         }
+    }
+
+    #[test]
+    fn gateway_normalizes_known_gapgpt_alias_only() {
+        let provider = Provider {
+            base_url: Url::parse(GAPGPT_LLM_BASE_URL).unwrap(),
+            api_key: None,
+            model: DEEPSEEK_V41_FLASH_V1.model.to_string(),
+        };
+        let make_response = |model: &str| GatewayChatResponse {
+            model: model.to_string(),
+            choices: vec![GatewayChatChoice {
+                index: 0,
+                message: GatewayChatMessage {
+                    role: "assistant".to_string(),
+                    content: "{\"status\":\"ok\"}".to_string(),
+                },
+                finish_reason: Some("stop".to_string()),
+            }],
+            usage: None,
+        };
+
+        // The real provider response alias is accepted and returned to the
+        // application under the requested (unprefixed) model identifier.
+        let mut response = make_response("deepseek/deepseek-v4.1-flash");
+        assert!(validate_chat_response(&provider, &response).is_err());
+        normalize_known_gapgpt_model(&DEEPSEEK_V41_FLASH_V1, &provider, &mut response);
+        assert_eq!(response.model, "deepseek-v4.1-flash");
+        assert!(validate_chat_response(&provider, &response).is_ok());
+
+        // The original exact model continues to pass unchanged.
+        let mut exact = make_response("deepseek-v4.1-flash");
+        normalize_known_gapgpt_model(&DEEPSEEK_V41_FLASH_V1, &provider, &mut exact);
+        assert_eq!(exact.model, provider.model);
+        assert!(validate_chat_response(&provider, &exact).is_ok());
+
+        // No wildcard prefixes, suffixes, case changes, or related models.
+        for invalid_model in [
+            "vendor/deepseek-v4.1-flash",
+            "deepseek/deepseek-v4.1-flash-extra",
+            "DeepSeek/deepseek-v4.1-flash",
+            "deepseek/deepseek-v4.1",
+            "deepseek-chat",
+        ] {
+            let mut invalid = make_response(invalid_model);
+            normalize_known_gapgpt_model(&DEEPSEEK_V41_FLASH_V1, &provider, &mut invalid);
+            assert_eq!(invalid.model, invalid_model);
+            assert!(validate_chat_response(&provider, &invalid).is_err());
+        }
+
+        // A custom profile cannot borrow the fixed-provider exception.
+        let custom = resolve_llm_profile("custom-v1:deepseek-v4.1-flash").unwrap();
+        let mut custom_response = make_response("deepseek/deepseek-v4.1-flash");
+        normalize_known_gapgpt_model(&custom, &provider, &mut custom_response);
+        assert!(validate_chat_response(&provider, &custom_response).is_err());
+
+        // A different endpoint or a different requested model cannot borrow it.
+        let mut other_provider = provider.clone();
+        other_provider.base_url = Url::parse(LLM_BASE_URL).unwrap();
+        let mut other_response = make_response("deepseek/deepseek-v4.1-flash");
+        normalize_known_gapgpt_model(
+            &DEEPSEEK_V41_FLASH_V1,
+            &other_provider,
+            &mut other_response,
+        );
+        assert!(validate_chat_response(&other_provider, &other_response).is_err());
+
+        let mut wrong_model_provider = provider.clone();
+        wrong_model_provider.model = "deepseek-chat".to_string();
+        let mut wrong_model_response = make_response("deepseek/deepseek-v4.1-flash");
+        normalize_known_gapgpt_model(
+            &DEEPSEEK_V41_FLASH_V1,
+            &wrong_model_provider,
+            &mut wrong_model_response,
+        );
+        assert!(validate_chat_response(&wrong_model_provider, &wrong_model_response).is_err());
+
+        let mut other_profile_response = make_response("deepseek/deepseek-v4.1-flash");
+        normalize_known_gapgpt_model(
+            &DEEPSEEK_CHAT_V1,
+            &provider,
+            &mut other_profile_response,
+        );
+        assert!(validate_chat_response(&provider, &other_profile_response).is_err());
     }
 
     #[test]
