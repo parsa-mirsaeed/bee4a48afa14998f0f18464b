@@ -553,13 +553,25 @@ impl Resolve for PublicLlmResolver {
     }
 }
 
+fn embedding_client_requires_direct_connect(config: &Config) -> bool {
+    // Local TEI is on a private Docker network. Never send its requests through
+    // HTTP_PROXY/ALL_PROXY. Also retain the prior no-proxy behavior whenever a
+    // custom LLM is enabled, regardless of the embedding mode.
+    config.mode == Mode::Offline
+        || (config.llm_mode == LlmMode::Connected
+            && config.llm_profile.provider == LlmProviderKind::Custom)
+}
+
 fn provider_client(config: &Config) -> Result<reqwest::Client, StartupError> {
-    Ok(reqwest::Client::builder()
+    let mut builder = reqwest::Client::builder()
         .connect_timeout(config.connect_timeout)
         .timeout(config.request_timeout)
         .redirect(RedirectPolicy::none())
-        .user_agent("edutalent-ai-gateway/1")
-        .build()?)
+        .user_agent("edutalent-ai-gateway/1");
+    if embedding_client_requires_direct_connect(config) {
+        builder = builder.no_proxy();
+    }
+    Ok(builder.build()?)
 }
 
 #[derive(Clone)]
@@ -1648,6 +1660,20 @@ mod tests {
             .resolve("localhost".parse().unwrap())
             .await
             .is_err());
+    }
+
+    #[test]
+    fn local_embeddings_and_custom_llm_never_inherit_http_proxies() {
+        let mut config = Config::test(Url::parse("http://127.0.0.1:8080/v1/").unwrap());
+        config.mode = Mode::Offline;
+        assert!(embedding_client_requires_direct_connect(&config));
+
+        config.mode = Mode::Connected;
+        config.llm_profile = resolve_llm_profile("custom-v1:flash-4.1").unwrap();
+        assert!(embedding_client_requires_direct_connect(&config));
+
+        config.llm_profile = DEEPSEEK_CHAT_V1;
+        assert!(!embedding_client_requires_direct_connect(&config));
     }
 
     #[test]
