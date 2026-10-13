@@ -1792,11 +1792,7 @@ mod tests {
         let mut other_provider = provider.clone();
         other_provider.base_url = Url::parse(LLM_BASE_URL).unwrap();
         let mut other_response = make_response("deepseek/deepseek-v4.1-flash");
-        normalize_known_gapgpt_model(
-            &DEEPSEEK_V41_FLASH_V1,
-            &other_provider,
-            &mut other_response,
-        );
+        normalize_known_gapgpt_model(&DEEPSEEK_V41_FLASH_V1, &other_provider, &mut other_response);
         assert!(validate_chat_response(&other_provider, &other_response).is_err());
 
         let mut wrong_model_provider = provider.clone();
@@ -1810,11 +1806,7 @@ mod tests {
         assert!(validate_chat_response(&wrong_model_provider, &wrong_model_response).is_err());
 
         let mut other_profile_response = make_response("deepseek/deepseek-v4.1-flash");
-        normalize_known_gapgpt_model(
-            &DEEPSEEK_CHAT_V1,
-            &provider,
-            &mut other_profile_response,
-        );
+        normalize_known_gapgpt_model(&DEEPSEEK_CHAT_V1, &provider, &mut other_profile_response);
         assert!(validate_chat_response(&provider, &other_profile_response).is_err());
     }
 
