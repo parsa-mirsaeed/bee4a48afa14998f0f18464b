@@ -156,17 +156,13 @@ case "${llm_profile}|${llm_model}|${llm_origin}" in
       echo "Assignment personalization requires a pinned contract or exact custom-v1:<model>." >&2
       exit 1
     fi
-    llm_custom_public_ip="$(read_env "${APP_ENV}" AI_LLM_CUSTOM_PUBLIC_IP)"
-    python3 - "${llm_origin}" "${llm_custom_public_ip}" <<'PY'
+    python3 - "${llm_origin}" <<'PY'
 import ipaddress
 import sys
 from urllib.parse import urlsplit
 
 value = sys.argv[1]
 try:
-    pinned_ip = ipaddress.ip_address(sys.argv[2])
-    if not isinstance(pinned_ip, ipaddress.IPv4Address) or not pinned_ip.is_global:
-        raise ValueError("custom provider public IPv4 pin must be globally routable")
     url = urlsplit(value)
     host = url.hostname or ""
     port = url.port

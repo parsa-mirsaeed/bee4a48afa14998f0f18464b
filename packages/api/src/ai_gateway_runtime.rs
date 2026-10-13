@@ -25,7 +25,9 @@ use axum::{
     Json, Router,
 };
 use reqwest::{
-    header::HeaderMap as ProviderHeaders, redirect::Policy as RedirectPolicy,
+    dns::{Addrs, Name, Resolve, Resolving},
+    header::HeaderMap as ProviderHeaders,
+    redirect::Policy as RedirectPolicy,
     StatusCode as ProviderStatus, Url,
 };
 use serde::Serialize;
@@ -34,7 +36,7 @@ use std::{
     collections::HashMap,
     env,
     hash::Hash,
-    net::{Ipv4Addr, SocketAddr},
+    net::{IpAddr, Ipv4Addr, SocketAddr},
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -143,7 +145,6 @@ struct Config {
     llm_mode: LlmMode,
     llm_profile: LlmProfile,
     llm_provider: Option<Provider>,
-    llm_custom_public_ip: Option<Ipv4Addr>,
     connect_timeout: Duration,
     request_timeout: Duration,
     max_retries: u32,
@@ -234,31 +235,6 @@ impl Config {
             None
         };
 
-        // Pin the custom hostname to an operator-verified public IP before
-        // building reqwest. A DNS rebind may never redirect student data or
-        // gateway credentials to an internal service.
-        let llm_custom_public_ip =
-            if llm_mode == LlmMode::Connected && llm_profile.provider == LlmProviderKind::Custom {
-                let address = env::var("AI_LLM_CUSTOM_PUBLIC_IP").map_err(|_| {
-                    StartupError::InvalidConfig(
-                        "Custom LLM requires AI_LLM_CUSTOM_PUBLIC_IP".to_string(),
-                    )
-                })?;
-                let ip = address.parse::<Ipv4Addr>().map_err(|_| {
-                    StartupError::InvalidConfig(
-                        "AI_LLM_CUSTOM_PUBLIC_IP must be a public IPv4 address".to_string(),
-                    )
-                })?;
-                if !public_llm_ipv4(ip) {
-                    return Err(StartupError::InvalidConfig(
-                        "AI_LLM_CUSTOM_PUBLIC_IP must be globally routable".to_string(),
-                    ));
-                }
-                Some(ip)
-            } else {
-                None
-            };
-
         let internal_token = required_internal_token()?;
         Ok(Self {
             listen_addr: env_value("AI_GATEWAY_LISTEN_ADDR", "0.0.0.0:8090")
@@ -275,7 +251,6 @@ impl Config {
             llm_mode,
             llm_profile,
             llm_provider,
-            llm_custom_public_ip,
             connect_timeout: Duration::from_secs(env_u64("AI_CONNECT_TIMEOUT_SECONDS", 5, 1, 30)),
             request_timeout: Duration::from_secs(env_u64("AI_REQUEST_TIMEOUT_SECONDS", 45, 5, 180)),
             max_retries: env_u64("AI_MAX_RETRIES", 2, 0, 3) as u32,
@@ -349,7 +324,6 @@ impl Config {
                 api_key: Some("test-llm-key-abcdefghijklmnopqrstuvwxyz".to_string()),
                 model: LLM_MODEL.to_string(),
             }),
-            llm_custom_public_ip: None,
             connect_timeout: Duration::from_secs(1),
             request_timeout: Duration::from_secs(2),
             max_retries: 0,
@@ -533,10 +507,78 @@ impl CircuitBreaker {
     }
 }
 
+/// Resolve the operator's custom hostname afresh for each new TCP connection.
+/// Only the filtered socket addresses are returned to the transport. No
+/// second DNS lookup happens between validation and the actual connection.
+/// The isolated client also forbids proxies and redirects and retains normal
+/// TLS hostname/certificate verification.
+#[derive(Debug)]
+struct PublicLlmResolver {
+    host: String,
+}
+
+fn public_llm_dns_addrs(addrs: impl IntoIterator<Item = SocketAddr>) -> Vec<SocketAddr> {
+    addrs
+        .into_iter()
+        .filter(|addr| match addr.ip() {
+            IpAddr::V4(ip) => addr.port() == 443 && public_llm_ipv4(ip),
+            IpAddr::V6(_) => false, // Fail closed until a separately vetted IPv6 allowlist exists.
+        })
+        .collect()
+}
+
+impl Resolve for PublicLlmResolver {
+    fn resolve(&self, name: Name) -> Resolving {
+        let requested = name.as_str().to_ascii_lowercase();
+        let allowed = self.host.clone();
+        Box::pin(async move {
+            if requested != allowed {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "custom LLM resolver rejects unapproved hostname",
+                )
+                .into());
+            }
+            let records = tokio::net::lookup_host((requested.as_str(), 443)).await?;
+            let addresses = public_llm_dns_addrs(records);
+            if addresses.is_empty() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "custom LLM DNS has no approved public IPv4 address",
+                )
+                .into());
+            }
+            Ok(Box::new(addresses.into_iter()) as Addrs)
+        })
+    }
+}
+
+fn embedding_client_requires_direct_connect(config: &Config) -> bool {
+    // Local TEI is on a private Docker network. Never send its requests through
+    // HTTP_PROXY/ALL_PROXY. Also retain the prior no-proxy behavior whenever a
+    // custom LLM is enabled, regardless of the embedding mode.
+    config.mode == Mode::Offline
+        || (config.llm_mode == LlmMode::Connected
+            && config.llm_profile.provider == LlmProviderKind::Custom)
+}
+
+fn provider_client(config: &Config) -> Result<reqwest::Client, StartupError> {
+    let mut builder = reqwest::Client::builder()
+        .connect_timeout(config.connect_timeout)
+        .timeout(config.request_timeout)
+        .redirect(RedirectPolicy::none())
+        .user_agent("edutalent-ai-gateway/1");
+    if embedding_client_requires_direct_connect(config) {
+        builder = builder.no_proxy();
+    }
+    Ok(builder.build()?)
+}
+
 #[derive(Clone)]
 struct AppState {
     config: Arc<Config>,
     client: reqwest::Client,
+    custom_llm_client: Option<reqwest::Client>,
     embedding_slots: Arc<Semaphore>,
     llm_slots: Arc<Semaphore>,
     embedding_breaker: Arc<CircuitBreaker>,
@@ -547,26 +589,34 @@ struct AppState {
 
 impl AppState {
     fn new(config: Config) -> Result<Self, StartupError> {
-        let mut builder = reqwest::Client::builder()
-            .connect_timeout(config.connect_timeout)
-            .timeout(config.request_timeout)
-            .redirect(RedirectPolicy::none())
-            .user_agent("edutalent-ai-gateway/1");
-        if let Some(ip) = config.llm_custom_public_ip {
+        // Embeddings retain their existing internal or exact-origin client.
+        // The custom LLM gets an isolated client, so restrictive DNS and proxy
+        // settings cannot break local TEI or leak a custom destination elsewhere.
+        let client = provider_client(&config)?;
+        let custom_llm_client = if config.llm_mode == LlmMode::Connected
+            && config.llm_profile.provider == LlmProviderKind::Custom
+        {
             let provider = config.llm_provider.as_ref().ok_or_else(|| {
                 StartupError::InvalidConfig("Custom LLM provider is missing".to_string())
             })?;
             let host = provider.base_url.host_str().ok_or_else(|| {
                 StartupError::InvalidConfig("Custom LLM host is missing".to_string())
             })?;
-            // Disable proxy environment inheritance and override the resolver:
-            // TLS still authenticates the original URL hostname, while actual
-            // connections are forced to the public operator-pinned address.
-            builder = builder
-                .no_proxy()
-                .resolve(host, SocketAddr::new(ip.into(), 443));
-        }
-        let client = builder.build()?;
+            Some(
+                reqwest::Client::builder()
+                    .connect_timeout(config.connect_timeout)
+                    .timeout(config.request_timeout)
+                    .redirect(RedirectPolicy::none())
+                    .user_agent("edutalent-ai-gateway/1")
+                    .no_proxy()
+                    .dns_resolver(Arc::new(PublicLlmResolver {
+                        host: host.to_ascii_lowercase(),
+                    }))
+                    .build()?,
+            )
+        } else {
+            None
+        };
         Ok(Self {
             embedding_slots: Arc::new(Semaphore::new(config.embedding_concurrency)),
             llm_slots: Arc::new(Semaphore::new(config.llm_concurrency)),
@@ -582,6 +632,7 @@ impl AppState {
             llm_quota: Arc::new(QuotaLimiter::new(config.llm_quota)),
             config: Arc::new(config),
             client,
+            custom_llm_client,
         })
     }
 
@@ -1098,9 +1149,9 @@ async fn forward_chat(
         .endpoint("chat/completions")
         .map_err(|_| ProviderFailure::Unavailable)?;
 
+    let client = state.custom_llm_client.as_ref().unwrap_or(&state.client);
     for attempt in 0..=state.config.max_retries {
-        match state
-            .client
+        match client
             .post(url.clone())
             .bearer_auth(api_key)
             .json(request)
@@ -1571,7 +1622,75 @@ mod tests {
     }
 
     #[test]
-    fn custom_ip_pin_requires_public_unicast_address() {
+    fn custom_dns_resolution_filters_every_socket_address() {
+        let candidates = [
+            "127.0.0.1:443",
+            "10.0.0.5:443",
+            "169.254.169.254:443",
+            "192.168.1.1:443",
+            "198.51.100.5:443",
+            "1.1.1.1:80",
+            "[::1]:443",
+            "[fc00::1]:443",
+            "[2001:4860:4860::8888]:443",
+            "1.1.1.1:443",
+            "8.8.8.8:443",
+        ];
+        let addresses = candidates.map(|ip| ip.parse::<SocketAddr>().unwrap());
+        assert_eq!(
+            public_llm_dns_addrs(addresses),
+            vec![
+                "1.1.1.1:443".parse::<SocketAddr>().unwrap(),
+                "8.8.8.8:443".parse::<SocketAddr>().unwrap()
+            ]
+        );
+        assert!(public_llm_dns_addrs(["169.254.169.254:443".parse().unwrap()]).is_empty());
+    }
+
+    #[tokio::test]
+    async fn custom_dns_resolver_rejects_other_hosts_before_lookup() {
+        let resolver = PublicLlmResolver {
+            host: "ai.parspack.com".to_string(),
+        };
+        assert!(resolver
+            .resolve("metadata.google.internal".parse().unwrap())
+            .await
+            .is_err());
+        assert!(resolver
+            .resolve("localhost".parse().unwrap())
+            .await
+            .is_err());
+    }
+
+    #[test]
+    fn local_embeddings_and_custom_llm_never_inherit_http_proxies() {
+        let mut config = Config::test(Url::parse("http://127.0.0.1:8080/v1/").unwrap());
+        config.mode = Mode::Offline;
+        assert!(embedding_client_requires_direct_connect(&config));
+
+        config.mode = Mode::Connected;
+        config.llm_profile = resolve_llm_profile("custom-v1:flash-4.1").unwrap();
+        assert!(embedding_client_requires_direct_connect(&config));
+
+        config.llm_profile = DEEPSEEK_CHAT_V1;
+        assert!(!embedding_client_requires_direct_connect(&config));
+    }
+
+    #[test]
+    fn custom_gateway_creates_isolated_dynamic_dns_client_without_ip_pin() {
+        let mut config = Config::test(Url::parse("http://127.0.0.1:8080/v1/").unwrap());
+        config.llm_profile = resolve_llm_profile("custom-v1:flash-4.1").unwrap();
+        config.llm_provider = Some(Provider {
+            base_url: custom_llm_url("https://ai.parspack.com/v1/").unwrap(),
+            api_key: Some("test-llm-key-abcdefghijklmnopqrstuvwxyz".to_string()),
+            model: "flash-4.1".to_string(),
+        });
+        let state = AppState::new(config).expect("custom client with dynamic resolver");
+        assert!(state.custom_llm_client.is_some());
+    }
+
+    #[test]
+    fn public_dns_addresses_must_be_globally_routable_ipv4() {
         for approved in ["1.1.1.1", "8.8.8.8", "9.9.9.9"] {
             assert!(public_llm_ipv4(approved.parse().unwrap()), "{approved}");
         }

@@ -17,24 +17,31 @@ In the local mode-600 `deploy/production/.env.edutalent`:
 ```dotenv
 AI_GATEWAY_MODE=offline
 AI_LLM_MODE=connected
-AI_LLM_BASE_URL=https://api.your-provider.tld/openai/v1/
-AI_LLM_CUSTOM_PUBLIC_IP=<verified-public-ipv4-for-the-provider>
-LLM_PROFILE=custom-v1:vendor/model-name
-LLM_MODEL=vendor/model-name
+AI_LLM_BASE_URL=https://ai.parspack.com/v1/
+LLM_PROFILE=custom-v1:flash-4.1
+LLM_MODEL=flash-4.1
 LLM_API_KEY=<operator-provided-secret>
 ```
+
+This ParsPack URL/model pair is an illustrative configuration; verify that the provider supports the exact model and required OpenAI-compatible JSON response format before production use.
 
 The model suffix in `LLM_PROFILE` must exactly equal `LLM_MODEL`. Allowed
 model names are 1–96 ASCII characters, start with a letter or digit, and
 otherwise contain only letters, digits, `.`, `_`, `-`, `/`, or `:`.
 The HTTPS endpoint must have a public DNS hostname (no IP literals, localhost,
 or private/internal naming suffixes), use port 443, and have no URL credentials,
-query or fragment. The operator must also supply a **globally routable IPv4 address
-pin** for the chosen hostname. The gateway bypasses proxies and pins every HTTPS
-connection to that address while verifying the hostname against the provider's
-TLS certificate. This prevents DNS rebinding toward private/metadata addresses;
-refresh and review the IP pin if the provider rotates its addresses. Use a
-real provider IP, not the example address in configuration comments. Prefix paths such as `/openai/v1/` are supported.
+query or fragment. Prefix paths such as `/openai/v1/` are supported.
+
+No fixed provider IP is required. For each new custom-provider connection, the
+gateway resolves DNS and passes **only publicly routable IPv4 addresses** to the
+HTTP transport, rejecting private, loopback, metadata, reserved, and IPv6
+addresses. DNS is not re-resolved between filtering and TCP connection, so DNS
+rebinding cannot change a vetted socket address. The custom LLM uses a separate
+HTTP client with all inherited proxies and redirects disabled, HTTPS port 443,
+and normal TLS hostname verification. DNS rotation is handled on new connections.
+DNS names that have no approved public IPv4 address fail closed. IPv6-only
+custom providers are not yet supported; never loosen the filter to work around
+this.
 
 The app receives **only** `LLM_PROFILE` and `LLM_MODEL`; no provider credentials
 or external URL. Compose passes those variables to the AI gateway, which
@@ -71,7 +78,7 @@ from this initial scope to prevent unnoticed transfers of student data.
   unchanged.
 - Only one operator-owned custom origin/model is active; no arbitrary
   client-provided URL/model and no wildcard tenant-controlled egress.
-- Gateway auth, school-scoped quotas, timeouts, redirects disabled, response
+- Gateway auth, school-scoped quotas, timeouts, dynamic public-IP-only DNS resolution, redirects disabled, response
   validation, and circuit breaking remain enforced.
 - Provider keys are gateway-only, never persisted in the database.
 - Local embeddings/Qdrant and tenant authorization are unchanged.
