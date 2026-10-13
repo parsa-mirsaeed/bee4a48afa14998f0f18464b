@@ -26,7 +26,8 @@ use axum::{
 };
 use reqwest::{
     dns::{Addrs, Name, Resolve, Resolving},
-    header::HeaderMap as ProviderHeaders, redirect::Policy as RedirectPolicy,
+    header::HeaderMap as ProviderHeaders,
+    redirect::Policy as RedirectPolicy,
     StatusCode as ProviderStatus, Url,
 };
 use serde::Serialize;
@@ -1639,8 +1640,14 @@ mod tests {
         let resolver = PublicLlmResolver {
             host: "ai.parspack.com".to_string(),
         };
-        assert!(resolver.resolve("metadata.google.internal".parse().unwrap()).await.is_err());
-        assert!(resolver.resolve("localhost".parse().unwrap()).await.is_err());
+        assert!(resolver
+            .resolve("metadata.google.internal".parse().unwrap())
+            .await
+            .is_err());
+        assert!(resolver
+            .resolve("localhost".parse().unwrap())
+            .await
+            .is_err());
     }
 
     #[test]
