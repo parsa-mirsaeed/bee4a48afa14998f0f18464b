@@ -67,14 +67,18 @@ pub async fn get_knowledge_storage_readiness() -> Result<KnowledgeStorageReadine
             }
         };
 
-        if response.status().as_u16() == 404 {
-            // The upload boundary creates the fixed private bucket on demand.
-            // A reachable storage API with an absent bucket is therefore ready
-            // for first use rather than a terminal configuration error.
-            return Ok(KnowledgeStorageReadiness::Ready);
+        let status = response.status();
+        if status.as_u16() == 404 || status.as_u16() == 400 {
+            // Pinned Storage can return HTTP 400 with code=NoSuchBucket.
+            // Reject all unrelated 400s; a missing bucket is created on upload.
+            return Ok(if crate::services::storage_bucket_compat::missing_bucket_response(response).await {
+                KnowledgeStorageReadiness::Ready
+            } else {
+                KnowledgeStorageReadiness::UnavailableRetryable
+            });
         }
-        if !response.status().is_success() {
-            tracing::warn!(status = %response.status(), "knowledge readiness storage request rejected");
+        if !status.is_success() {
+            tracing::warn!(%status, "knowledge readiness storage request rejected");
             return Ok(KnowledgeStorageReadiness::UnavailableRetryable);
         }
 
@@ -86,7 +90,9 @@ pub async fn get_knowledge_storage_readiness() -> Result<KnowledgeStorageReadine
             }
         };
 
-        if body.get("public").and_then(serde_json::Value::as_bool) == Some(false) {
+        if crate::services::storage_bucket_compat::matches_private_bucket(
+            &body, 20 * 1024 * 1024, &["application/pdf"],
+        ) {
             Ok(KnowledgeStorageReadiness::Ready)
         } else {
             tracing::error!(
