@@ -235,6 +235,7 @@ pub struct ParentAcademicChatRequest {
     pub question: String,
     pub prior_questions: Vec<String>,
     pub locale: String,
+    pub consent_to_provider: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -250,7 +251,8 @@ fn bounded_parent_chat_request(request: &ParentAcademicChatRequest) -> bool {
             && text.chars().count() <= max
             && !text.chars().any(|c| c.is_control() && c != '\n')
     }
-    safe_question(&request.question, 800)
+    request.consent_to_provider
+        && safe_question(&request.question, 800)
         && request.prior_questions.len() <= 3
         && request
             .prior_questions
@@ -469,6 +471,22 @@ async fn require_child_owner(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn parent_chat_requires_explicit_processing_consent() {
+        let request = super::ParentAcademicChatRequest {
+            child_id: uuid::Uuid::new_v4().to_string(),
+            question: "Which assignments are late?".to_string(),
+            prior_questions: vec![],
+            locale: "en".to_string(),
+            consent_to_provider: false,
+        };
+        assert!(!super::bounded_parent_chat_request(&request));
+        assert!(super::bounded_parent_chat_request(&super::ParentAcademicChatRequest {
+            consent_to_provider: true,
+            ..request
+        }));
+    }
+
     #[cfg(feature = "server")]
     #[tokio::test]
     async fn bounded_ai_request_budget_rejects_spam_without_cross_parent_penalty() {
