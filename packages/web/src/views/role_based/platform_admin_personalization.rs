@@ -2,9 +2,11 @@ use crate::i18n::{platform_admin_translation, use_locale, Locale};
 use crate::views::role_based::components::DashboardSection;
 use api::server_functions::admin_personalization_functions::{
     get_admin_personalization_overview, list_admin_personalization_teachers,
-    retry_admin_personalization_failed_scope, retry_admin_personalization_job,
-    set_admin_school_personalization_policy, set_admin_teacher_personalization_policy,
-    AdminPersonalizationJobDto, AdminPersonalizationMethodDto, AdminPersonalizationScopeSummaryDto,
+    regenerate_admin_personalization_job_with_current_policy,
+    regenerate_admin_personalization_with_current_policy, retry_admin_personalization_failed_scope,
+    retry_admin_personalization_job, set_admin_school_personalization_policy,
+    set_admin_teacher_personalization_policy, AdminPersonalizationJobDto,
+    AdminPersonalizationMethodDto, AdminPersonalizationScopeSummaryDto,
     AdminSchoolPersonalizationPolicyDto, AdminTeacherPersonalizationPolicyDto,
     RetryAdminPersonalizationScopeRequest, SetAdminSchoolPersonalizationPolicyRequest,
     SetAdminTeacherPersonalizationPolicyRequest,
@@ -128,6 +130,9 @@ fn ScopeRetryButton(
     let locale = use_locale().current();
     let mut busy = use_signal(|| false);
     let mut error = use_signal(|| false);
+    let school_id_for_old_retry = school_id.clone();
+    let teacher_id_for_old_retry = teacher_user_id.clone();
+    let assignment_id_for_old_retry = assignment_id.clone();
 
     rsx! {
         div {
@@ -142,9 +147,9 @@ fn ScopeRetryButton(
                     busy.set(true);
                     error.set(false);
                     let request = RetryAdminPersonalizationScopeRequest {
-                        school_id: school_id.clone(),
-                        teacher_user_id: teacher_user_id.clone(),
-                        assignment_id: assignment_id.clone(),
+                        school_id: school_id_for_old_retry.clone(),
+                        teacher_user_id: teacher_id_for_old_retry.clone(),
+                        assignment_id: assignment_id_for_old_retry.clone(),
                     };
                     spawn(async move {
                         match retry_admin_personalization_failed_scope(request).await {
@@ -165,6 +170,106 @@ fn ScopeRetryButton(
                     {t("platform_admin.personalization.retry_scope_error", locale)}
                 }
             }
+            CurrentPolicyRetryButton {
+                school_id: school_id.clone(),
+                teacher_user_id: teacher_user_id.clone(),
+                assignment_id: assignment_id.clone(),
+                job_id: None,
+                on_retried: move |count| on_retried.call(count),
+            }
+        }
+    }
+}
+
+/// Deliberately a second action: original retries keep historical AI policy,
+/// whereas regeneration creates an immutable NEW execution using current
+/// persisted effective school/Teacher policy. This action never saves a form.
+#[component]
+fn CurrentPolicyRetryButton(
+    school_id: Option<String>,
+    teacher_user_id: Option<String>,
+    assignment_id: Option<String>,
+    job_id: Option<String>,
+    on_retried: EventHandler<u64>,
+) -> Element {
+    let locale = use_locale().current();
+    let mut confirm_open = use_signal(|| false);
+    let mut busy = use_signal(|| false);
+    let mut error = use_signal(|| false);
+
+    if job_id.is_none() && school_id.is_none() {
+        // No unbounded Platform Admin fan-out is permitted.
+        return rsx! {};
+    }
+
+    rsx! {
+        div { class: "mt-2",
+            button {
+                r#type: "button",
+                class: "rounded-lg border border-blue-400 px-3 py-2 text-sm font-semibold text-blue-800 disabled:opacity-50 dark:text-blue-300",
+                disabled: busy(),
+                onclick: move |_| confirm_open.set(true),
+                {t("platform_admin.personalization.regenerate_current", locale)}
+            }
+            if confirm_open() {
+                div { class: "mt-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-gray-900 dark:bg-gray-900 dark:text-gray-100",
+                    role: "alertdialog",
+                    "aria-label": t("platform_admin.personalization.regenerate_confirm_label", locale),
+                    p { {t("platform_admin.personalization.regenerate_confirm", locale)} }
+                    div { class: "mt-3 flex flex-wrap gap-2",
+                        button {
+                            r#type: "button",
+                            class: "rounded border px-3 py-2",
+                            disabled: busy(),
+                            onclick: move |_| confirm_open.set(false),
+                            {t("platform_admin.personalization.cancel", locale)}
+                        }
+                        button {
+                            r#type: "button",
+                            class: "rounded bg-blue-700 px-3 py-2 font-semibold text-white disabled:opacity-50",
+                            disabled: busy(),
+                            onclick: move |_| {
+                                if busy() { return; }
+                                busy.set(true);
+                                error.set(false);
+                                let job = job_id.clone();
+                                let req = RetryAdminPersonalizationScopeRequest {
+                                    school_id: school_id.clone(),
+                                    teacher_user_id: teacher_user_id.clone(),
+                                    assignment_id: assignment_id.clone(),
+                                };
+                                spawn(async move {
+                                    let result = if let Some(job_id) = job {
+                                        regenerate_admin_personalization_job_with_current_policy(job_id)
+                                            .await
+                                            .map(|()| 1)
+                                    } else {
+                                        regenerate_admin_personalization_with_current_policy(req).await
+                                    };
+                                    match result {
+                                        Ok(count) => {
+                                            confirm_open.set(false);
+                                            on_retried.call(count);
+                                        }
+                                        Err(_) => error.set(true),
+                                    }
+                                    busy.set(false);
+                                });
+                            },
+                            if busy() {
+                                {t("platform_admin.personalization.retrying", locale)}
+                            } else {
+                                {t("platform_admin.personalization.regenerate_confirm_label", locale)}
+                            }
+                        }
+                    }
+                }
+            }
+            if error() {
+                p { class: "mt-2 text-sm text-red-600", role: "alert",
+                    {t("platform_admin.personalization.regenerate_error", locale)}
+                }
+            }
         }
     }
 }
@@ -177,6 +282,7 @@ pub fn PlatformPersonalizationSection() -> Element {
     // Relying only on implicit resource dependency tracking can leave the resource
     // at its initial empty result when a school is selected after first render.
     let mut teacher_refresh_generation = use_signal(|| 0_u64);
+    let mut last_saved_policy = use_signal(|| None::<(String, String, i32)>);
     let mut overview =
         use_resource(move || async move { get_admin_personalization_overview().await });
     let mut teachers = use_resource(move || {
@@ -248,6 +354,11 @@ pub fn PlatformPersonalizationSection() -> Element {
                                 }
                             }
 
+                            if let Some((school_name, saved_profile, version)) = last_saved_policy() {
+                                p { class: "rounded-lg border border-green-300 px-3 py-2 text-sm", role: "status",
+                                    {format!("{}: {} · {} · v{}", t("platform_admin.personalization.persisted_profile", locale), school_name, saved_profile, version)}
+                                }
+                            }
                             section { class: "space-y-3",
                                 h2 { class: "text-lg font-semibold text-gray-900 dark:text-white",
                                     {t("platform_admin.personalization.schools", locale)}
@@ -265,7 +376,12 @@ pub fn PlatformPersonalizationSection() -> Element {
                                                 None,
                                             ),
                                             on_retried: move |_| overview.restart(),
-                                            on_saved: move |_| {
+                                            on_saved: move |saved: AdminSchoolPersonalizationPolicyDto| {
+                                                last_saved_policy.set(Some((
+                                                    saved.school_name,
+                                                    saved.llm_profile_id,
+                                                    saved.policy_version,
+                                                )));
                                                 overview.restart();
                                                 if selected_school().is_some() {
                                                     teacher_refresh_generation
@@ -412,7 +528,7 @@ fn SchoolPolicyCard(
     methods: Vec<AdminPersonalizationMethodDto>,
     summary: Option<AdminPersonalizationScopeSummaryDto>,
     on_retried: EventHandler<u64>,
-    on_saved: EventHandler,
+    on_saved: EventHandler<AdminSchoolPersonalizationPolicyDto>,
     on_manage_teachers: EventHandler<(String, String)>,
 ) -> Element {
     let locale = use_locale().current();
@@ -540,7 +656,12 @@ fn SchoolPolicyCard(
                     };
                     spawn(async move {
                         match set_admin_school_personalization_policy(request).await {
-                            Ok(_) => on_saved.call(()),
+                            Ok(saved) => {
+                                // Use the persisted server-authoritative profile,
+                                // not the prior browser selection or old job snapshot.
+                                profile.set(saved.llm_profile_id.clone());
+                                on_saved.call(saved);
+                            }
                             Err(_) => error.set(true),
                         }
                         busy.set(false);
@@ -718,6 +839,7 @@ fn PersonalizationJobCard(
     let mut busy = use_signal(|| false);
     let mut error = use_signal(|| false);
     let retryable = matches!(job.status.as_str(), "failed" | "cancelled");
+    let regeneration_job_id = job.job_id.clone();
     let prompt_tokens = job
         .prompt_tokens
         .map(|value| value.to_string())
@@ -761,6 +883,10 @@ fn PersonalizationJobCard(
                     value: format!("{} v{} · {}", job.policy_scope, job.policy_version, delivery_label(&job.delivery_policy, locale)),
                 }
                 CompactField {
+                    label: t("platform_admin.personalization.generation", locale),
+                    value: format!("v{}", job.execution_generation),
+                }
+                CompactField {
                     label: t("platform_admin.personalization.attempts", locale),
                     value: job.attempt_count.to_string(),
                 }
@@ -770,6 +896,11 @@ fn PersonalizationJobCard(
                 }
             }
 
+            if let Some(previous) = job.supersedes_job_id.as_ref() {
+                p { class: "mt-2 break-all text-xs text-gray-500", dir: "ltr",
+                    {format!("{}: {}", t("platform_admin.personalization.previous_execution", locale), previous)}
+                }
+            }
             dl { class: "mt-3 grid grid-cols-1 gap-3 text-sm sm:grid-cols-2 xl:grid-cols-4",
                 CompactField {
                     label: t("platform_admin.personalization.created_at", locale),
@@ -859,6 +990,15 @@ fn PersonalizationJobCard(
                         });
                     },
                     {t("platform_admin.personalization.retry", locale)}
+                }
+            }
+            if retryable {
+                CurrentPolicyRetryButton {
+                    school_id: None,
+                    teacher_user_id: None,
+                    assignment_id: None,
+                    job_id: Some(regeneration_job_id.clone()),
+                    on_retried: move |_| on_retried.call(()),
                 }
             }
             if error() {
