@@ -48,16 +48,32 @@ pub async fn missing_bucket_response(mut response: Response) -> bool {
 /// Fail closed for an existing public/misconfigured bucket. Both fields are
 /// server-asserted; client-supplied object metadata is never trusted.
 pub fn matches_private_bucket(body: &Value, limit: usize, mime: &[&str]) -> bool {
-    let allowed = match body.get("allowed_mime_types").and_then(Value::as_array) {
-        Some(items) => items,
-        None => return false,
-    };
-    body.get("public").and_then(Value::as_bool) == Some(false)
-        && body.get("file_size_limit").and_then(Value::as_u64) == Some(limit as u64)
-        && allowed.len() == mime.len()
-        && mime
-            .iter()
-            .all(|expected| allowed.iter().any(|v| v.as_str() == Some(expected)))
+    if body.get("public").and_then(Value::as_bool) != Some(false) {
+        return false;
+    }
+    // Older manually provisioned private buckets can have NULL server-side
+    // limits. Application handlers independently enforce the strict size and
+    // MIME contract. Reject contradictory *configured* limits, but do not
+    // disable an otherwise private pre-existing bucket solely for omitted
+    // optional Storage metadata.
+    if let Some(size) = body.get("file_size_limit").filter(|v| !v.is_null()) {
+        if size.as_u64() != Some(limit as u64) {
+            return false;
+        }
+    }
+    if let Some(types) = body.get("allowed_mime_types").filter(|v| !v.is_null()) {
+        let Some(allowed) = types.as_array() else {
+            return false;
+        };
+        if allowed.len() != mime.len()
+            || !mime
+                .iter()
+                .all(|expected| allowed.iter().any(|v| v.as_str() == Some(expected)))
+        {
+            return false;
+        }
+    }
+    true
 }
 
 #[cfg(test)]
@@ -106,8 +122,18 @@ mod tests {
             10 * 1024 * 1024,
             &types
         ));
-        assert!(!matches_private_bucket(
+        assert!(matches_private_bucket(
             &json!({"public":false}),
+            10 * 1024 * 1024,
+            &types
+        ));
+        assert!(matches_private_bucket(
+            &json!({"public":false,"file_size_limit":null,"allowed_mime_types":null}),
+            10 * 1024 * 1024,
+            &types
+        ));
+        assert!(!matches_private_bucket(
+            &json!({"public":false,"allowed_mime_types":"invalid"}),
             10 * 1024 * 1024,
             &types
         ));
