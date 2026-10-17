@@ -72,6 +72,8 @@ pub struct AdminTeacherPersonalizationPolicyDto {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AdminPersonalizationJobDto {
     pub job_id: String,
+    pub execution_generation: i32,
+    pub supersedes_job_id: Option<String>,
     pub school_id: String,
     pub school_name: String,
     pub teacher_user_id: String,
@@ -272,6 +274,8 @@ fn teacher_dto(policy: TeacherPersonalizationPolicy) -> AdminTeacherPersonalizat
 fn job_dto(job: AdminPersonalizationJobRecord) -> AdminPersonalizationJobDto {
     AdminPersonalizationJobDto {
         job_id: job.job_id.to_string(),
+        execution_generation: job.execution_generation,
+        supersedes_job_id: job.supersedes_job_id.map(|id| id.to_string()),
         school_id: job.school_id.to_string(),
         school_name: job.school_name,
         teacher_user_id: job.teacher_user_id.to_string(),
