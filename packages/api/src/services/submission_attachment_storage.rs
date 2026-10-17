@@ -34,12 +34,26 @@ pub async fn verify_private_bucket(state: &AppState) -> Result<()> {
         .send()
         .await
         .map_err(|_| AttachmentError::Storage)?;
-    if response.status().as_u16() == 404 {
-        let created=auth(c.post(url(state,"bucket")),state).json(&json!({"id":BUCKET,"name":BUCKET,"public":false,"fileSizeLimit":MAX_ATTACHMENT_BYTES,"allowedMimeTypes":["application/pdf","image/jpeg","image/png"]})).send().await.map_err(|_| AttachmentError::Storage)?;
+    let status = response.status();
+    if status.as_u16() == 404 || status.as_u16() == 400 {
+        if !crate::services::storage_bucket_compat::missing_bucket_response(response).await {
+            return Err(AttachmentError::Storage);
+        }
+        let created = auth(c.post(url(state, "bucket")), state)
+            .json(&json!({
+                "id": BUCKET,
+                "name": BUCKET,
+                "public": false,
+                "fileSizeLimit": MAX_ATTACHMENT_BYTES,
+                "allowedMimeTypes": ["application/pdf", "image/jpeg", "image/png"],
+            }))
+            .send()
+            .await
+            .map_err(|_| AttachmentError::Storage)?;
         if !created.status().is_success() && !matches!(created.status().as_u16(), 400 | 409) {
             return Err(AttachmentError::Storage);
         }
-    } else if !response.status().is_success() {
+    } else if !status.is_success() {
         return Err(AttachmentError::Storage);
     }
     // Always read back privacy, including the create/concurrent-create paths.
@@ -51,7 +65,11 @@ pub async fn verify_private_bucket(state: &AppState) -> Result<()> {
         return Err(AttachmentError::Storage);
     }
     let data: Value = check.json().await.map_err(|_| AttachmentError::Storage)?;
-    if data.get("public").and_then(Value::as_bool) != Some(false) {
+    if !crate::services::storage_bucket_compat::matches_private_bucket(
+        &data,
+        MAX_ATTACHMENT_BYTES,
+        &["application/pdf", "image/jpeg", "image/png"],
+    ) {
         return Err(AttachmentError::Storage);
     }
     Ok(())

@@ -37,10 +37,9 @@ const USERS = new Map([
   ['e2e-inactive@example.test', 'b0000000-0000-0000-0000-0000000000a9'],
 ]);
 const PASSWORDS = new Map([...USERS.keys()].map((email) => [email, FIXTURE_PASSWORD]));
-const BUCKETS = new Map([
-  [KNOWLEDGE_BUCKET, { id: KNOWLEDGE_BUCKET, name: KNOWLEDGE_BUCKET, public: false }],
-  ['edutalent-submission-originals', { id: 'edutalent-submission-originals', name: 'edutalent-submission-originals', public: false }],
-]);
+// Begin with NO buckets. The first Manager/Student browser uploads must
+// provision private storage from pinned 400 NoSuchBucket, then work on retries.
+const BUCKETS = new Map();
 const OBJECTS = new Map();
 
 function storageFilePath(key) {
@@ -249,7 +248,9 @@ const server = http.createServer((req, res) => {
       const bucketId = decodeURIComponent(url.pathname.slice('/storage/v1/bucket/'.length));
       const bucket = BUCKETS.get(bucketId);
       if (!bucket) {
-        json(res, 404, { error: 'not_found' });
+        // Production pinned Storage v1.60.4 reports missing buckets as HTTP
+        // 400 NoSuchBucket, not necessarily HTTP 404.
+        json(res, 400, { code: 'NoSuchBucket', message: 'Bucket not found' });
         return;
       }
       json(res, 200, bucket);
@@ -272,6 +273,8 @@ const server = http.createServer((req, res) => {
         id: bucketId,
         name: payload.name ?? bucketId,
         public: payload.public === true,
+        file_size_limit: payload.fileSizeLimit ?? null,
+        allowed_mime_types: payload.allowedMimeTypes ?? null,
       };
       BUCKETS.set(bucketId, bucket);
       json(res, 200, bucket);
