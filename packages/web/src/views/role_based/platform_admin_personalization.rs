@@ -3,6 +3,8 @@ use crate::views::role_based::components::DashboardSection;
 use api::server_functions::admin_personalization_functions::{
     get_admin_personalization_overview, list_admin_personalization_teachers,
     retry_admin_personalization_failed_scope, retry_admin_personalization_job,
+    regenerate_admin_personalization_with_current_policy,
+    regenerate_admin_personalization_job_with_current_policy,
     set_admin_school_personalization_policy, set_admin_teacher_personalization_policy,
     AdminPersonalizationJobDto, AdminPersonalizationMethodDto, AdminPersonalizationScopeSummaryDto,
     AdminSchoolPersonalizationPolicyDto, AdminTeacherPersonalizationPolicyDto,
@@ -163,6 +165,106 @@ fn ScopeRetryButton(
             if error() {
                 p { class: "mt-2 text-xs text-red-600", role: "alert",
                     {t("platform_admin.personalization.retry_scope_error", locale)}
+                }
+            }
+            CurrentPolicyRetryButton {
+                school_id: school_id.clone(),
+                teacher_user_id: teacher_user_id.clone(),
+                assignment_id: assignment_id.clone(),
+                job_id: None,
+                on_retried: move |count| on_retried.call(count),
+            }
+        }
+    }
+}
+
+/// Deliberately a second action: original retries keep historical AI policy,
+/// whereas regeneration creates an immutable NEW execution using current
+/// persisted effective school/Teacher policy. This action never saves a form.
+#[component]
+fn CurrentPolicyRetryButton(
+    school_id: Option<String>,
+    teacher_user_id: Option<String>,
+    assignment_id: Option<String>,
+    job_id: Option<String>,
+    on_retried: EventHandler<u64>,
+) -> Element {
+    let locale = use_locale().current();
+    let mut confirm_open = use_signal(|| false);
+    let mut busy = use_signal(|| false);
+    let mut error = use_signal(|| false);
+
+    if job_id.is_none() && school_id.is_none() {
+        // No unbounded Platform Admin fan-out is permitted.
+        return rsx! {};
+    }
+
+    rsx! {
+        div { class: "mt-2",
+            button {
+                r#type: "button",
+                class: "rounded-lg border border-blue-400 px-3 py-2 text-sm font-semibold text-blue-800 disabled:opacity-50 dark:text-blue-300",
+                disabled: busy(),
+                onclick: move |_| confirm_open.set(true),
+                {t("platform_admin.personalization.regenerate_current", locale)}
+            }
+            if confirm_open() {
+                div { class: "mt-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-gray-900 dark:bg-gray-900 dark:text-gray-100",
+                    role: "alertdialog",
+                    "aria-label": t("platform_admin.personalization.regenerate_confirm_label", locale),
+                    p { {t("platform_admin.personalization.regenerate_confirm", locale)} }
+                    div { class: "mt-3 flex flex-wrap gap-2",
+                        button {
+                            r#type: "button",
+                            class: "rounded border px-3 py-2",
+                            disabled: busy(),
+                            onclick: move |_| confirm_open.set(false),
+                            {t("platform_admin.personalization.cancel", locale)}
+                        }
+                        button {
+                            r#type: "button",
+                            class: "rounded bg-blue-700 px-3 py-2 font-semibold text-white disabled:opacity-50",
+                            disabled: busy(),
+                            onclick: move |_| {
+                                if busy() { return; }
+                                busy.set(true);
+                                error.set(false);
+                                let job = job_id.clone();
+                                let req = RetryAdminPersonalizationScopeRequest {
+                                    school_id: school_id.clone(),
+                                    teacher_user_id: teacher_user_id.clone(),
+                                    assignment_id: assignment_id.clone(),
+                                };
+                                spawn(async move {
+                                    let result = if let Some(job_id) = job {
+                                        regenerate_admin_personalization_job_with_current_policy(job_id)
+                                            .await
+                                            .map(|()| 1)
+                                    } else {
+                                        regenerate_admin_personalization_with_current_policy(req).await
+                                    };
+                                    match result {
+                                        Ok(count) => {
+                                            confirm_open.set(false);
+                                            on_retried.call(count);
+                                        }
+                                        Err(_) => error.set(true),
+                                    }
+                                    busy.set(false);
+                                });
+                            },
+                            if busy() {
+                                {t("platform_admin.personalization.retrying", locale)}
+                            } else {
+                                {t("platform_admin.personalization.regenerate_confirm_label", locale)}
+                            }
+                        }
+                    }
+                }
+            }
+            if error() {
+                p { class: "mt-2 text-sm text-red-600", role: "alert",
+                    {t("platform_admin.personalization.regenerate_error", locale)}
                 }
             }
         }
@@ -859,6 +961,15 @@ fn PersonalizationJobCard(
                         });
                     },
                     {t("platform_admin.personalization.retry", locale)}
+                }
+            }
+            if retryable {
+                CurrentPolicyRetryButton {
+                    school_id: None,
+                    teacher_user_id: None,
+                    assignment_id: None,
+                    job_id: Some(job.job_id.clone()),
+                    on_retried: move |_| on_retried.call(()),
                 }
             }
             if error() {
