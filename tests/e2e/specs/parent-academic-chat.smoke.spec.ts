@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { enforceOfflineAllowlist, assertNoUnexpectedOrigins } from '../fixtures/network-policy';
-import { watchConsole, assertNoConsoleErrors } from '../fixtures/console-guard';
+import { allowHttpResponse, watchConsole, assertNoConsoleErrors } from '../fixtures/console-guard';
 
 const PASSWORD = 'e2e-password';
 
@@ -52,6 +52,10 @@ for (const locale of ['en', 'fa'] as const) {
       name: /processed by the school's AI provider|پردازش می‌شوند/,
     }).check();
     await expect(ask).toBeEnabled();
+    // Gateway is intentionally absent in this offline browser proof. Only
+    // this exact endpoint/status is expected; all other HTTP failures still
+    // fail the browser console guard.
+    allowHttpResponse('/api/parent/scoped/child/academic-chat', 500);
     await ask.click();
 
     // The browser runner deliberately has no AI gateway. Never forge academic
