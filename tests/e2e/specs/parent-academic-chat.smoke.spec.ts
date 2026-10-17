@@ -44,9 +44,15 @@ for (const locale of ['en', 'fa'] as const) {
     }).fill(locale === 'fa'
       ? 'کدام تکلیف‌ها هنوز انجام نشده‌اند؟'
       : 'Which assignments are pending?');
-    await page.getByRole('button', {
+    const ask = page.getByRole('button', {
       name: locale === 'fa' ? 'پرسش از هوش مصنوعی' : 'Ask AI',
-    }).click();
+    });
+    await expect(ask).toBeDisabled();
+    await page.getByRole('checkbox', {
+      name: /processed by the school's AI provider|پردازش می‌شوند/,
+    }).check();
+    await expect(ask).toBeEnabled();
+    await ask.click();
 
     // The browser runner deliberately has no AI gateway. Never forge academic
     // facts, turn old assignments into generated advice or silently retry
