@@ -1478,7 +1478,10 @@ async fn admin_regeneration_snapshots_current_policy_without_mutating_old_failed
     );
     assert_eq!(rows[1].get::<i32, _>("execution_generation"), 2);
     assert_eq!(rows[0].get::<Option<Uuid>, _>("regenerated_by"), None);
-    assert_eq!(rows[1].get::<Option<Uuid>, _>("regenerated_by"), Some(admin));
+    assert_eq!(
+        rows[1].get::<Option<Uuid>, _>("regenerated_by"),
+        Some(admin)
+    );
     assert_eq!(
         rows[1].get::<Option<Uuid>, _>("supersedes_job_id"),
         Some(original_id)
