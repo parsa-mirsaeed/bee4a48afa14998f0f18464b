@@ -48,7 +48,7 @@ DOC_ROOT_FILES = {
 
 WORKFLOW_POLICY_RE = re.compile(
     r"^(?:\.github/(?:workflows/.*\.ya?ml|FULL_VALIDATION\.md|scripts/.*)|"
-    r"scripts/ci/(?:stage1_.*|test_stage1_.*|evidence_schema\.json))$"
+    r"scripts/ci/(?:stage1_.*|test_stage1_.*|test_checkout_head_contract\.py|evidence_schema\.json))$"
 )
 DB_RE = re.compile(
     r"^(?:migrations/|packages/api/migration/|"
