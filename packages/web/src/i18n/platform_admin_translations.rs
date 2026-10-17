@@ -455,6 +455,16 @@ pub(crate) fn platform_admin_translation(
         (Locale::Fa, "platform_admin.personalization.retrying") => Some("در حال تلاش دوباره…"),
         (Locale::En, "platform_admin.personalization.retry_scope_error") => Some("Failed jobs in this scope could not be retried."),
         (Locale::Fa, "platform_admin.personalization.retry_scope_error") => Some("تلاش دوباره کارهای ناموفق این محدوده ممکن نشد."),
+        (Locale::En, "platform_admin.personalization.regenerate_current") => Some("Retry with current AI settings"),
+        (Locale::Fa, "platform_admin.personalization.regenerate_current") => Some("تلاش مجدد با تنظیمات فعلی هوش مصنوعی"),
+        (Locale::En, "platform_admin.personalization.regenerate_confirm_label") => Some("Confirm new personalization execution"),
+        (Locale::Fa, "platform_admin.personalization.regenerate_confirm_label") => Some("تأیید اجرای جدید شخصی‌سازی"),
+        (Locale::En, "platform_admin.personalization.regenerate_confirm") => Some("Create new jobs using the CURRENT SAVED effective school/teacher AI policies. Original failed jobs and their model snapshots will be preserved. Save policy changes first."),
+        (Locale::Fa, "platform_admin.personalization.regenerate_confirm") => Some("کارهای جدید با سیاست ذخیره‌شده فعلی مدرسه و معلم ایجاد می‌شوند. کارهای ناموفق و مدل‌های پیشین بدون تغییر نگهداری خواهند شد. ابتدا تغییرات سیاست را ذخیره کنید."),
+        (Locale::En, "platform_admin.personalization.regenerate_error") => Some("Unable to create new jobs with current saved AI settings. Check policy, provider and assignment eligibility."),
+        (Locale::Fa, "platform_admin.personalization.regenerate_error") => Some("ایجاد کار جدید با تنظیمات ذخیره‌شده ممکن نشد. سیاست، ارائه‌دهنده و شرایط تکلیف را بررسی کنید."),
+        (Locale::En, "platform_admin.personalization.cancel") => Some("Cancel"),
+        (Locale::Fa, "platform_admin.personalization.cancel") => Some("انصراف"),
         (Locale::En, "platform_admin.personalization.retry_error") => Some("This job could not be retried."),
         (Locale::Fa, "platform_admin.personalization.retry_error") => Some("تلاش دوباره برای این کار ممکن نشد."),
         (Locale::En, "platform_admin.personalization.failure.gateway_unavailable") => Some("AI gateway is temporarily unavailable"),
@@ -724,6 +734,11 @@ mod tests {
         "platform_admin.personalization.retry_failed_scope",
         "platform_admin.personalization.retrying",
         "platform_admin.personalization.retry_scope_error",
+        "platform_admin.personalization.regenerate_current",
+        "platform_admin.personalization.regenerate_confirm_label",
+        "platform_admin.personalization.regenerate_confirm",
+        "platform_admin.personalization.regenerate_error",
+        "platform_admin.personalization.cancel",
     ];
 
     #[test]
