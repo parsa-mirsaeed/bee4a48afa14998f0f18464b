@@ -37,17 +37,9 @@ const USERS = new Map([
   ['e2e-inactive@example.test', 'b0000000-0000-0000-0000-0000000000a9'],
 ]);
 const PASSWORDS = new Map([...USERS.keys()].map((email) => [email, FIXTURE_PASSWORD]));
-const BUCKETS = new Map([
-  [KNOWLEDGE_BUCKET, {
-    id: KNOWLEDGE_BUCKET, name: KNOWLEDGE_BUCKET, public: false,
-    file_size_limit: 20 * 1024 * 1024, allowed_mime_types: ['application/pdf'],
-  }],
-  ['edutalent-submission-originals', {
-    id: 'edutalent-submission-originals', name: 'edutalent-submission-originals', public: false,
-    file_size_limit: 10 * 1024 * 1024,
-    allowed_mime_types: ['application/pdf', 'image/jpeg', 'image/png'],
-  }],
-]);
+// Begin with NO buckets. The first Manager/Student browser uploads must
+// provision private storage from pinned 400 NoSuchBucket, then work on retries.
+const BUCKETS = new Map();
 const OBJECTS = new Map();
 
 function storageFilePath(key) {
