@@ -239,10 +239,11 @@ pub fn start_knowledge_ingestion_worker(
                             error = %message,
                             "Knowledge ingestion job failed permanently"
                         ),
-                        Ok(Ok(EmbeddingFailureDisposition::IgnoredInactive)) => tracing::info!(
+                        Ok(Ok(EmbeddingFailureDisposition::IgnoredInactive)) => tracing::warn!(
                             job_id = %job.id,
                             asset_id = %job.asset_id,
-                            "Ignoring worker failure because the job is no longer active"
+                            original_error = %message,
+                            "Embedding failure handler saw no active job; check worker RLS visibility and job lifecycle"
                         ),
                         Ok(Err(repository_error)) => tracing::error!(
                             job_id = %job.id,
