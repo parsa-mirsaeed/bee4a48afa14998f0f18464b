@@ -281,6 +281,9 @@ impl ExternalLlmClient {
         let client = reqwest::Client::builder()
             .timeout(config.request_timeout)
             .redirect(RedirectPolicy::none())
+            // Internal-only gateway calls must not inherit an operator/CI
+            // HTTP_PROXY that could relay children's academic context.
+            .no_proxy()
             .build()?;
         Ok(Self {
             client,
