@@ -115,6 +115,8 @@ pub struct AdminPersonalizationScopeSummary {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AdminPersonalizationJobRecord {
     pub job_id: Uuid,
+    pub execution_generation: i32,
+    pub supersedes_job_id: Option<Uuid>,
     pub school_id: Uuid,
     pub school_name: String,
     pub teacher_user_id: Uuid,
@@ -321,8 +323,10 @@ impl AssignmentPersonalizationJobRepository {
         self.require_platform_admin(actor_id).await?;
         let rows = sqlx::query(
             r#"
-            SELECT *
-            FROM public.list_assignment_personalization_jobs_for_admin($1, $2, $3)
+            SELECT listed.*, queue.execution_generation, queue.supersedes_job_id
+            FROM public.list_assignment_personalization_jobs_for_admin($1, $2, $3) AS listed
+            JOIN public.assignment_personalization_jobs AS queue
+              ON queue.id = listed.job_id
             "#,
         )
         .bind(school_id)
@@ -335,6 +339,8 @@ impl AssignmentPersonalizationJobRepository {
             .map(|row| {
                 Ok(AdminPersonalizationJobRecord {
                     job_id: row.try_get("job_id")?,
+                    execution_generation: row.try_get("execution_generation")?,
+                    supersedes_job_id: row.try_get("supersedes_job_id")?,
                     school_id: row.try_get("school_id")?,
                     school_name: row.try_get("school_name")?,
                     teacher_user_id: row.try_get("teacher_user_id")?,
