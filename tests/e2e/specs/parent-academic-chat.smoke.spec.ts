@@ -75,3 +75,36 @@ test('Unlinked Parent sees no selectable student and cannot trigger AI chat @smo
   await expect(page.getByText('School administration must link a student before academic information appears.')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Ask AI' })).toHaveCount(0);
 });
+
+test('Parent AI endpoint rejects cross-school child IDs and Teacher roles @smoke @parent @authorization @workflow-truth', async ({ page }) => {
+  await signIn(page, 'e2e-parent-a@example.test', 'en');
+  await page.goto('/dashboard/ai-chat');
+  await page.getByRole('combobox', { name: 'Student' }).selectOption({ label: 'E2E Student A' });
+  await page.getByRole('textbox', { name: 'Your question' }).fill('Which assignments are late?');
+  await page.getByRole('checkbox', { name: /processed by the school's AI provider/ }).check();
+
+  const captured = page.waitForRequest(req =>
+    new URL(req.url()).pathname === '/api/parent/scoped/child/academic-chat');
+  allowHttpResponse('/api/parent/scoped/child/academic-chat', 500);
+  await page.getByRole('button', { name: 'Ask AI' }).click();
+  const original = await captured;
+  await expect(page.getByRole('alert')).toContainText('AI guidance is unavailable');
+
+  const body = original.postData();
+  expect(body).toContain('c0000000-0000-0000-0000-0000000000a3');
+  const headers = { 'content-type': original.headers()['content-type'] };
+  const crossSchool = await page.context().request.post(original.url(), {
+    headers,
+    data: body!.replace(
+      'c0000000-0000-0000-0000-0000000000a3',
+      'c0000000-0000-0000-0000-0000000000b3',
+    ),
+  });
+  expect(crossSchool.ok()).toBeFalsy();
+  expect(await crossSchool.text()).toContain('parent.child_not_linked');
+
+  await signIn(page, 'e2e-teacher-a@example.test', 'en');
+  const wrongRole = await page.context().request.post(original.url(), { headers, data: body! });
+  expect(wrongRole.ok()).toBeFalsy();
+  expect(await wrongRole.text()).toContain('parent.forbidden');
+});
