@@ -13,6 +13,7 @@ pub fn ParentDashboard(section: String) -> Element {
     if let Some(user) = current_user {
         let content = match section.as_str() {
             "children" => rsx! { super::children::ChildrenSection {} },
+            "ai-chat" => rsx! { super::ai_chat::ParentAcademicChatSection {} },
             "reports"
                 if api::product_capabilities::PRODUCTION_PRODUCT_CAPABILITIES.parent_reports =>
             {
@@ -88,6 +89,18 @@ pub fn ParentOverviewSection(on_navigate: EventHandler<String>) -> Element {
                             div { class: "et-stat",
                                 p { class: "et-stat-label", "{locale.t(\"parent.dashboard.stats.enrolled_classes\")}" }
                                 p { class: "et-stat-value", "{total_classes}" }
+                            }
+                        }
+                        section { class: "et-panel space-y-2",
+                            h3 { class: "font-semibold", "{locale.t(\"parent.ai.title\")}" }
+                            p { class: "text-sm text-gray-600 dark:text-gray-300",
+                                "{locale.t(\"parent.ai.intro\")}"
+                            }
+                            button {
+                                r#type: "button",
+                                class: "et-inline-action",
+                                onclick: move |_| on_navigate.call("ai-chat".to_string()),
+                                "{locale.t(\"parent.ai.open\")}"
                             }
                         }
                         section { class: "et-section",
