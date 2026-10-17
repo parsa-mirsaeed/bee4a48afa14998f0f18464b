@@ -259,6 +259,45 @@ fn bounded_parent_chat_request(request: &ParentAcademicChatRequest) -> bool {
         && matches!(request.locale.as_str(), "fa" | "en")
 }
 
+// A bounded process-local Parent budget complements the AI gateway's
+// school-level quota. No Parent identifiers or questions are logged.
+#[cfg(feature = "server")]
+async fn enforce_parent_ai_request_budget(parent_id: Uuid) -> Result<(), ServerFnError> {
+    use std::collections::{HashMap, VecDeque};
+    use std::sync::OnceLock;
+    use std::time::{Duration, Instant};
+    use tokio::sync::Mutex;
+
+    const WINDOW: Duration = Duration::from_secs(5 * 60);
+    const MAX_REQUESTS: usize = 12;
+    const MAX_PARENTS: usize = 4096;
+    static CALLS: OnceLock<Mutex<HashMap<Uuid, VecDeque<Instant>>>> = OnceLock::new();
+
+    let now = Instant::now();
+    let mut calls = CALLS
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+        .await;
+    calls.retain(|_, times| {
+        while times
+            .front()
+            .is_some_and(|first| now.duration_since(*first) >= WINDOW)
+        {
+            times.pop_front();
+        }
+        !times.is_empty()
+    });
+    if !calls.contains_key(&parent_id) && calls.len() >= MAX_PARENTS {
+        return Err(ServerFnError::new("parent.ai_rate_limited"));
+    }
+    let times = calls.entry(parent_id).or_default();
+    if times.len() >= MAX_REQUESTS {
+        return Err(ServerFnError::new("parent.ai_rate_limited"));
+    }
+    times.push_back(now);
+    Ok(())
+}
+
 #[server(endpoint = "parent/scoped/child/academic-chat")]
 pub async fn ask_parent_academic_chat(
     request: ParentAcademicChatRequest,
@@ -295,6 +334,7 @@ pub async fn ask_parent_academic_chat(
         .await
         .map_err(|_| ServerFnError::new("parent.ai_context_unavailable"))?
         .ok_or_else(|| ServerFnError::new("parent.child_not_linked"))?;
+        enforce_parent_ai_request_budget(parent_id).await?;
 
         // No private submissions, raw feedback, profiles, sibling identities,
         // medical records or unrestricted user-supplied SQL. Only established
@@ -429,6 +469,30 @@ async fn require_child_owner(
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "server")]
+    #[tokio::test]
+    async fn bounded_ai_request_budget_rejects_spam_without_cross_parent_penalty() {
+        let one = uuid::Uuid::new_v4();
+        let another = uuid::Uuid::new_v4();
+        for _ in 0..12 {
+            assert!(super::enforce_parent_ai_request_budget(one).await.is_ok());
+        }
+        assert!(super::enforce_parent_ai_request_budget(one).await.is_err());
+        assert!(super::enforce_parent_ai_request_budget(another).await.is_ok());
+    }
+
+    #[test]
+    fn parent_ai_rechecks_child_and_bounds_context_before_gateway() {
+        let source = include_str!("parent_scoped_functions.rs");
+        let implementation = source.split("#[cfg(test)]").next().unwrap_or(source);
+        assert!(implementation.contains("st.parent_id = $2"));
+        assert!(implementation.contains("parent.is_active AND student_user.is_active"));
+        assert!(implementation.contains("cs.school_id = $2"));
+        assert!(implementation.contains("LIMIT 20"));
+        assert!(implementation.contains("enforce_parent_ai_request_budget(parent_id).await?"));
+        assert!(!implementation.contains("SELECT * FROM public.submissions"));
+    }
+
     #[test]
     fn parent_children_are_keyed_by_parent_user_id() {
         let source = include_str!("parent_scoped_functions.rs");
