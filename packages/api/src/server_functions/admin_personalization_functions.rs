@@ -172,6 +172,7 @@ async fn load_personalization_capability() -> AdminPersonalizationCapabilityDto 
         .redirect(RedirectPolicy::none())
         .connect_timeout(Duration::from_secs(2))
         .timeout(Duration::from_secs(3))
+        .no_proxy()
         .build()
     {
         Ok(client) => client,
@@ -219,6 +220,88 @@ async fn load_personalization_capability() -> AdminPersonalizationCapabilityDto 
             .unwrap_or("unavailable")
             .to_string(),
     }
+}
+
+/// Refuse to enqueue historical failures with a new contract if the
+/// appliance's *actual* gateway cannot execute the currently saved policy.
+/// Teacher overrides are resolved from PostgreSQL, not the browser form.
+#[cfg(feature = "server")]
+async fn validate_regeneration_gateway(
+    pool: &crate::rls_context::AuthorizedPool,
+    job_id: Option<Uuid>,
+    school_id: Option<Uuid>,
+    teacher_user_id: Option<Uuid>,
+    assignment_id: Option<Uuid>,
+) -> Result<(), ServerFnError> {
+    if job_id.is_none() && school_id.is_none() {
+        return Err(ServerFnError::new("Explicit job or school scope required"));
+    }
+    let current_profiles = sqlx::query_scalar::<_, String>(
+        r#"
+        SELECT DISTINCT effective.llm_profile_id
+        FROM public.assignment_personalization_jobs AS job
+        JOIN public.assignments AS assignment ON assignment.id = job.assignment_id
+        JOIN public.custom_assignments AS custom_assignment
+          ON custom_assignment.assignment_id = job.assignment_id
+         AND custom_assignment.student_id = job.student_id
+        CROSS JOIN LATERAL public.resolve_assignment_personalization_policy_v2(
+          job.school_id, job.requested_by
+        ) AS effective
+        WHERE job.status IN ('failed', 'cancelled')
+          AND assignment.status = 'Published'::assignment_status
+          AND custom_assignment.prompt_ctx IS NULL
+          AND effective.enabled AND NOT effective.paused
+          AND ( $1::uuid IS NULL OR job.id = $1 )
+          AND ( $2::uuid IS NULL OR job.school_id = $2 )
+          AND ( $3::uuid IS NULL OR job.requested_by = $3 )
+          AND ( $4::uuid IS NULL OR job.assignment_id = $4 )
+          AND NOT EXISTS (
+            SELECT 1 FROM public.assignment_personalization_jobs newer
+            WHERE newer.assignment_id = job.assignment_id
+              AND newer.student_id = job.student_id
+              AND newer.profile_name = job.profile_name
+              AND newer.profile_version = job.profile_version
+              AND newer.execution_generation > job.execution_generation
+          )
+        LIMIT 100
+        "#,
+    )
+    .bind(job_id)
+    .bind(school_id)
+    .bind(teacher_user_id)
+    .bind(assignment_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|_| ServerFnError::new("Unable to inspect saved personalization policy"))?;
+
+    if current_profiles.is_empty() {
+        return Ok(());
+    }
+    let capability = load_personalization_capability().await;
+    if !regeneration_capability_supports_profiles(&capability, &current_profiles) {
+        return Err(ServerFnError::new(
+            "AI gateway is unavailable or does not match the current saved policy; no jobs were created",
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(feature = "server")]
+fn regeneration_capability_supports_profiles(
+    capability: &AdminPersonalizationCapabilityDto,
+    profile_ids: &[String],
+) -> bool {
+    profile_ids.is_empty()
+        || (capability.gateway_reachable
+            && capability.configured
+            && capability.llm_mode == "connected"
+            && profile_ids.iter().all(|id| {
+                resolve_llm_profile(id).is_ok_and(|profile| {
+                    capability.llm_profile == profile.id.as_ref()
+                        && capability.provider == profile.provider.as_str()
+                        && capability.model == profile.model.as_ref()
+                })
+            }))
 }
 
 #[cfg(feature = "server")]
@@ -516,6 +599,9 @@ pub async fn regenerate_admin_personalization_with_current_policy(
         let school_id = parse_optional(request.school_id, "school")?;
         let teacher_user_id = parse_optional(request.teacher_user_id, "teacher")?;
         let assignment_id = parse_optional(request.assignment_id, "assignment")?;
+        validate_regeneration_gateway(
+            &pool, None, school_id, teacher_user_id, assignment_id,
+        ).await?;
 
         AssignmentPersonalizationJobRepository::new(pool)
             .regenerate_failed_scope_for_platform_admin(
@@ -601,6 +687,7 @@ pub async fn regenerate_admin_personalization_job_with_current_policy(
     {
         let (actor_id, pool) = platform_admin_context().await?;
         let job_id = Uuid::parse_str(&job_id).map_err(|_| ServerFnError::new("Invalid job ID"))?;
+        validate_regeneration_gateway(&pool, Some(job_id), None, None, None).await?;
         AssignmentPersonalizationJobRepository::new(pool)
             .regenerate_for_platform_admin(actor_id, job_id)
             .await
@@ -612,4 +699,42 @@ pub async fn regenerate_admin_personalization_job_with_current_policy(
 
     #[cfg(not(feature = "server"))]
     Err(ServerFnError::new("Server only"))
+}
+
+#[cfg(all(test, feature = "server"))]
+mod regeneration_capability_tests {
+    use super::*;
+
+    fn capability(profile: &str, provider: &str, model: &str) -> AdminPersonalizationCapabilityDto {
+        AdminPersonalizationCapabilityDto {
+            gateway_reachable: true,
+            llm_mode: "connected".to_string(),
+            llm_profile: profile.to_string(),
+            provider: provider.to_string(),
+            model: model.to_string(),
+            configured: true,
+            circuit: "closed".to_string(),
+        }
+    }
+
+    #[test]
+    fn regeneration_fails_closed_when_gateway_mismatches_persisted_policy() {
+        let saved_gapgpt = vec!["deepseek-v41-flash-v1".to_string()];
+        let active_deepseek = capability("deepseek-chat-v1", "deepseek", "deepseek-chat");
+        assert!(!regeneration_capability_supports_profiles(
+            &active_deepseek, &saved_gapgpt
+        ));
+        let active_gapgpt = capability("deepseek-v41-flash-v1", "gapgpt", "deepseek-v4.1-flash");
+        assert!(regeneration_capability_supports_profiles(
+            &active_gapgpt, &saved_gapgpt
+        ));
+        let mut down = active_gapgpt.clone();
+        down.gateway_reachable = false;
+        assert!(!regeneration_capability_supports_profiles(&down, &saved_gapgpt));
+        let mut unconfigured = active_gapgpt;
+        unconfigured.configured = false;
+        assert!(!regeneration_capability_supports_profiles(
+            &unconfigured, &saved_gapgpt
+        ));
+    }
 }
