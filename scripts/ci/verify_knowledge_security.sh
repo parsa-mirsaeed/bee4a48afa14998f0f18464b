@@ -89,6 +89,45 @@ BEGIN
         RAISE EXCEPTION 'Missing governed knowledge policies: %', missing_policies;
     END IF;
 
+    -- A worker's queue RLS depends on SELECT of its linked asset.
+    -- Both the current source revision and verified review evidence must
+    -- remain school-scoped, while the teacher's own policy stays intact.
+    IF EXISTS (
+        SELECT 1
+        FROM (
+            VALUES
+                ('knowledge_assets', 'knowledge_assets_worker_select', FALSE),
+                ('knowledge_source_files', 'knowledge_source_files_worker_select', TRUE),
+                ('knowledge_source_reviews', 'knowledge_source_reviews_worker_select', TRUE)
+        ) AS required(tablename, policyname, restrict_revision)
+        LEFT JOIN pg_policies p
+          ON p.schemaname = 'public'
+         AND p.tablename = required.tablename
+         AND p.policyname = required.policyname
+        WHERE p.policyname IS NULL
+           OR p.cmd <> 'SELECT'
+           OR p.permissive <> 'PERMISSIVE'
+           OR p.qual NOT LIKE '%system_job%'
+           OR p.qual NOT LIKE '%get_elevated_operation()%'
+           OR p.qual NOT LIKE '%get_school_id()%'
+           OR (required.restrict_revision AND p.qual NOT LIKE '%current_source_file_id%')
+    ) THEN
+        RAISE EXCEPTION 'Missing or broadened scoped knowledge worker SELECT policies';
+    END IF;
+
+    IF EXISTS (
+        SELECT 1
+        FROM pg_class relation
+        JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
+        WHERE namespace.nspname = 'public'
+          AND relation.relname IN (
+              'knowledge_assets', 'knowledge_source_files', 'knowledge_source_reviews'
+          )
+          AND NOT (relation.relrowsecurity AND relation.relforcerowsecurity)
+    ) THEN
+        RAISE EXCEPTION 'Governed worker-related knowledge tables must retain FORCE RLS';
+    END IF;
+
     IF NOT EXISTS (
         SELECT 1
         FROM pg_class relation
