@@ -1488,11 +1488,15 @@ async fn admin_regeneration_snapshots_current_policy_without_mutating_old_failed
         fixture.pool.as_ref(),
         actor(student_user_id, "Student", fixture.school_id),
         async {
+            // Never bypass the AuthorizedTx-owned connection. The production
+            // Student endpoint executes on this exact authenticated GUC/RLS
+            // transaction; a raw PgPool has no Student context and must fail.
+            let authorized_pool = AuthorizedPool::new();
             sqlx::query_as(
                 "SELECT delivery_state, job_status FROM public.get_student_assignment_personalization_delivery($1)",
             )
             .bind(custom_id)
-            .fetch_one(&*fixture.pool)
+            .fetch_one(&authorized_pool)
             .await
         },
     )
