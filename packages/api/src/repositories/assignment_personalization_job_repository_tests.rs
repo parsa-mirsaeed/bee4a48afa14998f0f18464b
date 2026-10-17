@@ -1467,6 +1467,41 @@ async fn admin_regeneration_snapshots_current_policy_without_mutating_old_failed
         original.get::<String, _>("llm_profile_id")
     );
     assert_eq!(rows[1].get::<String, _>("status"), "queued");
+
+    // Student delivery must select the NEW queued generation rather than
+    // silently returning the superseded historical failed DeepSeek job.
+    let student_user_id: Uuid = sqlx::query_scalar(
+        "SELECT user_id FROM public.students WHERE id = $1",
+    )
+    .bind(fixture.student_ids[0])
+    .fetch_one(&*fixture.pool)
+    .await
+    .expect("resolve fixture Student actor");
+    let custom_id: Uuid = sqlx::query_scalar(
+        "SELECT id FROM public.custom_assignments WHERE assignment_id = $1 AND student_id = $2",
+    )
+    .bind(fixture.assignment_id)
+    .bind(fixture.student_ids[0])
+    .fetch_one(&*fixture.pool)
+    .await
+    .expect("resolve fixture Student assignment");
+    let delivery: (String, String) = run_as(
+        fixture.pool.as_ref(),
+        actor(student_user_id, "Student", fixture.school_id),
+        async {
+            sqlx::query_as(
+                "SELECT delivery_state, job_status FROM public.get_student_assignment_personalization_delivery($1)",
+            )
+            .bind(custom_id)
+            .fetch_one(&*fixture.pool)
+            .await
+        },
+    )
+    .await
+    .expect("Student sees regenerated delivery state");
+    assert_eq!(delivery.0, "preparing");
+    assert_eq!(delivery.1, "queued");
+
     assert_eq!(
         rows[1].get::<String, _>("llm_profile_id"),
         "deepseek-v41-flash-v1"
