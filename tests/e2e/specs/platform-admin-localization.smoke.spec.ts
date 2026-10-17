@@ -324,6 +324,8 @@ for (const scenario of [
             recentJobs: 'کارهای اخیر شخصی‌سازی',
             queueSummary: 'صف شخصی‌سازی',
             retryFailedScope: 'تلاش دوباره خطاهای این محدوده',
+            regenerateCurrent: 'تلاش مجدد با تنظیمات فعلی هوش مصنوعی',
+            cancel: 'انصراف',
             statusLabel: 'وضعیت',
             running: 'در حال اجرا',
             ready: 'آماده',
@@ -345,6 +347,8 @@ for (const scenario of [
             recentJobs: 'Recent personalization jobs',
             queueSummary: 'Personalization queue',
             retryFailedScope: 'Retry failed in this scope',
+            regenerateCurrent: 'Retry with current AI settings',
+            cancel: 'Cancel',
             statusLabel: 'Status',
             running: 'Running',
             ready: 'Ready',
@@ -373,7 +377,21 @@ for (const scenario of [
     await schoolCard.getByRole('button', { name: copy.savePolicy, exact: true }).click();
     await expect(schoolCard.getByRole('button', { name: copy.savePolicy, exact: true })).toBeVisible();
     await expect(specializationInstructions).toHaveValue(copy.specializationExample);
+    await expect(page.getByRole('status')).toContainText(/v[0-9]+/);
     await expect(schoolCard.getByRole('button', { name: copy.retryFailedScope, exact: true })).toBeVisible();
+    // New-policy regeneration is intentionally distinct from retrying the old
+    // snapshotted provider. Explicit confirmation is required even for school
+    // scope and dismissing it must be non-mutating.
+    const regenerate = schoolCard.getByRole('button', {
+      name: copy.regenerateCurrent, exact: true,
+    });
+    await expect(regenerate).toBeVisible();
+    await regenerate.click();
+    const confirmation = schoolCard.getByRole('alertdialog');
+    await expect(confirmation).toBeVisible();
+    await expect(confirmation).toContainText(/new jobs|کارهای جدید/);
+    await confirmation.getByRole('button', { name: copy.cancel }).click();
+    await expect(confirmation).toHaveCount(0);
     await schoolCard.getByRole('button', { name: copy.manageTeachers, exact: true }).click();
 
     await expect(
