@@ -282,6 +282,7 @@ pub fn PlatformPersonalizationSection() -> Element {
     // Relying only on implicit resource dependency tracking can leave the resource
     // at its initial empty result when a school is selected after first render.
     let mut teacher_refresh_generation = use_signal(|| 0_u64);
+    let mut last_saved_policy = use_signal(|| None::<(String, String, i32)>);
     let mut overview =
         use_resource(move || async move { get_admin_personalization_overview().await });
     let mut teachers = use_resource(move || {
@@ -353,6 +354,11 @@ pub fn PlatformPersonalizationSection() -> Element {
                                 }
                             }
 
+                            if let Some((school_name, saved_profile, version)) = last_saved_policy() {
+                                p { class: "rounded-lg border border-green-300 px-3 py-2 text-sm", role: "status",
+                                    {format!("{}: {} · {} · v{}", t("platform_admin.personalization.persisted_profile", locale), school_name, saved_profile, version)}
+                                }
+                            }
                             section { class: "space-y-3",
                                 h2 { class: "text-lg font-semibold text-gray-900 dark:text-white",
                                     {t("platform_admin.personalization.schools", locale)}
@@ -370,7 +376,12 @@ pub fn PlatformPersonalizationSection() -> Element {
                                                 None,
                                             ),
                                             on_retried: move |_| overview.restart(),
-                                            on_saved: move |_| {
+                                            on_saved: move |saved: AdminSchoolPersonalizationPolicyDto| {
+                                                last_saved_policy.set(Some((
+                                                    saved.school_name,
+                                                    saved.llm_profile_id,
+                                                    saved.policy_version,
+                                                )));
                                                 overview.restart();
                                                 if selected_school().is_some() {
                                                     teacher_refresh_generation
@@ -517,7 +528,7 @@ fn SchoolPolicyCard(
     methods: Vec<AdminPersonalizationMethodDto>,
     summary: Option<AdminPersonalizationScopeSummaryDto>,
     on_retried: EventHandler<u64>,
-    on_saved: EventHandler,
+    on_saved: EventHandler<AdminSchoolPersonalizationPolicyDto>,
     on_manage_teachers: EventHandler<(String, String)>,
 ) -> Element {
     let locale = use_locale().current();
@@ -645,7 +656,12 @@ fn SchoolPolicyCard(
                     };
                     spawn(async move {
                         match set_admin_school_personalization_policy(request).await {
-                            Ok(_) => on_saved.call(()),
+                            Ok(saved) => {
+                                // Use the persisted server-authoritative profile,
+                                // not the prior browser selection or old job snapshot.
+                                profile.set(saved.llm_profile_id.clone());
+                                on_saved.call(saved);
+                            }
                             Err(_) => error.set(true),
                         }
                         busy.set(false);
