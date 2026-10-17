@@ -115,6 +115,8 @@ pub struct AdminPersonalizationScopeSummary {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AdminPersonalizationJobRecord {
     pub job_id: Uuid,
+    pub execution_generation: i32,
+    pub supersedes_job_id: Option<Uuid>,
     pub school_id: Uuid,
     pub school_name: String,
     pub teacher_user_id: Uuid,
@@ -223,6 +225,64 @@ impl AssignmentPersonalizationJobRepository {
             .collect()
     }
 
+    /// Regenerate failed personalization using the policy stored *now*, not
+    /// the old immutable job's provider/model snapshot. The SQL function
+    /// re-authorizes each target, bounds the scope, and creates a new job row.
+    pub async fn regenerate_failed_scope_for_platform_admin(
+        &self,
+        actor_id: Uuid,
+        school_id: Option<Uuid>,
+        teacher_user_id: Option<Uuid>,
+        assignment_id: Option<Uuid>,
+        limit: i64,
+    ) -> RepositoryResult<u64> {
+        self.require_platform_admin(actor_id).await?;
+        if school_id.is_none() {
+            return Err(RepositoryError::Validation(
+                "Regeneration requires an explicit school scope".to_string(),
+            ));
+        }
+        let queued = sqlx::query_scalar::<_, i64>(
+            r#"
+            SELECT public.regenerate_assignment_personalization_jobs_admin(
+                NULL, $1, $2, $3, $4
+            )
+            "#,
+        )
+        .bind(school_id)
+        .bind(teacher_user_id)
+        .bind(assignment_id)
+        .bind(limit.clamp(1, 100) as i32)
+        .fetch_one(&*self.base.pool())
+        .await?;
+        Ok(queued.max(0) as u64)
+    }
+
+    /// For one historical failed job; never updates its immutable provenance.
+    pub async fn regenerate_for_platform_admin(
+        &self,
+        actor_id: Uuid,
+        job_id: Uuid,
+    ) -> RepositoryResult<()> {
+        self.require_platform_admin(actor_id).await?;
+        let queued = sqlx::query_scalar::<_, i64>(
+            r#"
+            SELECT public.regenerate_assignment_personalization_jobs_admin(
+                $1, NULL, NULL, NULL, 1
+            )
+            "#,
+        )
+        .bind(job_id)
+        .fetch_one(&*self.base.pool())
+        .await?;
+        if queued != 1 {
+            return Err(RepositoryError::Validation(
+                "Job is not eligible for current-policy regeneration".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
     pub async fn retry_failed_scope_for_platform_admin(
         &self,
         actor_id: Uuid,
@@ -263,8 +323,10 @@ impl AssignmentPersonalizationJobRepository {
         self.require_platform_admin(actor_id).await?;
         let rows = sqlx::query(
             r#"
-            SELECT *
-            FROM public.list_assignment_personalization_jobs_for_admin($1, $2, $3)
+            SELECT listed.*, queue.execution_generation, queue.supersedes_job_id
+            FROM public.list_assignment_personalization_jobs_for_admin($1, $2, $3) AS listed
+            JOIN public.assignment_personalization_jobs AS queue
+              ON queue.id = listed.job_id
             "#,
         )
         .bind(school_id)
@@ -277,6 +339,8 @@ impl AssignmentPersonalizationJobRepository {
             .map(|row| {
                 Ok(AdminPersonalizationJobRecord {
                     job_id: row.try_get("job_id")?,
+                    execution_generation: row.try_get("execution_generation")?,
+                    supersedes_job_id: row.try_get("supersedes_job_id")?,
                     school_id: row.try_get("school_id")?,
                     school_name: row.try_get("school_name")?,
                     teacher_user_id: row.try_get("teacher_user_id")?,
@@ -463,7 +527,15 @@ impl AssignmentPersonalizationJobRepository {
                     END
                 FROM effective
                 WHERE effective.prompt_ctx IS NULL
-                ON CONFLICT (assignment_id, student_id, profile_name, profile_version)
+                  AND NOT EXISTS (
+                      SELECT 1 FROM assignment_personalization_jobs newer
+                      WHERE newer.assignment_id = $1
+                        AND newer.student_id = $2
+                        AND newer.profile_name = $4
+                        AND newer.profile_version = $5
+                        AND newer.execution_generation > 1
+                  )
+                ON CONFLICT (assignment_id, student_id, profile_name, profile_version, execution_generation)
                 DO UPDATE SET
                     status = CASE
                         WHEN assignment_personalization_jobs.status = 'succeeded'

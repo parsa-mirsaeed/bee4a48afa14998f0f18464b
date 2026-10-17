@@ -72,6 +72,8 @@ pub struct AdminTeacherPersonalizationPolicyDto {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AdminPersonalizationJobDto {
     pub job_id: String,
+    pub execution_generation: i32,
+    pub supersedes_job_id: Option<String>,
     pub school_id: String,
     pub school_name: String,
     pub teacher_user_id: String,
@@ -272,6 +274,8 @@ fn teacher_dto(policy: TeacherPersonalizationPolicy) -> AdminTeacherPersonalizat
 fn job_dto(job: AdminPersonalizationJobRecord) -> AdminPersonalizationJobDto {
     AdminPersonalizationJobDto {
         job_id: job.job_id.to_string(),
+        execution_generation: job.execution_generation,
+        supersedes_job_id: job.supersedes_job_id.map(|id| id.to_string()),
         school_id: job.school_id.to_string(),
         school_name: job.school_name,
         teacher_user_id: job.teacher_user_id.to_string(),
@@ -494,6 +498,44 @@ pub async fn set_admin_teacher_personalization_policy(
     Err(ServerFnError::new("Server only"))
 }
 
+#[server(endpoint = "admin/personalization/regenerate-current-scope")]
+pub async fn regenerate_admin_personalization_with_current_policy(
+    request: RetryAdminPersonalizationScopeRequest,
+) -> Result<u64, ServerFnError> {
+    #[cfg(feature = "server")]
+    {
+        let (actor_id, pool) = platform_admin_context().await?;
+        let parse_optional = |value: Option<String>, label: &'static str| {
+            value
+                .map(|value| {
+                    Uuid::parse_str(&value)
+                        .map_err(|_| ServerFnError::new(format!("Invalid {label} ID")))
+                })
+                .transpose()
+        };
+        let school_id = parse_optional(request.school_id, "school")?;
+        let teacher_user_id = parse_optional(request.teacher_user_id, "teacher")?;
+        let assignment_id = parse_optional(request.assignment_id, "assignment")?;
+
+        AssignmentPersonalizationJobRepository::new(pool)
+            .regenerate_failed_scope_for_platform_admin(
+                actor_id,
+                school_id,
+                teacher_user_id,
+                assignment_id,
+                100,
+            )
+            .await
+            .map_err(|error| {
+                tracing::error!(error_code = "personalization_admin_regenerate_current_scope_failed", %error);
+                ServerFnError::new("Unable to regenerate assignments using the current school AI policy")
+            })
+    }
+
+    #[cfg(not(feature = "server"))]
+    Err(ServerFnError::new("Server only"))
+}
+
 #[server(endpoint = "admin/personalization/retry-failed-scope")]
 pub async fn retry_admin_personalization_failed_scope(
     request: RetryAdminPersonalizationScopeRequest,
@@ -544,6 +586,27 @@ pub async fn retry_admin_personalization_job(job_id: String) -> Result<(), Serve
             .map_err(|error| {
                 tracing::error!(error_code = "personalization_admin_retry_failed", %error);
                 ServerFnError::new("Personalization job is not eligible for retry")
+            })
+    }
+
+    #[cfg(not(feature = "server"))]
+    Err(ServerFnError::new("Server only"))
+}
+
+#[server(endpoint = "admin/personalization/regenerate-current-job")]
+pub async fn regenerate_admin_personalization_job_with_current_policy(
+    job_id: String,
+) -> Result<(), ServerFnError> {
+    #[cfg(feature = "server")]
+    {
+        let (actor_id, pool) = platform_admin_context().await?;
+        let job_id = Uuid::parse_str(&job_id).map_err(|_| ServerFnError::new("Invalid job ID"))?;
+        AssignmentPersonalizationJobRepository::new(pool)
+            .regenerate_for_platform_admin(actor_id, job_id)
+            .await
+            .map_err(|error| {
+                tracing::error!(error_code = "personalization_admin_regenerate_current_job_failed", %error);
+                ServerFnError::new("Unable to regenerate with current saved AI settings")
             })
     }
 
