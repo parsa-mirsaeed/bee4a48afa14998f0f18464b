@@ -478,7 +478,9 @@ mod tests {
             assert!(super::enforce_parent_ai_request_budget(one).await.is_ok());
         }
         assert!(super::enforce_parent_ai_request_budget(one).await.is_err());
-        assert!(super::enforce_parent_ai_request_budget(another).await.is_ok());
+        assert!(super::enforce_parent_ai_request_budget(another)
+            .await
+            .is_ok());
     }
 
     #[test]
