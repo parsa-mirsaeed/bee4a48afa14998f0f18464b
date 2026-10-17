@@ -486,8 +486,14 @@ mod tests {
     fn parent_academic_chat_has_a_canonical_role_scoped_route() {
         let parent = user(SystemRole::Parent);
         let teacher = user(SystemRole::Teacher);
-        assert!(RoutingService::can_access_route(&parent, "/dashboard/ai-chat"));
-        assert!(!RoutingService::can_access_route(&teacher, "/dashboard/ai-chat"));
+        assert!(RoutingService::can_access_route(
+            &parent,
+            "/dashboard/ai-chat"
+        ));
+        assert!(!RoutingService::can_access_route(
+            &teacher,
+            "/dashboard/ai-chat"
+        ));
     }
 
     #[test]
