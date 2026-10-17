@@ -25,7 +25,11 @@ pub async fn missing_bucket_response(mut response: Response) -> bool {
     if status == 404 {
         return true;
     }
-    if status != 400 || response.content_length().is_some_and(|n| n > MAX_ERROR_BODY as u64) {
+    if status != 400
+        || response
+            .content_length()
+            .is_some_and(|n| n > MAX_ERROR_BODY as u64)
+    {
         return false;
     }
     let mut bytes = Vec::new();
@@ -51,7 +55,9 @@ pub fn matches_private_bucket(body: &Value, limit: usize, mime: &[&str]) -> bool
     body.get("public").and_then(Value::as_bool) == Some(false)
         && body.get("file_size_limit").and_then(Value::as_u64) == Some(limit as u64)
         && allowed.len() == mime.len()
-        && mime.iter().all(|expected| allowed.iter().any(|v| v.as_str() == Some(expected)))
+        && mime
+            .iter()
+            .all(|expected| allowed.iter().any(|v| v.as_str() == Some(expected)))
 }
 
 #[cfg(test)]
@@ -62,7 +68,10 @@ mod tests {
     #[test]
     fn exact_missing_bucket_error_is_required() {
         assert!(missing_bucket_code(404, b""));
-        assert!(missing_bucket_code(400, br#"{"code":"NoSuchBucket","message":"Bucket not found"}"#));
+        assert!(missing_bucket_code(
+            400,
+            br#"{"code":"NoSuchBucket","message":"Bucket not found"}"#
+        ));
         for body in [
             br#"{"code":"InvalidToken"}"#.as_slice(),
             br#"{"message":"Bucket not found"}"#,
@@ -86,9 +95,21 @@ mod tests {
         let types = ["application/pdf", "image/jpeg", "image/png"];
         assert!(matches_private_bucket(&valid, 10 * 1024 * 1024, &types));
         assert!(!matches_private_bucket(&valid, 20 * 1024 * 1024, &types));
-        assert!(!matches_private_bucket(&valid, 10 * 1024 * 1024, &["application/pdf"]));
-        assert!(!matches_private_bucket(&json!({"public":true,"file_size_limit":10485760,
-            "allowed_mime_types":types}), 10 * 1024 * 1024, &types));
-        assert!(!matches_private_bucket(&json!({"public":false}), 10 * 1024 * 1024, &types));
+        assert!(!matches_private_bucket(
+            &valid,
+            10 * 1024 * 1024,
+            &["application/pdf"]
+        ));
+        assert!(!matches_private_bucket(
+            &json!({"public":true,"file_size_limit":10485760,
+            "allowed_mime_types":types}),
+            10 * 1024 * 1024,
+            &types
+        ));
+        assert!(!matches_private_bucket(
+            &json!({"public":false}),
+            10 * 1024 * 1024,
+            &types
+        ));
     }
 }
