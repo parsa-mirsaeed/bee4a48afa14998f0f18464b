@@ -315,7 +315,9 @@ async fn ensure_private_bucket(state: &AppState) -> Result<(), UploadRejection> 
             reject(StatusCode::BAD_GATEWAY, "Knowledge storage is unavailable")
         })?;
         if !crate::services::storage_bucket_compat::matches_private_bucket(
-            &body, MAX_KNOWLEDGE_PDF_BYTES, &["application/pdf"],
+            &body,
+            MAX_KNOWLEDGE_PDF_BYTES,
+            &["application/pdf"],
         ) {
             error!(
                 bucket = KNOWLEDGE_SOURCE_BUCKET,
@@ -391,7 +393,9 @@ async fn verify_bucket_private(state: &AppState) -> Result<(), UploadRejection> 
         reject(StatusCode::BAD_GATEWAY, "Knowledge storage is unavailable")
     })?;
     if crate::services::storage_bucket_compat::matches_private_bucket(
-        &body, MAX_KNOWLEDGE_PDF_BYTES, &["application/pdf"],
+        &body,
+        MAX_KNOWLEDGE_PDF_BYTES,
+        &["application/pdf"],
     ) {
         Ok(())
     } else {
