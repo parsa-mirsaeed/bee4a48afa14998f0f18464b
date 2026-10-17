@@ -160,6 +160,10 @@ impl LlmConfig {
 pub struct ExternalLlmClient {
     client: reqwest::Client,
     config: LlmConfig,
+    // Only present in unit tests. The release binary NEVER accepts an alternate
+    // destination; validate_internal_gateway_url remains exact and mandatory.
+    #[cfg(test)]
+    test_chat_url: Option<String>,
 }
 
 pub type DeepSeekClient = ExternalLlmClient;
@@ -278,7 +282,12 @@ impl ExternalLlmClient {
             .timeout(config.request_timeout)
             .redirect(RedirectPolicy::none())
             .build()?;
-        Ok(Self { client, config })
+        Ok(Self {
+            client,
+            config,
+            #[cfg(test)]
+            test_chat_url: None,
+        })
     }
 
     #[cfg(test)]
@@ -287,7 +296,12 @@ impl ExternalLlmClient {
         client: reqwest::Client,
     ) -> Result<Self, LlmError> {
         Self::validate_config(&config)?;
-        Ok(Self { client, config })
+        Ok(Self {
+            client,
+            config,
+            #[cfg(test)]
+            test_chat_url: None,
+        })
     }
 
     fn validate_config(config: &LlmConfig) -> Result<(), LlmError> {
@@ -569,9 +583,12 @@ impl ExternalLlmClient {
                 format_type: "json_object".to_string(),
             }),
         };
+        let gateway_url = self.config.chat_url();
+        #[cfg(test)]
+        let gateway_url = self.test_chat_url.as_deref().unwrap_or(&gateway_url);
         let response = self
             .client
-            .post(self.config.chat_url())
+            .post(gateway_url)
             .bearer_auth(&self.config.api_key)
             .header("x-edutalent-school-id", school_id.to_string())
             .header("x-edutalent-request-id", Uuid::new_v4().to_string())
@@ -910,6 +927,80 @@ mod tests {
         config.api_key = "abcdefghijklmnopqrstuvwxyz123456".to_string();
         config.model = "user-controlled-model".to_string();
         assert!(ExternalLlmClient::with_config(config).is_err());
+    }
+
+    #[tokio::test]
+    async fn parent_academic_chat_accepts_only_school_scoped_valid_gateway_answer() {
+        use axum::{extract::Json, http::HeaderMap, routing::post, Router};
+        let school = Uuid::new_v4();
+        let app = Router::new().route(
+            "/v1/chat/completions",
+            post(move |headers: HeaderMap, Json(body): Json<Value>| async move {
+                assert_eq!(
+                    headers
+                        .get("x-edutalent-school-id")
+                        .expect("canonical school header")
+                        .to_str()
+                        .expect("utf8 header"),
+                    school.to_string()
+                );
+                assert_eq!(body["model"], "deepseek-chat");
+                assert_eq!(body["response_format"]["type"], "json_object");
+                let system = body["messages"][0]["content"]
+                    .as_str()
+                    .expect("system message");
+                assert!(system.contains("untrusted"));
+                assert!(system.contains("Do not invent grades"));
+                let user_data = body["messages"][1]["content"]
+                    .as_str()
+                    .expect("bounded factual user data");
+                assert!(user_data.contains("Mathematics"));
+                assert!(user_data.contains("18"));
+                assert!(!user_data.contains("another-student"));
+                Json(json!({
+                    "model": "deepseek-chat",
+                    "choices": [{
+                        "index": 0,
+                        "message": {
+                            "role": "assistant",
+                            "content": "{\"answer\":\"Recorded mathematics grade is 18/20; review the original record.\"}"
+                        }
+                    }]
+                }))
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("local fake gateway listener");
+        let port = listener.local_addr().expect("listen address").port();
+        let handle = tokio::spawn(async move {
+            axum::serve(listener, app).await.expect("fake gateway serve");
+        });
+
+        let mut llm = client();
+        // This override is compiled only with cfg(test); production remains
+        // pinned to http://ai-gateway:8090 by the normal URL validator.
+        llm.test_chat_url = Some(format!("http://127.0.0.1:{port}/v1/chat/completions"));
+        let answer = llm
+            .answer_parent_academic_question_for_school(
+                school,
+                json!({
+                    "assignments": [{
+                        "title": "Mathematics",
+                        "recorded_grade": {"value": 18, "scale": 20}
+                    }]
+                }),
+                "How is my child doing in mathematics?",
+                &[],
+                "en",
+            )
+            .await
+            .expect("valid bounded gateway response");
+        assert_eq!(
+            answer,
+            "Recorded mathematics grade is 18/20; review the original record."
+        );
+        handle.abort();
     }
 
     #[test]
