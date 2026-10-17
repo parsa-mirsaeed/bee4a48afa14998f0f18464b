@@ -13,6 +13,7 @@ pub fn ParentAcademicChatSection() -> Element {
     let mut selected_child = use_signal(|| None::<String>);
     let mut question = use_signal(String::new);
     let mut messages = use_signal(|| Vec::<(String, String, String)>::new());
+    let mut consented = use_signal(|| false);
     let mut busy = use_signal(|| false);
     let mut error = use_signal(|| false);
 
@@ -51,6 +52,7 @@ pub fn ParentAcademicChatSection() -> Element {
                                     if selected_child().as_deref() != Some(new_id.as_str()) {
                                         selected_child.set(if new_id.is_empty() { None } else { Some(new_id) });
                                         question.set(String::new());
+                                        consented.set(false);
                                         messages.set(Vec::new());
                                         error.set(false);
                                     }
@@ -100,12 +102,21 @@ pub fn ParentAcademicChatSection() -> Element {
                                     oninput: move |event| question.set(event.value()),
                                 }
                             }
+                            label { class: "flex items-start gap-2 text-sm",
+                                input {
+                                    r#type: "checkbox",
+                                    checked: consented(),
+                                    disabled: busy(),
+                                    onchange: move |event| consented.set(event.checked()),
+                                }
+                                span { "{locale.t(\"parent.ai.consent\")}" }
+                            }
                             button {
                                 r#type: "button",
                                 class: "rounded-lg bg-primary px-4 py-2 font-semibold text-white disabled:opacity-50",
-                                disabled: busy() || question().trim().is_empty(),
+                                disabled: busy() || !consented() || question().trim().is_empty(),
                                 onclick: move |_| {
-                                    if busy() { return; }
+                                    if busy() || !consented() { return; }
                                     let Some(child_id) = selected_child() else { return; };
                                     let current_question = question().trim().to_string();
                                     if current_question.is_empty() || current_question.chars().count() > 800 {
