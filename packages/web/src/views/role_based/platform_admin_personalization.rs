@@ -867,6 +867,10 @@ fn PersonalizationJobCard(
                     value: format!("{} v{} · {}", job.policy_scope, job.policy_version, delivery_label(&job.delivery_policy, locale)),
                 }
                 CompactField {
+                    label: t("platform_admin.personalization.generation", locale),
+                    value: format!("v{}", job.execution_generation),
+                }
+                CompactField {
                     label: t("platform_admin.personalization.attempts", locale),
                     value: job.attempt_count.to_string(),
                 }
@@ -876,6 +880,11 @@ fn PersonalizationJobCard(
                 }
             }
 
+            if let Some(previous) = job.supersedes_job_id.as_ref() {
+                p { class: "mt-2 break-all text-xs text-gray-500", dir: "ltr",
+                    {format!("{}: {}", t("platform_admin.personalization.previous_execution", locale), previous)}
+                }
+            }
             dl { class: "mt-3 grid grid-cols-1 gap-3 text-sm sm:grid-cols-2 xl:grid-cols-4",
                 CompactField {
                     label: t("platform_admin.personalization.created_at", locale),
