@@ -599,9 +599,8 @@ pub async fn regenerate_admin_personalization_with_current_policy(
         let school_id = parse_optional(request.school_id, "school")?;
         let teacher_user_id = parse_optional(request.teacher_user_id, "teacher")?;
         let assignment_id = parse_optional(request.assignment_id, "assignment")?;
-        validate_regeneration_gateway(
-            &pool, None, school_id, teacher_user_id, assignment_id,
-        ).await?;
+        validate_regeneration_gateway(&pool, None, school_id, teacher_user_id, assignment_id)
+            .await?;
 
         AssignmentPersonalizationJobRepository::new(pool)
             .regenerate_failed_scope_for_platform_admin(
@@ -722,19 +721,25 @@ mod regeneration_capability_tests {
         let saved_gapgpt = vec!["deepseek-v41-flash-v1".to_string()];
         let active_deepseek = capability("deepseek-chat-v1", "deepseek", "deepseek-chat");
         assert!(!regeneration_capability_supports_profiles(
-            &active_deepseek, &saved_gapgpt
+            &active_deepseek,
+            &saved_gapgpt
         ));
         let active_gapgpt = capability("deepseek-v41-flash-v1", "gapgpt", "deepseek-v4.1-flash");
         assert!(regeneration_capability_supports_profiles(
-            &active_gapgpt, &saved_gapgpt
+            &active_gapgpt,
+            &saved_gapgpt
         ));
         let mut down = active_gapgpt.clone();
         down.gateway_reachable = false;
-        assert!(!regeneration_capability_supports_profiles(&down, &saved_gapgpt));
+        assert!(!regeneration_capability_supports_profiles(
+            &down,
+            &saved_gapgpt
+        ));
         let mut unconfigured = active_gapgpt;
         unconfigured.configured = false;
         assert!(!regeneration_capability_supports_profiles(
-            &unconfigured, &saved_gapgpt
+            &unconfigured,
+            &saved_gapgpt
         ));
     }
 }
