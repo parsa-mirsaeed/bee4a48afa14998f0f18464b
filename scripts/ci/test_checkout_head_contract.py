@@ -46,7 +46,7 @@ class ExactHeadCheckoutContract(unittest.TestCase):
         for name in CRITICAL:
             data = (WORKFLOWS / name).read_text(encoding="utf-8")
             # Every critical job has an identity assertion before any proof.
-            checkout_count = len(CHECKOUT.findall(data)) if False else len(
+            checkout_count = len(
                 re.findall(r"(?m)^\s*- uses: actions/checkout@", data)
             )
             assert_count = data.count("bash scripts/ci/stage1_verify_proof_head.sh")
