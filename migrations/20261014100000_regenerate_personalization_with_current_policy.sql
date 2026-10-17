@@ -5,7 +5,9 @@ ALTER TABLE public.assignment_personalization_jobs
     ADD COLUMN IF NOT EXISTS execution_generation INTEGER NOT NULL DEFAULT 1
         CHECK (execution_generation >= 1),
     ADD COLUMN IF NOT EXISTS supersedes_job_id UUID
-        REFERENCES public.assignment_personalization_jobs(id) ON DELETE RESTRICT;
+        REFERENCES public.assignment_personalization_jobs(id) ON DELETE RESTRICT,
+    ADD COLUMN IF NOT EXISTS regenerated_by UUID
+        REFERENCES public.users(id) ON DELETE RESTRICT;
 
 DO $constraints$
 DECLARE old_unique text;
@@ -231,6 +233,7 @@ AS $$
 BEGIN
     IF NEW.execution_generation IS DISTINCT FROM OLD.execution_generation
        OR NEW.supersedes_job_id IS DISTINCT FROM OLD.supersedes_job_id
+       OR NEW.regenerated_by IS DISTINCT FROM OLD.regenerated_by
        OR NEW.llm_profile_id IS DISTINCT FROM OLD.llm_profile_id
        OR NEW.llm_provider IS DISTINCT FROM OLD.llm_provider
        OR NEW.model_name IS DISTINCT FROM OLD.model_name
@@ -347,7 +350,7 @@ BEGIN
             model_name, profile_name, profile_version,
             llm_profile_id, llm_provider, policy_scope, policy_version,
             delivery_policy, specialization_instructions, processing_stage,
-            execution_generation, supersedes_job_id
+            execution_generation, supersedes_job_id, regenerated_by
         )
         SELECT e.school_id, e.assignment_id, e.student_id, e.class_section_id,
                e.requested_by, 'student', 'queued', 0, NOW(),
@@ -366,7 +369,7 @@ BEGIN
                END,
                e.new_scope, e.new_version, e.new_delivery_policy,
                e.new_instructions, 'queued',
-               e.execution_generation + 1, e.id
+               e.execution_generation + 1, e.id, public.get_user_id()
         FROM eligible e
         ON CONFLICT DO NOTHING
         RETURNING id
