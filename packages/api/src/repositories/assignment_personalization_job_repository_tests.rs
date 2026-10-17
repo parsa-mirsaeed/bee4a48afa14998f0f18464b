@@ -1470,13 +1470,12 @@ async fn admin_regeneration_snapshots_current_policy_without_mutating_old_failed
 
     // Student delivery must select the NEW queued generation rather than
     // silently returning the superseded historical failed DeepSeek job.
-    let student_user_id: Uuid = sqlx::query_scalar(
-        "SELECT user_id FROM public.students WHERE id = $1",
-    )
-    .bind(fixture.student_ids[0])
-    .fetch_one(&*fixture.pool)
-    .await
-    .expect("resolve fixture Student actor");
+    let student_user_id: Uuid =
+        sqlx::query_scalar("SELECT user_id FROM public.students WHERE id = $1")
+            .bind(fixture.student_ids[0])
+            .fetch_one(&*fixture.pool)
+            .await
+            .expect("resolve fixture Student actor");
     let custom_id: Uuid = sqlx::query_scalar(
         "SELECT id FROM public.custom_assignments WHERE assignment_id = $1 AND student_id = $2",
     )
