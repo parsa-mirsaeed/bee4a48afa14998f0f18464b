@@ -127,7 +127,8 @@ pub async fn get_child_grades_for_parent_scoped(
 
         rows.into_iter()
             .map(|row| {
-                let grade = row.try_get::<Option<f64>, _>("grade")?.unwrap_or(0.0);
+                let grade = row
+                .try_get::<Option<f64>, _>("grade")?.unwrap_or(0.0);
                 let grade_scale = row.try_get::<i16, _>("grade_scale")?;
                 let presentation = present_grade(grade, grade_scale).map_err(|error| {
                     tracing::error!(%error, grade, grade_scale, "invalid persisted parent grade presentation");
@@ -224,6 +225,182 @@ pub async fn get_child_assignments_for_parent_scoped(
     }
     #[cfg(not(feature = "server"))]
     Ok(Vec::new())
+}
+
+/// Ephemeral questions only. The server never trusts client-supplied factual
+/// history, stores no transcript, and re-reads the selected child's records.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ParentAcademicChatRequest {
+    pub child_id: String,
+    pub question: String,
+    pub prior_questions: Vec<String>,
+    pub locale: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ParentAcademicChatReply {
+    pub answer: String,
+    pub as_of: String,
+    pub records_consulted: usize,
+}
+
+fn bounded_parent_chat_request(request: &ParentAcademicChatRequest) -> bool {
+    fn safe_question(text: &str, max: usize) -> bool {
+        !text.trim().is_empty()
+            && text.chars().count() <= max
+            && !text.chars().any(|c| c.is_control() && c != '\n')
+    }
+    safe_question(&request.question, 800)
+        && request.prior_questions.len() <= 3
+        && request
+            .prior_questions
+            .iter()
+            .all(|q| safe_question(q, 400))
+        && matches!(request.locale.as_str(), "fa" | "en")
+}
+
+#[server(endpoint = "parent/scoped/child/academic-chat")]
+pub async fn ask_parent_academic_chat(
+    request: ParentAcademicChatRequest,
+) -> Result<ParentAcademicChatReply, ServerFnError> {
+    #[cfg(feature = "server")]
+    {
+        use crate::services::llm_service::{ExternalLlmClient, LlmConfig};
+        if !bounded_parent_chat_request(&request) {
+            return Err(ServerFnError::new("parent.ai_invalid_question"));
+        }
+        let (parent_id, pool) = parent_actor().await?;
+        let child_id = Uuid::parse_str(&request.child_id)
+            .map_err(|_| ServerFnError::new("parent.child_id_invalid"))?;
+        require_child_owner(&pool, parent_id, child_id).await?;
+
+        // Reauthorize each message under the same RLS transaction and
+        // canonical school identity. Never trust a school ID from the browser.
+        let school_id = sqlx::query_scalar::<_, Uuid>(
+            r#"
+            SELECT st.school_id
+            FROM public.students st
+            JOIN public.users parent ON parent.id = st.parent_id
+            JOIN public.users student_user ON student_user.id = st.user_id
+            WHERE st.id = $1
+              AND st.parent_id = $2
+              AND st.school_id = parent.school_id
+              AND st.school_id = student_user.school_id
+              AND parent.is_active AND student_user.is_active
+            "#,
+        )
+        .bind(child_id)
+        .bind(parent_id)
+        .fetch_optional(&*pool)
+        .await
+        .map_err(|_| ServerFnError::new("parent.ai_context_unavailable"))?
+        .ok_or_else(|| ServerFnError::new("parent.child_not_linked"))?;
+
+        // No private submissions, raw feedback, profiles, sibling identities,
+        // medical records or unrestricted user-supplied SQL. Only established
+        // Parent-viewable assignment/grade fields under current school scope.
+        let rows = sqlx::query(
+            r#"
+            SELECT a.id AS assignment_id, a.title, cs.name AS class_name,
+                   ca.due_at, ca.submitted_at,
+                   CAST(s.grade AS DOUBLE PRECISION) AS grade,
+                   COALESCE(s.grade_scale, 100::SMALLINT) AS grade_scale,
+                   ca.graded_at,
+                   CASE WHEN s.grade IS NOT NULL THEN 'Graded'
+                        WHEN ca.submitted_at IS NOT NULL THEN 'Submitted'
+                        WHEN ca.due_at < NOW() THEN 'Overdue'
+                        ELSE 'Pending' END AS status
+            FROM public.custom_assignments ca
+            JOIN public.assignments a ON a.id = ca.assignment_id
+            JOIN public.class_sections cs ON cs.id = a.class_section_id
+            LEFT JOIN public.submissions s
+              ON s.custom_assignment_id = ca.id
+             AND s.student_id = ca.student_id
+            WHERE ca.student_id = $1
+              AND cs.school_id = $2
+              AND a.status = 'Published'::assignment_status
+            ORDER BY ca.due_at DESC, a.id
+            LIMIT 20
+            "#,
+        )
+        .bind(child_id)
+        .bind(school_id)
+        .fetch_all(&*pool)
+        .await
+        .map_err(|_| ServerFnError::new("parent.ai_context_unavailable"))?;
+        let mut records = Vec::with_capacity(rows.len());
+        for row in rows {
+            let grade = row.try_get::<Option<f64>, _>("grade")
+                .map_err(|_| ServerFnError::new("parent.ai_context_unavailable"))?;
+            let scale = row
+                .try_get::<i16, _>("grade_scale")
+                .map_err(|_| ServerFnError::new("parent.ai_context_unavailable"))?;
+            let due = row
+                .try_get::<chrono::DateTime<chrono::Utc>, _>("due_at")
+                .map_err(|_| ServerFnError::new("parent.ai_context_unavailable"))?;
+            let graded = row
+                .try_get::<Option<chrono::DateTime<chrono::Utc>>, _>("graded_at")
+                .map_err(|_| ServerFnError::new("parent.ai_context_unavailable"))?;
+            let title: String = row
+                .try_get("title")
+                .map_err(|_| ServerFnError::new("parent.ai_context_unavailable"))?;
+            let class_name: String = row
+                .try_get("class_name")
+                .map_err(|_| ServerFnError::new("parent.ai_context_unavailable"))?;
+            let assignment_id: Uuid = row
+                .try_get("assignment_id")
+                .map_err(|_| ServerFnError::new("parent.ai_context_unavailable"))?;
+            let status: String = row
+                .try_get("status")
+                .map_err(|_| ServerFnError::new("parent.ai_context_unavailable"))?;
+            records.push(serde_json::json!({
+                "assignment_id": assignment_id,
+                "title": title.chars().take(120).collect::<String>(),
+                "class_name": class_name.chars().take(80).collect::<String>(),
+                "status": status,
+                "due_at": due.to_rfc3339(),
+                "recorded_grade": grade.map(|g| serde_json::json!({
+                    "value": g,
+                    "scale": scale,
+                    "graded_at": graded.map(|t| t.to_rfc3339()),
+                })),
+            }));
+        }
+
+        let as_of = chrono::Utc::now().to_rfc3339();
+        let records_consulted = records.len();
+        let facts = serde_json::json!({
+            "as_of_utc": as_of,
+            "records_consulted": records_consulted,
+            "assignments": records,
+            "no_records_means_not_available": true,
+        });
+        let mut config =
+            LlmConfig::from_env().map_err(|_| ServerFnError::new("parent.ai_unavailable"))?;
+        config.max_tokens = config.max_tokens.min(768);
+        config.request_timeout = config
+            .request_timeout
+            .min(std::time::Duration::from_secs(30));
+        let llm = ExternalLlmClient::with_config(config)
+            .map_err(|_| ServerFnError::new("parent.ai_unavailable"))?;
+        let answer = llm
+            .answer_parent_academic_question_for_school(
+                school_id,
+                facts,
+                &request.question,
+                &request.prior_questions,
+                &request.locale,
+            )
+            .await
+            .map_err(|_| ServerFnError::new("parent.ai_unavailable"))?;
+        Ok(ParentAcademicChatReply {
+            answer,
+            as_of,
+            records_consulted,
+        })
+    }
+    #[cfg(not(feature = "server"))]
+    Err(ServerFnError::new("parent.ai_unavailable"))
 }
 
 #[cfg(feature = "server")]
