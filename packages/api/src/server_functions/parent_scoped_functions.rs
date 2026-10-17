@@ -127,7 +127,8 @@ pub async fn get_child_grades_for_parent_scoped(
 
         rows.into_iter()
             .map(|row| {
-                let grade = row.try_get::<Option<f64>, _>("grade")?.unwrap_or(0.0);
+                let grade = row
+                .try_get::<Option<f64>, _>("grade")?.unwrap_or(0.0);
                 let grade_scale = row.try_get::<i16, _>("grade_scale")?;
                 let presentation = present_grade(grade, grade_scale).map_err(|error| {
                     tracing::error!(%error, grade, grade_scale, "invalid persisted parent grade presentation");
@@ -331,19 +332,26 @@ pub async fn ask_parent_academic_chat(
         for row in rows {
             let grade = row.try_get::<Option<f64>, _>("grade")
                 .map_err(|_| ServerFnError::new("parent.ai_context_unavailable"))?;
-            let scale = row.try_get::<i16, _>("grade_scale")
+            let scale = row
+                .try_get::<i16, _>("grade_scale")
                 .map_err(|_| ServerFnError::new("parent.ai_context_unavailable"))?;
-            let due = row.try_get::<chrono::DateTime<chrono::Utc>, _>("due_at")
+            let due = row
+                .try_get::<chrono::DateTime<chrono::Utc>, _>("due_at")
                 .map_err(|_| ServerFnError::new("parent.ai_context_unavailable"))?;
-            let graded = row.try_get::<Option<chrono::DateTime<chrono::Utc>>, _>("graded_at")
+            let graded = row
+                .try_get::<Option<chrono::DateTime<chrono::Utc>>, _>("graded_at")
                 .map_err(|_| ServerFnError::new("parent.ai_context_unavailable"))?;
-            let title: String = row.try_get("title")
+            let title: String = row
+                .try_get("title")
                 .map_err(|_| ServerFnError::new("parent.ai_context_unavailable"))?;
-            let class_name: String = row.try_get("class_name")
+            let class_name: String = row
+                .try_get("class_name")
                 .map_err(|_| ServerFnError::new("parent.ai_context_unavailable"))?;
-            let assignment_id: Uuid = row.try_get("assignment_id")
+            let assignment_id: Uuid = row
+                .try_get("assignment_id")
                 .map_err(|_| ServerFnError::new("parent.ai_context_unavailable"))?;
-            let status: String = row.try_get("status")
+            let status: String = row
+                .try_get("status")
                 .map_err(|_| ServerFnError::new("parent.ai_context_unavailable"))?;
             records.push(serde_json::json!({
                 "assignment_id": assignment_id,
@@ -367,10 +375,12 @@ pub async fn ask_parent_academic_chat(
             "assignments": records,
             "no_records_means_not_available": true,
         });
-        let mut config = LlmConfig::from_env()
-            .map_err(|_| ServerFnError::new("parent.ai_unavailable"))?;
+        let mut config =
+            LlmConfig::from_env().map_err(|_| ServerFnError::new("parent.ai_unavailable"))?;
         config.max_tokens = config.max_tokens.min(768);
-        config.request_timeout = config.request_timeout.min(std::time::Duration::from_secs(30));
+        config.request_timeout = config
+            .request_timeout
+            .min(std::time::Duration::from_secs(30));
         let llm = ExternalLlmClient::with_config(config)
             .map_err(|_| ServerFnError::new("parent.ai_unavailable"))?;
         let answer = llm
@@ -383,7 +393,11 @@ pub async fn ask_parent_academic_chat(
             )
             .await
             .map_err(|_| ServerFnError::new("parent.ai_unavailable"))?;
-        Ok(ParentAcademicChatReply { answer, as_of, records_consulted })
+        Ok(ParentAcademicChatReply {
+            answer,
+            as_of,
+            records_consulted,
+        })
     }
     #[cfg(not(feature = "server"))]
     Err(ServerFnError::new("parent.ai_unavailable"))
