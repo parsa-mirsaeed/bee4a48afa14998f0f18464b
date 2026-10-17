@@ -590,7 +590,9 @@ pub async fn retry_admin_personalization_job(job_id: String) -> Result<(), Serve
 }
 
 #[server(endpoint = "admin/personalization/regenerate-current-job")]
-pub async fn regenerate_admin_personalization_job_with_current_policy(job_id: String) -> Result<(), ServerFnError> {
+pub async fn regenerate_admin_personalization_job_with_current_policy(
+    job_id: String,
+) -> Result<(), ServerFnError> {
     #[cfg(feature = "server")]
     {
         let (actor_id, pool) = platform_admin_context().await?;
