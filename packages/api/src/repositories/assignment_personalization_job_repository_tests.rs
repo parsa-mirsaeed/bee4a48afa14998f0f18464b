@@ -1452,7 +1452,7 @@ async fn admin_regeneration_snapshots_current_policy_without_mutating_old_failed
     assert!(regenerated.is_ok(), "{regenerated:?}");
 
     let rows = sqlx::query(
-        "SELECT id, status, llm_profile_id, llm_provider, model_name, policy_version, specialization_instructions, execution_generation, supersedes_job_id FROM assignment_personalization_jobs WHERE assignment_id = $1 AND student_id = $2 ORDER BY execution_generation",
+        "SELECT id, status, llm_profile_id, llm_provider, model_name, policy_version, specialization_instructions, execution_generation, supersedes_job_id, regenerated_by FROM assignment_personalization_jobs WHERE assignment_id = $1 AND student_id = $2 ORDER BY execution_generation",
     )
     .bind(fixture.assignment_id)
     .bind(fixture.student_ids[0])
@@ -1477,6 +1477,8 @@ async fn admin_regeneration_snapshots_current_policy_without_mutating_old_failed
         "deepseek-v4.1-flash"
     );
     assert_eq!(rows[1].get::<i32, _>("execution_generation"), 2);
+    assert_eq!(rows[0].get::<Option<Uuid>, _>("regenerated_by"), None);
+    assert_eq!(rows[1].get::<Option<Uuid>, _>("regenerated_by"), Some(admin));
     assert_eq!(
         rows[1].get::<Option<Uuid>, _>("supersedes_job_id"),
         Some(original_id)
