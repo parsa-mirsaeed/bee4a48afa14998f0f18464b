@@ -314,7 +314,9 @@ async fn ensure_private_bucket(state: &AppState) -> Result<(), UploadRejection> 
             error!(%error, "knowledge storage bucket response was invalid");
             reject(StatusCode::BAD_GATEWAY, "Knowledge storage is unavailable")
         })?;
-        if body.get("public").and_then(Value::as_bool) != Some(false) {
+        if !crate::services::storage_bucket_compat::matches_private_bucket(
+            &body, MAX_KNOWLEDGE_PDF_BYTES, &["application/pdf"],
+        ) {
             error!(
                 bucket = KNOWLEDGE_SOURCE_BUCKET,
                 "knowledge source bucket is not private"
@@ -327,8 +329,9 @@ async fn ensure_private_bucket(state: &AppState) -> Result<(), UploadRejection> 
         return Ok(());
     }
 
-    if response.status().as_u16() != 404 {
-        error!(status = %response.status(), "knowledge storage bucket lookup failed");
+    let lookup_status = response.status();
+    if !crate::services::storage_bucket_compat::missing_bucket_response(response).await {
+        error!(status = %lookup_status, "knowledge storage bucket lookup failed");
         return Err(reject(
             StatusCode::BAD_GATEWAY,
             "Knowledge storage is unavailable",
@@ -354,11 +357,7 @@ async fn ensure_private_bucket(state: &AppState) -> Result<(), UploadRejection> 
             reject(StatusCode::BAD_GATEWAY, "Knowledge storage is unavailable")
         })?;
 
-    if response.status().is_success() {
-        return Ok(());
-    }
-
-    if response.status().as_u16() == 409 {
+    if response.status().is_success() || matches!(response.status().as_u16(), 400 | 409) {
         return verify_bucket_private(state).await;
     }
 
@@ -391,7 +390,9 @@ async fn verify_bucket_private(state: &AppState) -> Result<(), UploadRejection> 
         error!(%error, "knowledge storage bucket verification response was invalid");
         reject(StatusCode::BAD_GATEWAY, "Knowledge storage is unavailable")
     })?;
-    if body.get("public").and_then(Value::as_bool) == Some(false) {
+    if crate::services::storage_bucket_compat::matches_private_bucket(
+        &body, MAX_KNOWLEDGE_PDF_BYTES, &["application/pdf"],
+    ) {
         Ok(())
     } else {
         Err(reject(
