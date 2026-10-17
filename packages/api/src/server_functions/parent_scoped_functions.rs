@@ -330,7 +330,8 @@ pub async fn ask_parent_academic_chat(
         .map_err(|_| ServerFnError::new("parent.ai_context_unavailable"))?;
         let mut records = Vec::with_capacity(rows.len());
         for row in rows {
-            let grade = row.try_get::<Option<f64>, _>("grade")
+            let grade = row
+                .try_get::<Option<f64>, _>("grade")
                 .map_err(|_| ServerFnError::new("parent.ai_context_unavailable"))?;
             let scale = row
                 .try_get::<i16, _>("grade_scale")
