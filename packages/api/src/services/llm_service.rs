@@ -657,7 +657,8 @@ impl ExternalLlmClient {
             "question": parent_question,
             "prior_parent_questions_only": prior_questions,
             "response_locale": if locale == "fa" { "fa" } else { "en" },
-        }).to_string();
+        })
+        .to_string();
         if payload.len() > 15_000 {
             return Err(LlmError::PromptTooLarge);
         }
@@ -668,12 +669,21 @@ impl ExternalLlmClient {
             },
             ChatMessage { role: "user".to_string(), content: payload },
         ];
-        let (content, _) = self.chat_completion_for_school(school_id, messages, true).await?;
-        let data: Value = serde_json::from_str(&content)
-            .map_err(|_| LlmError::InvalidResponse("AI Parent response must be a JSON object".to_string()))?;
-        let answer = data.get("answer").and_then(Value::as_str).unwrap_or("").trim();
+        let (content, _) = self
+            .chat_completion_for_school(school_id, messages, true)
+            .await?;
+        let data: Value = serde_json::from_str(&content).map_err(|_| {
+            LlmError::InvalidResponse("AI Parent response must be a JSON object".to_string())
+        })?;
+        let answer = data
+            .get("answer")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim();
         if answer.is_empty() || answer.chars().count() > 2_000 {
-            return Err(LlmError::InvalidResponse("Invalid Parent response length".to_string()));
+            return Err(LlmError::InvalidResponse(
+                "Invalid Parent response length".to_string(),
+            ));
         }
         Ok(answer.to_string())
     }
