@@ -296,6 +296,16 @@ class ClassifierTests(unittest.TestCase):
             needs_browser=False,
         )
 
+    def test_checkout_head_contract_is_owned_as_workflow_policy(self):
+        self.assert_categories(
+            ["scripts/ci/test_checkout_head_contract.py"],
+            required=("workflow_policy",),
+            forbidden=("unknown",),
+            rust=False,
+            needs_postgres=False,
+            needs_browser=False,
+        )
+
     def test_browser_reset_helper_is_owned_by_browser_harness(self):
         result = self.assert_categories(
             ["scripts/ci/reset_browser_fixture_db.sh"],
