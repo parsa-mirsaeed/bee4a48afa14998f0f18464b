@@ -150,21 +150,31 @@ BEGIN
         RAISE EXCEPTION 'Source-review evidence function remains executable by PUBLIC';
     END IF;
 
-    -- Source-review must work with pinned Supabase's extensions.pgcrypto layout.
-    -- Keep SECURITY DEFINER resolution deterministic and reject a drifted
-    -- search path before the first private PDF is reviewed in production.
-    IF to_regprocedure('extensions.digest(bytea,text)') IS NULL
-       OR encode(extensions.digest(convert_to('test', 'UTF8'), 'sha256'), 'hex')
-          <> '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08' THEN
-        RAISE EXCEPTION 'Pinned pgcrypto digest is missing or invalid';
+    -- Check the actual extension location (pinned Supabase uses extensions,
+    -- generic CI PostgreSQL uses public). Do not assume either is universal.
+    IF to_regprocedure('extensions.digest(bytea,text)') IS NOT NULL THEN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_proc procedure
+            WHERE procedure.oid = 'public.record_knowledge_source_review(uuid,uuid,bytea)'::regprocedure
+              AND 'search_path=pg_catalog, extensions, public, pg_temp' = ANY(procedure.proconfig)
+        ) THEN
+            RAISE EXCEPTION 'Source-review SECURITY DEFINER cannot resolve extensions.pgcrypto';
+        END IF;
+    ELSIF to_regprocedure('public.digest(bytea,text)') IS NOT NULL THEN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_proc procedure
+            WHERE procedure.oid = 'public.record_knowledge_source_review(uuid,uuid,bytea)'::regprocedure
+              AND 'search_path=pg_catalog, public, pg_temp' = ANY(procedure.proconfig)
+        ) THEN
+            RAISE EXCEPTION 'Source-review SECURITY DEFINER cannot resolve public.pgcrypto';
+        END IF;
+    ELSE
+        RAISE EXCEPTION 'Source-review pgcrypto digest is unavailable';
     END IF;
 
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_proc procedure
-        WHERE procedure.oid = 'public.record_knowledge_source_review(uuid,uuid,bytea)'::regprocedure
-          AND 'search_path=pg_catalog, extensions, public, pg_temp' = ANY(procedure.proconfig)
-    ) THEN
-        RAISE EXCEPTION 'Source-review SECURITY DEFINER search_path does not resolve pinned pgcrypto';
+    IF encode(digest(convert_to('test', 'UTF8'), 'sha256'), 'hex')
+       <> '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08' THEN
+        RAISE EXCEPTION 'Source-review pgcrypto SHA256 failed known-answer test';
     END IF;
 
     SELECT COUNT(*)
