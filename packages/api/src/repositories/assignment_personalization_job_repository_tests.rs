@@ -1390,3 +1390,112 @@ async fn platform_admin_scope_summaries_and_bulk_retry_are_exact_and_bounded() {
         vec![("queued".to_string(), 0), ("queued".to_string(), 0)]
     );
 }
+
+
+#[cfg(feature = "server")]
+#[tokio::test]
+async fn admin_regeneration_snapshots_current_policy_without_mutating_old_failed_job() {
+    let _queue_guard = QUEUE_TEST_LOCK.lock().await;
+    let fixture = queue_fixture(1).await;
+    let admin_role = role_id(&fixture.pool, "PlatformAdmin").await;
+    let admin = insert_user(
+        &fixture.pool,
+        &Uuid::new_v4().simple().to_string(),
+        "Regenerate Platform Admin",
+        admin_role,
+        fixture.school_id,
+    )
+    .await;
+    let jobs = AssignmentPersonalizationJobRepository::new(fixture.pool.clone());
+    let policies = AssignmentPersonalizationPolicyRepository::new(fixture.pool.clone());
+
+    let original = sqlx::query(
+        "SELECT id, llm_profile_id, execution_generation FROM assignment_personalization_jobs WHERE assignment_id = $1 AND student_id = $2",
+    )
+    .bind(fixture.assignment_id)
+    .bind(fixture.student_ids[0])
+    .fetch_one(&*fixture.pool)
+    .await
+    .expect("original queue job");
+    let original_id: Uuid = original.get("id");
+    assert_eq!(original.get::<i32, _>("execution_generation"), 1);
+
+    sqlx::query(
+        "UPDATE assignment_personalization_jobs SET status = 'failed', processing_stage = 'failed', completed_at = NOW(), last_error_code = 'provider_unconfigured', last_error_summary = 'Provider unavailable' WHERE id = $1",
+    )
+    .bind(original_id)
+    .execute(&*fixture.pool)
+    .await
+    .expect("set historical failure");
+
+    run_as(
+        fixture.pool.as_ref(),
+        actor(admin, "PlatformAdmin", fixture.school_id),
+        policies.set_school_policy(
+            admin,
+            fixture.school_id,
+            true,
+            false,
+            "deepseek-v41-flash-v1",
+            DELIVERY_REQUIRE_PERSONALIZED,
+            "Preserve each learner's objective while adapting difficulty from performance.",
+        ),
+    )
+    .await
+    .expect("persist new GapGPT school policy");
+
+    let regenerated = run_as(
+        fixture.pool.as_ref(),
+        actor(admin, "PlatformAdmin", fixture.school_id),
+        jobs.regenerate_for_platform_admin(admin, original_id),
+    )
+    .await;
+    assert!(regenerated.is_ok(), "{regenerated:?}");
+
+    let rows = sqlx::query(
+        "SELECT id, status, llm_profile_id, llm_provider, model_name, policy_version, specialization_instructions, execution_generation, supersedes_job_id FROM assignment_personalization_jobs WHERE assignment_id = $1 AND student_id = $2 ORDER BY execution_generation",
+    )
+    .bind(fixture.assignment_id)
+    .bind(fixture.student_ids[0])
+    .fetch_all(&*fixture.pool)
+    .await
+    .expect("read both immutable generations");
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].get::<Uuid, _>("id"), original_id);
+    assert_eq!(rows[0].get::<String, _>("status"), "failed");
+    assert_eq!(
+        rows[0].get::<String, _>("llm_profile_id"),
+        original.get::<String, _>("llm_profile_id")
+    );
+    assert_eq!(rows[1].get::<String, _>("status"), "queued");
+    assert_eq!(rows[1].get::<String, _>("llm_profile_id"), "deepseek-v41-flash-v1");
+    assert_eq!(rows[1].get::<String, _>("llm_provider"), "gapgpt");
+    assert_eq!(rows[1].get::<String, _>("model_name"), "deepseek-v4.1-flash");
+    assert_eq!(rows[1].get::<i32, _>("execution_generation"), 2);
+    assert_eq!(rows[1].get::<Option<Uuid>, _>("supersedes_job_id"), Some(original_id));
+    assert!(rows[1].get::<String, _>("specialization_instructions").contains("performance"));
+
+    let duplicate = run_as(
+        fixture.pool.as_ref(),
+        actor(admin, "PlatformAdmin", fixture.school_id),
+        jobs.regenerate_for_platform_admin(admin, original_id),
+    )
+    .await;
+    assert!(duplicate.is_err(), "the old failed row must not spawn duplicates");
+
+    let teacher_denied = run_as(
+        fixture.pool.as_ref(),
+        actor(fixture.teacher_user, "Teacher", fixture.school_id),
+        jobs.regenerate_for_platform_admin(fixture.teacher_user, original_id),
+    )
+    .await;
+    assert!(teacher_denied.is_err(), "Teacher cannot invoke Platform Admin regeneration");
+
+    let old_retry_denied = run_as(
+        fixture.pool.as_ref(),
+        actor(admin, "PlatformAdmin", fixture.school_id),
+        jobs.retry_for_platform_admin(admin, original_id),
+    )
+    .await;
+    assert!(old_retry_denied.is_err(), "original retry must not resurrect old generation");
+}
