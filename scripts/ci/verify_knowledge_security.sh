@@ -172,9 +172,14 @@ BEGIN
         RAISE EXCEPTION 'Source-review pgcrypto digest is unavailable';
     END IF;
 
-    IF encode(digest(convert_to('test', 'UTF8'), 'sha256'), 'hex')
-       <> '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08' THEN
-        RAISE EXCEPTION 'Source-review pgcrypto SHA256 failed known-answer test';
+    IF to_regprocedure('extensions.digest(bytea,text)') IS NOT NULL THEN
+        IF encode(extensions.digest(convert_to('test', 'UTF8'), 'sha256'), 'hex')
+           <> '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08' THEN
+            RAISE EXCEPTION 'extensions.pgcrypto SHA256 failed known-answer test';
+        END IF;
+    ELSIF encode(public.digest(convert_to('test', 'UTF8'), 'sha256'), 'hex')
+          <> '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08' THEN
+        RAISE EXCEPTION 'public.pgcrypto SHA256 failed known-answer test';
     END IF;
 
     SELECT COUNT(*)
