@@ -481,10 +481,12 @@ mod tests {
             consent_to_provider: false,
         };
         assert!(!super::bounded_parent_chat_request(&request));
-        assert!(super::bounded_parent_chat_request(&super::ParentAcademicChatRequest {
-            consent_to_provider: true,
-            ..request
-        }));
+        assert!(super::bounded_parent_chat_request(
+            &super::ParentAcademicChatRequest {
+                consent_to_provider: true,
+                ..request
+            }
+        ));
     }
 
     #[cfg(feature = "server")]
