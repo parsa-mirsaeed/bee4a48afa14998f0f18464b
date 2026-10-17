@@ -130,6 +130,9 @@ fn ScopeRetryButton(
     let locale = use_locale().current();
     let mut busy = use_signal(|| false);
     let mut error = use_signal(|| false);
+    let school_id_for_old_retry = school_id.clone();
+    let teacher_id_for_old_retry = teacher_user_id.clone();
+    let assignment_id_for_old_retry = assignment_id.clone();
 
     rsx! {
         div {
@@ -144,9 +147,9 @@ fn ScopeRetryButton(
                     busy.set(true);
                     error.set(false);
                     let request = RetryAdminPersonalizationScopeRequest {
-                        school_id: school_id.clone(),
-                        teacher_user_id: teacher_user_id.clone(),
-                        assignment_id: assignment_id.clone(),
+                        school_id: school_id_for_old_retry.clone(),
+                        teacher_user_id: teacher_id_for_old_retry.clone(),
+                        assignment_id: assignment_id_for_old_retry.clone(),
                     };
                     spawn(async move {
                         match retry_admin_personalization_failed_scope(request).await {
@@ -820,6 +823,7 @@ fn PersonalizationJobCard(
     let mut busy = use_signal(|| false);
     let mut error = use_signal(|| false);
     let retryable = matches!(job.status.as_str(), "failed" | "cancelled");
+    let regeneration_job_id = job.job_id.clone();
     let prompt_tokens = job
         .prompt_tokens
         .map(|value| value.to_string())
@@ -968,7 +972,7 @@ fn PersonalizationJobCard(
                     school_id: None,
                     teacher_user_id: None,
                     assignment_id: None,
-                    job_id: Some(job.job_id.clone()),
+                    job_id: Some(regeneration_job_id.clone()),
                     on_retried: move |_| on_retried.call(()),
                 }
             }
