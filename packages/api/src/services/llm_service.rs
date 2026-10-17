@@ -974,7 +974,9 @@ mod tests {
             .expect("local fake gateway listener");
         let port = listener.local_addr().expect("listen address").port();
         let handle = tokio::spawn(async move {
-            axum::serve(listener, app).await.expect("fake gateway serve");
+            axum::serve(listener, app)
+                .await
+                .expect("fake gateway serve");
         });
 
         let mut llm = client();
@@ -1010,7 +1012,9 @@ mod tests {
             Err(LlmError::SecretInPrompt)
         ));
         assert!(matches!(
-            reject_secret_shaped_input(r#"{"academic_records":{"title":"SUPABASE_SECRET_KEY=hidden"}}"#),
+            reject_secret_shaped_input(
+                r#"{"academic_records":{"title":"SUPABASE_SECRET_KEY=hidden"}}"#
+            ),
             Err(LlmError::SecretInPrompt)
         ));
     }
