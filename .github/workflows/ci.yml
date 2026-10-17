@@ -197,6 +197,8 @@ jobs:
 
       - name: Verify workflow fast-path contract
         run: python3 scripts/ci/test_stage1_workflow_contract.py
+      - name: Verify exact-head checkout and browser evidence identity
+        run: python3 scripts/ci/test_checkout_head_contract.py
 
       - name: Verify specialized workflow trigger contract
         run: python3 scripts/ci/test_stage1_specialized_trigger_contract.py
