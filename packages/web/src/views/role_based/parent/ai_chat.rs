@@ -132,6 +132,7 @@ pub fn ParentAcademicChatSection() -> Element {
                                     let req = ParentAcademicChatRequest {
                                         child_id, question: current_question.clone(),
                                         prior_questions: previous,
+                                        consent_to_provider: consented(),
                                         locale: match locale.current() {
                                             crate::i18n::Locale::Fa => "fa",
                                             _ => "en",
