@@ -71,11 +71,13 @@ pub async fn get_knowledge_storage_readiness() -> Result<KnowledgeStorageReadine
         if status.as_u16() == 404 || status.as_u16() == 400 {
             // Pinned Storage can return HTTP 400 with code=NoSuchBucket.
             // Reject all unrelated 400s; a missing bucket is created on upload.
-            return Ok(if crate::services::storage_bucket_compat::missing_bucket_response(response).await {
-                KnowledgeStorageReadiness::Ready
-            } else {
-                KnowledgeStorageReadiness::UnavailableRetryable
-            });
+            return Ok(
+                if crate::services::storage_bucket_compat::missing_bucket_response(response).await {
+                    KnowledgeStorageReadiness::Ready
+                } else {
+                    KnowledgeStorageReadiness::UnavailableRetryable
+                },
+            );
         }
         if !status.is_success() {
             tracing::warn!(%status, "knowledge readiness storage request rejected");
@@ -91,7 +93,9 @@ pub async fn get_knowledge_storage_readiness() -> Result<KnowledgeStorageReadine
         };
 
         if crate::services::storage_bucket_compat::matches_private_bucket(
-            &body, 20 * 1024 * 1024, &["application/pdf"],
+            &body,
+            20 * 1024 * 1024,
+            &["application/pdf"],
         ) {
             Ok(KnowledgeStorageReadiness::Ready)
         } else {
