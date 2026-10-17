@@ -662,6 +662,9 @@ impl ExternalLlmClient {
         if payload.len() > 15_000 {
             return Err(LlmError::PromptTooLarge);
         }
+        // Do not forward credential-shaped text injected into teacher-authored
+        // assignment names or into parent questions/history to a provider.
+        reject_secret_shaped_input(&payload)?;
         let messages = vec![
             ChatMessage {
                 role: "system".to_string(),
@@ -907,6 +910,18 @@ mod tests {
         config.api_key = "abcdefghijklmnopqrstuvwxyz123456".to_string();
         config.model = "user-controlled-model".to_string();
         assert!(ExternalLlmClient::with_config(config).is_err());
+    }
+
+    #[test]
+    fn parent_academic_payload_blocks_credential_shaped_text() {
+        assert!(matches!(
+            reject_secret_shaped_input(r#"{"question":"Authorization: Bearer secret"}"#),
+            Err(LlmError::SecretInPrompt)
+        ));
+        assert!(matches!(
+            reject_secret_shaped_input(r#"{"academic_records":{"title":"SUPABASE_SECRET_KEY=hidden"}}"#),
+            Err(LlmError::SecretInPrompt)
+        ));
     }
 
     #[test]
