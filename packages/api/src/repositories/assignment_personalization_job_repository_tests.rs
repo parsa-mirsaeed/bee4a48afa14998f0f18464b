@@ -1391,7 +1391,6 @@ async fn platform_admin_scope_summaries_and_bulk_retry_are_exact_and_bounded() {
     );
 }
 
-
 #[cfg(feature = "server")]
 #[tokio::test]
 async fn admin_regeneration_snapshots_current_policy_without_mutating_old_failed_job() {
@@ -1468,12 +1467,23 @@ async fn admin_regeneration_snapshots_current_policy_without_mutating_old_failed
         original.get::<String, _>("llm_profile_id")
     );
     assert_eq!(rows[1].get::<String, _>("status"), "queued");
-    assert_eq!(rows[1].get::<String, _>("llm_profile_id"), "deepseek-v41-flash-v1");
+    assert_eq!(
+        rows[1].get::<String, _>("llm_profile_id"),
+        "deepseek-v41-flash-v1"
+    );
     assert_eq!(rows[1].get::<String, _>("llm_provider"), "gapgpt");
-    assert_eq!(rows[1].get::<String, _>("model_name"), "deepseek-v4.1-flash");
+    assert_eq!(
+        rows[1].get::<String, _>("model_name"),
+        "deepseek-v4.1-flash"
+    );
     assert_eq!(rows[1].get::<i32, _>("execution_generation"), 2);
-    assert_eq!(rows[1].get::<Option<Uuid>, _>("supersedes_job_id"), Some(original_id));
-    assert!(rows[1].get::<String, _>("specialization_instructions").contains("performance"));
+    assert_eq!(
+        rows[1].get::<Option<Uuid>, _>("supersedes_job_id"),
+        Some(original_id)
+    );
+    assert!(rows[1]
+        .get::<String, _>("specialization_instructions")
+        .contains("performance"));
 
     let duplicate = run_as(
         fixture.pool.as_ref(),
@@ -1481,7 +1491,10 @@ async fn admin_regeneration_snapshots_current_policy_without_mutating_old_failed
         jobs.regenerate_for_platform_admin(admin, original_id),
     )
     .await;
-    assert!(duplicate.is_err(), "the old failed row must not spawn duplicates");
+    assert!(
+        duplicate.is_err(),
+        "the old failed row must not spawn duplicates"
+    );
 
     let teacher_denied = run_as(
         fixture.pool.as_ref(),
@@ -1489,7 +1502,10 @@ async fn admin_regeneration_snapshots_current_policy_without_mutating_old_failed
         jobs.regenerate_for_platform_admin(fixture.teacher_user, original_id),
     )
     .await;
-    assert!(teacher_denied.is_err(), "Teacher cannot invoke Platform Admin regeneration");
+    assert!(
+        teacher_denied.is_err(),
+        "Teacher cannot invoke Platform Admin regeneration"
+    );
 
     let old_retry_denied = run_as(
         fixture.pool.as_ref(),
@@ -1497,5 +1513,8 @@ async fn admin_regeneration_snapshots_current_policy_without_mutating_old_failed
         jobs.retry_for_platform_admin(admin, original_id),
     )
     .await;
-    assert!(old_retry_denied.is_err(), "original retry must not resurrect old generation");
+    assert!(
+        old_retry_denied.is_err(),
+        "original retry must not resurrect old generation"
+    );
 }
