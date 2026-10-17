@@ -70,7 +70,7 @@ impl RoutingService {
                 _ => false,
             },
             SystemRole::Parent => match section {
-                "overview" | "children" => true,
+                "overview" | "children" | "ai-chat" => true,
                 "reports" => capabilities.parent_reports,
                 "communication" => capabilities.parent_teacher_communication,
                 _ => false,
@@ -262,6 +262,11 @@ impl RoutingService {
                     locale.t("nav.children"),
                     "child_care",
                 ));
+                items.push(NavigationItem::section(
+                    "ai-chat",
+                    locale.t("parent.ai.title"),
+                    "message_circle",
+                ));
                 if capabilities.parent_reports {
                     items.push(NavigationItem::section(
                         "reports",
@@ -451,6 +456,15 @@ mod tests {
         assert!(RoutingService::can_access_dashboard_section(
             &parent, "children"
         ));
+        assert!(RoutingService::can_access_dashboard_section(
+            &parent, "ai-chat"
+        ));
+        assert!(!RoutingService::can_access_dashboard_section(
+            &teacher, "ai-chat"
+        ));
+        assert!(!RoutingService::can_access_dashboard_section(
+            &student, "ai-chat"
+        ));
         assert!(!RoutingService::can_access_dashboard_section(
             &parent,
             "assignments"
@@ -466,6 +480,14 @@ mod tests {
         assert!(!RoutingService::can_access_dashboard_section(
             &platform, "overview"
         ));
+    }
+
+    #[test]
+    fn parent_academic_chat_has_a_canonical_role_scoped_route() {
+        let parent = user(SystemRole::Parent);
+        let teacher = user(SystemRole::Teacher);
+        assert!(RoutingService::can_access_route(&parent, "/dashboard/ai-chat"));
+        assert!(!RoutingService::can_access_route(&teacher, "/dashboard/ai-chat"));
     }
 
     #[test]
