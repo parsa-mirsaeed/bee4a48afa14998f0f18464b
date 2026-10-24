@@ -215,6 +215,13 @@ def main():
                 conn.close()
             if result != "ok":
                 raise ValueError(f"Preflight failed for role {s['role']}: {result}, HTTP {status}")
+            # Reject role markers that can be fetched without authentication.
+            anon = dict(s, cookie="")
+            conn, _, anonymous_result, _ = request_once(target, anon, a.timeout)
+            if conn is not None:
+                conn.close()
+            if anonymous_result == "ok":
+                raise ValueError(f"Preflight failed: role {s['role']} marker is public without a cookie")
     except (ValueError, OSError, json.JSONDecodeError) as exc:
         p.error(str(exc))
     if a.preflight_only:

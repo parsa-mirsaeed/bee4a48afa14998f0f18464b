@@ -19,6 +19,13 @@ spec.loader.exec_module(probe)
 
 class Fixture(BaseHTTPRequestHandler):
     def do_GET(self):
+        if self.path == "/dashboard/public":
+            body = b"Public Student dashboard marker"
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         if self.path == "/dashboard/redirect":
             self.send_response(302)
             self.send_header("Location", "/")
@@ -96,6 +103,14 @@ class ProbeTests(unittest.TestCase):
         r = self.cli("--preflight-only")
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("marker_absent", r.stderr)
+
+    def test_public_marker_cannot_pass_as_authenticated(self):
+        self.rows[0]["path"] = "/dashboard/public"
+        self.rows[0]["expect_contains"] = "Public Student dashboard marker"
+        self.save()
+        r = self.cli("--preflight-only")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("public without a cookie", r.stderr)
 
     def test_redirect_cannot_be_counted_as_login_success(self):
         self.rows[0]["path"] = "/dashboard/redirect"

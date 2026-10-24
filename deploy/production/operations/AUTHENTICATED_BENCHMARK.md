@@ -41,7 +41,7 @@ Remote staging requires **both** `EDUTALENT_STAGING_APPROVED=YES` and `--approve
 
 ## Measurements and scientific interpretation
 
-The report records verified responses/sec, all responses/sec, status/error breakdown, latency P50/P95/P99, configured/active unique session counts and observed client in-flight peak. A 302 redirect, login shell, bad token or unexpected response marker **fails** preflight. The load is bounded to 128 workers, 5 minutes, 100,000 samples and 10 errors by default. An error or P95 breach returns nonzero; sample cap and error-limit aborts must be identified in analysis.
+The report records verified responses/sec, all responses/sec, status/error breakdown, latency P50/P95/P99, configured/active unique session counts and observed client in-flight peak. A 302 redirect, login shell, bad token, unexpected response marker, or marker accessible with **no cookie** **fails** preflight. The load is bounded to 128 workers, 5 minutes, 100,000 samples and 10 errors by default. An error or P95 breach returns nonzero; sample cap and error-limit aborts must be identified in analysis.
 
 Use at least five independent repeated runs at 1, 4, 8, 16, 32 workers and several datasets; verify generator is not saturated. Collect peak **server** established TCP sockets and DB pool waits separately; this harness does not measure them. Use open-loop k6 or equivalent for a defensible saturation curve. Repeat for role-specific **actual data** endpoints, plus negative cross-school tests before claiming tenant-safe load. Record host, Docker image digest, pinned Rust version, exact SHA, response payload size and dataset hash. Do **not** advertise any max users/RPS, availability SLO or Rust-vs-Python speedup from a health/SSR diagnostic alone.
 
