@@ -10,6 +10,11 @@ use dioxus::prelude::*;
 #[component]
 pub fn Header(user: User, page_title: String, on_open_navigation: EventHandler) -> Element {
     let locale = use_locale();
+    let workspace_label = if locale.current() == crate::i18n::Locale::Fa {
+        "فضای کار"
+    } else {
+        "Workspace"
+    };
 
     rsx! {
         header { class: "et-topbar",
@@ -23,6 +28,7 @@ pub fn Header(user: User, page_title: String, on_open_navigation: EventHandler) 
                 }
 
                 div { class: "et-page-heading-wrap",
+                    span { class: "et-topbar-kicker", "{workspace_label}" }
                     h1 { class: "et-topbar-title", "{page_title}" }
                     p { class: "et-topbar-role", "{role_label(user.role, locale.current())}" }
                 }
