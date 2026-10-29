@@ -6,6 +6,7 @@ use crate::ui::AppShell;
 use dioxus::prelude::*;
 
 const DASHBOARD_TABLET_CSS: Asset = asset!("/assets/dashboard-tablet.css");
+const EXPERIENCE_2026_CSS: Asset = asset!("/assets/experience-2026.css");
 
 /// Shared responsive product shell for every authenticated role.
 ///
@@ -32,6 +33,7 @@ pub fn DashboardLayout(user: User, active_section: String, children: Element) ->
 
     rsx! {
         document::Stylesheet { href: DASHBOARD_TABLET_CSS }
+        document::Stylesheet { href: EXPERIENCE_2026_CSS }
         AppShell {
             div { class: "et-dashboard-shell",
                 if mobile_nav_open() {
