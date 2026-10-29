@@ -41,7 +41,7 @@ test('Aurora shell and shared role navigation render with the new visual contrac
     contentType: 'image/png',
   });
 
-  await page.locator('.et-ui-sidebar-nav__item', { hasText: 'Users' }).first().click();
+  await page.locator('.et-ui-sidebar-nav__item', { has: page.locator('span.material-icons-outlined', { hasText: /^groups$/ }) }).first().click();
   await expect(page).toHaveURL(/\/dashboard\/users$/);
   await expect(page.locator('.et-ui-sidebar-nav__item[aria-current="page"]')).toHaveCount(1);
 });
