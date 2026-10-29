@@ -1002,6 +1002,39 @@
   outline: 3px solid var(--et-color-focus);
   outline-offset: 2px;
 }
+.et-manager-users__filter select {
+  padding-inline-start: 15px;
+  padding-inline-end: 42px;
+}
+.et-manager-users__filter > .material-icons-outlined {
+  inset-inline-end: 12px;
+  inset-inline-start: auto;
+  right: 12px;
+  left: auto;
+  pointer-events: none;
+}
+[dir="rtl"] .et-manager-users__filter > .material-icons-outlined {
+  right: auto;
+  left: 12px;
+}
+.et-manager-users__search input {
+  padding-inline-start: 42px;
+  padding-inline-end: 16px;
+}
+.et-manager-users__search > .material-icons-outlined {
+  inset-inline-start: 12px;
+  inset-inline-end: auto;
+  left: 12px;
+  right: auto;
+  pointer-events: none;
+}
+[dir="rtl"] .et-manager-users__search > .material-icons-outlined {
+  left: auto;
+  right: 12px;
+}
+.et-manager-users__table th,
+.et-manager-users__table td { text-align: start; }
+
 .et-manager-users__table-scroll {
   inline-size: 100%;
   overflow-x: auto;
