@@ -166,3 +166,42 @@ test('Persian manager directory uses RTL-aware filter and search affordances @sm
   await expect(searchIcon).toHaveCSS('right', '12px');
   await expect(page.locator('.et-manager-users__tabs button[aria-pressed="true"]')).toHaveCount(1);
 });
+
+test('school classes inventory cards open details with Enter and Space @smoke @aurora @manager @accessibility', async ({ page }) => {
+  await signIn(page, 'e2e-manager-a@example.test');
+  await page.goto('/dashboard/classes');
+  const card = page.locator('.et-manager-classes__card').filter({ hasText: 'E2E Class A1' }).first();
+  await expect(card).toBeVisible();
+  await expect(card).toHaveAttribute('role', 'button');
+  await expect(card).toHaveAttribute('tabindex', '0');
+  await card.focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+
+  await card.focus();
+  await page.keyboard.press('Space');
+  await expect(page.getByRole('dialog')).toBeVisible();
+});
+
+test('school classes switch view accessibly and label the subject selector @smoke @aurora @manager @forms', async ({ page }) => {
+  await signIn(page, 'e2e-manager-a@example.test');
+  await page.goto('/dashboard/classes');
+  const view = page.locator('.et-manager-classes__view-switch');
+  await expect(view).toHaveAttribute('role', 'group');
+  const buttons = view.getByRole('button');
+  await expect(buttons).toHaveCount(2);
+  await expect(buttons.nth(0)).toHaveAttribute('aria-pressed', 'true');
+  await buttons.nth(1).click();
+  await expect(buttons.nth(1)).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.et-manager-classes__list')).toBeVisible();
+
+  await page.locator('.et-manager-classes__toolbar').getByRole('button').last().click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
+  const subject = dialog.locator('#et-create-class-subject');
+  await expect(subject).toBeVisible();
+  await expect(subject).toHaveAttribute('aria-required', 'true');
+  await expect(dialog.locator('label[for="et-create-class-subject"]')).toBeVisible();
+});
