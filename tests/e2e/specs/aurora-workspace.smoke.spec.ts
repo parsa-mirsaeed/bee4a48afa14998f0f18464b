@@ -205,3 +205,23 @@ test('school classes switch view accessibly and label the subject selector @smok
   await expect(subject).toHaveAttribute('aria-required', 'true');
   await expect(dialog.locator('label[for="et-create-class-subject"]')).toBeVisible();
 });
+
+test('class enrollment controls expose a student label and safe touch targets @smoke @aurora @manager @accessibility', async ({ page }) => {
+  await signIn(page, 'e2e-manager-a@example.test');
+  await page.goto('/dashboard/classes');
+  const card = page.locator('.et-manager-classes__card').filter({ hasText: 'E2E Class A1' }).first();
+  await expect(card).toBeVisible();
+  await card.click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
+  const enrollment = dialog.locator('#et-class-enroll-student');
+  await expect(enrollment).toHaveAttribute('aria-required', 'true');
+  await expect(dialog.locator('label[for="et-class-enroll-student"]')).toBeVisible();
+  const remove = dialog.locator('.et-manager-classes__remove-action').first();
+  await expect(remove).toBeVisible();
+  await expect(remove).toHaveAttribute('aria-label', /.+/);
+  const box = await remove.boundingBox();
+  expect(box).not.toBeNull();
+  expect(box!.width).toBeGreaterThanOrEqual(44);
+  expect(box!.height).toBeGreaterThanOrEqual(44);
+});
