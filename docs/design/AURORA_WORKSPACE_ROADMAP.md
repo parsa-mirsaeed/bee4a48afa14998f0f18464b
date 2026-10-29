@@ -105,6 +105,15 @@ The current draft branch has progressed beyond shell styling into all five role 
 
 A passing compiler does not imply keyboard correctness; a passing screenshot does not imply authorization safety. This ledger tracks implementation, not a release claim.
 
+### Next implementation ledger — manager class workflows
+
+- **Implemented:** class inventory has responsive grid/list treatment and a two-state semantic view switch; class cards are keyboard activatable with Enter and Space and expose focus outlines.
+- **Implemented:** create-class subject selector has an actual label association, required state, and a focused treatment rather than borderless glassmorphism; form submission remains the existing guarded server action.
+- **Implemented:** class enrollment selector has a real label, and the existing roster-removal actions gain student-specific accessible names and 44px targets; the API and authorization are unchanged.
+- **Tests added (verification pending exact-head CI):** keyboard opens class details, switch mode semantics, create subject labeling, enrollment select labeling, roster icon target dimensions.
+- **Focus remediation:** removed timing-sensitive reliance on the initial Dioxus mount and added bounded post-render retries that stop on success or drawer dismissal. Only the latest exact-head browser run can validate the fix.
+- **Release gate remains open:** do not merge before Rust, Playwright, accessible focus, RTL/light/dark screenshot review, and reviewer sign-off. Class removal and role permission lifecycle require further operational review.
+
 ### Phase 1 implementation ledger
 
 - [x] Repository, role routes, product capability matrix entry points, and current design-system owners identified.
