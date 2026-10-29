@@ -113,7 +113,7 @@ pub fn SchoolManagerOverviewSection(on_navigate: EventHandler<String>) -> Elemen
                 div { class: "et-section-heading",
                     h3 { class: "et-section-title", "{quick_actions}" }
                 }
-                div { class: "et-action-grid",
+                div { class: "et-action-grid et-action-grid--manager",
                     ManagerAction {
                         icon: "groups".to_string(),
                         title: locale.t("school_manager.actions.add_user"),
