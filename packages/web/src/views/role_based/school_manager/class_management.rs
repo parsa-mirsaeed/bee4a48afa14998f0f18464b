@@ -511,11 +511,13 @@ fn ClassDetailModal(
                         div { class: "p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 rounded-lg text-sm", "{err}" }
                     }
 
-                    div { class: "space-y-2",
-                        label { class: "text-sm font-medium text-gray-700 dark:text-gray-300", "{locale.t(\"school_manager.classes.detail_modal.add_student\")}" }
+                    div { class: "et-manager-classes__enrollment-form space-y-2",
+                        label { r#for: "et-class-enroll-student", class: "text-sm font-medium text-gray-700 dark:text-gray-300", "{locale.t(\"school_manager.classes.detail_modal.add_student\")}" }
                         div { class: "flex gap-2",
                             select {
-                                class: "flex-1 px-4 py-2.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white",
+                                id: "et-class-enroll-student",
+                                "aria-required": "true",
+                                class: "et-manager-classes__enrollment-select flex-1 px-4 py-2.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white",
                                 value: "{selected_student}",
                                 onchange: move |e| selected_student.set(e.value()),
                                 disabled: is_loading(),
@@ -548,7 +550,7 @@ fn ClassDetailModal(
                     div { class: "space-y-2",
                         label { class: "text-sm font-medium text-gray-700 dark:text-gray-300", "{locale.t(\"school_manager.classes.detail_modal.enrolled_students\")}" }
 
-                        div { class: "border border-gray-200 dark:border-gray-700 rounded-lg divide-y divide-gray-200 dark:divide-gray-700 max-h-64 overflow-y-auto",
+                        div { class: "et-manager-classes__roster border border-gray-200 dark:border-gray-700 rounded-lg divide-y divide-gray-200 dark:divide-gray-700 max-h-64 overflow-y-auto",
                             match &*enrolled_resource.read() {
                                 Some(Ok(students)) if students.is_empty() => rsx! {
                                     div { class: "p-4 text-center text-gray-500 dark:text-gray-400 text-sm", "{locale.t(\"school_manager.classes.detail_modal.no_students\")}" }
@@ -564,7 +566,9 @@ fn ClassDetailModal(
                                                         p { class: "text-xs text-gray-500 dark:text-gray-400", "{student[\"email\"].as_str().unwrap_or_default()}" }
                                                     }
                                                     button {
-                                                        class: "text-red-500 hover:text-red-700 p-1 rounded transition-colors",
+                                                        class: "et-manager-classes__remove-action text-red-500 hover:text-red-700 p-1 rounded transition-colors",
+                                                        r#type: "button",
+                                                        "aria-label": format!("{}: {}", locale.t("common.delete"), student["name"].as_str().unwrap_or_default()),
                                                         onclick: move |_| handle_unenroll(enrollment_id.clone()),
                                                         disabled: is_loading(),
                                                         title: "{locale.t(\"common.delete\")}",
