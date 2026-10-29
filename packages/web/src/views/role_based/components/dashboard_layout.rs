@@ -102,7 +102,9 @@ fn focus_open_mobile_drawer_after_render(frames_left: u8) {
                             .active_element()
                             .and_then(|element| element.get_attribute("class"))
                             .is_some_and(|value| {
-                                value.split_whitespace().any(|class| class == "et-sidebar-mobile-close")
+                                value
+                                    .split_whitespace()
+                                    .any(|class| class == "et-sidebar-mobile-close")
                             });
                         if focused {
                             return;
