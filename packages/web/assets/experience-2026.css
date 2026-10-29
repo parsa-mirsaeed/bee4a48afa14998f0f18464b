@@ -133,6 +133,20 @@
 .et-brand-context { margin-block-start: 4px; color: #acb7d8; font-size: 11px; letter-spacing: 0.075em; }
 [dir="rtl"] .et-brand-context { letter-spacing: 0; }
 
+.et-sidebar .et-sidebar-mobile-close {
+  inline-size: 44px;
+  block-size: 44px;
+  color: #f1f3ff;
+  background: rgb(255 255 255 / 0.1);
+  border: 1px solid rgb(255 255 255 / 0.19);
+  border-radius: 12px;
+}
+.et-sidebar .et-sidebar-mobile-close:hover { background: rgb(255 255 255 / 0.18); }
+.et-sidebar .et-sidebar-mobile-close:focus-visible {
+  outline: 3px solid #d2c8ff;
+  outline-offset: 3px;
+}
+
 .et-sidebar-nav {
   padding: 22px 13px 16px;
   scrollbar-color: #4b5271 transparent;
