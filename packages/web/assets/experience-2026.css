@@ -459,6 +459,300 @@
   outline-offset: 3px;
 }
 
+/* Phase 2: task-first modules, composed from real role-owned data. */
+.et-overview-metrics {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  align-items: stretch;
+  gap: 18px;
+}
+
+.et-priority-panel {
+  isolation: isolate;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-block-size: 228px;
+  overflow: hidden;
+  padding: 26px 30px;
+  border: 1px solid #343d81;
+  border-radius: 21px;
+  background: linear-gradient(130deg, #293565, #323e7d 68%, #48458b);
+  color: #ffffff;
+  box-shadow: 0 13px 30px rgb(27 34 96 / 0.1);
+}
+
+.et-priority-panel::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inline-size: 180px;
+  block-size: 180px;
+  inset-inline-end: -52px;
+  inset-block-start: -51px;
+  border: 1px solid rgb(240 241 255 / 0.16);
+  border-radius: 50%;
+  box-shadow: 0 0 0 38px rgb(255 255 255 / 0.025), 0 0 0 78px rgb(255 255 255 / 0.016);
+  pointer-events: none;
+}
+
+.et-priority-panel__eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  color: #cedaff;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.et-priority-panel__eyebrow .material-icons-outlined {
+  color: #84e9e5;
+  font-size: 20px;
+}
+
+.et-priority-panel__value {
+  margin-block-start: 12px;
+  color: #ffffff;
+  font-size: clamp(39px, 4vw, 54px);
+  font-weight: 750;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.et-priority-panel__description {
+  max-inline-size: 29rem;
+  margin-block: 8px 18px;
+  color: #d8e2ff;
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.et-priority-panel__action {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  justify-content: space-between;
+  min-block-size: 44px;
+  margin-block-start: auto;
+  padding: 10px 16px;
+  border: 1px solid rgb(255 255 255 / 0.26);
+  border-radius: 11px;
+  background: #ffffff;
+  color: #292c69;
+  font-size: 13px;
+  font-weight: 750;
+  transition: background-color 160ms ease, transform 160ms ease;
+}
+
+.et-priority-panel__action:hover { background: #e8eaff; transform: translateY(-2px); }
+.et-priority-panel__action .material-icons-outlined { font-size: 18px; }
+[dir="rtl"] .et-priority-panel__action .material-icons-outlined { transform: rotate(180deg); }
+
+.et-stat-grid--secondary {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: stretch;
+}
+
+.et-stat-grid--secondary .et-stat {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 10px;
+}
+.et-stat-grid--secondary .et-stat-value { margin-block-start: 0; }
+
+.et-stat-grid--two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+.et-student-progress {
+  display: grid;
+  grid-template-columns: minmax(0, 1.65fr) minmax(0, 1fr);
+  gap: 16px;
+}
+
+.et-student-progress__focus,
+.et-student-progress__secondary {
+  min-inline-size: 0;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  border: 1px solid var(--et-color-border);
+  border-radius: 19px;
+  background: var(--et-color-surface);
+  padding: 23px 26px;
+  box-shadow: var(--et-shadow-1);
+}
+
+.et-student-progress__focus {
+  border-color: #cfc7fc;
+  background: linear-gradient(110deg, var(--et-color-primary-soft), var(--et-color-surface) 90%);
+}
+
+.et-student-progress__icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 49px;
+  block-size: 49px;
+  inline-size: 49px;
+  border-radius: 15px;
+  color: var(--et-color-primary);
+  background: var(--et-color-surface);
+}
+
+.et-student-progress__copy { min-inline-size: 0; }
+.et-student-progress .et-stat-value { margin-block-start: 4px; }
+.et-student-progress__action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 44px;
+  inline-size: 44px;
+  block-size: 44px;
+  margin-inline-start: auto;
+  border-radius: 13px;
+  background: var(--et-color-primary);
+  color: var(--et-color-on-primary);
+  transition: background-color 150ms ease;
+}
+.et-student-progress__action:hover { background: var(--et-color-primary-hover); }
+[dir="rtl"] .et-student-progress__action .material-icons-outlined { transform: rotate(180deg); }
+.et-student-progress__secondary { flex-direction: column; align-items: flex-start; justify-content: center; gap: 6px; }
+.et-student-progress__secondary .et-stat-value { margin-block-start: 0; }
+
+.et-feature-panel {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 21px;
+  padding: 24px 27px;
+  border: 1px solid #b9b1f2;
+  border-radius: 20px;
+  background: linear-gradient(105deg, var(--et-color-primary-soft), var(--et-color-surface) 78%);
+  box-shadow: var(--et-shadow-1);
+}
+.et-feature-panel__icon {
+  display: grid;
+  place-items: center;
+  inline-size: 56px;
+  block-size: 56px;
+  border-radius: 17px;
+  color: #ffffff;
+  background: linear-gradient(145deg, #8774fa, #5646ca);
+  box-shadow: 0 8px 18px rgb(84 64 207 / 0.16);
+}
+.et-feature-panel__icon .material-icons-outlined { font-size: 26px; }
+.et-feature-panel__body { min-inline-size: 0; }
+.et-feature-panel__title { font-size: 17px; font-weight: 750; color: var(--et-color-text); }
+.et-feature-panel__description {
+  max-inline-size: 47rem;
+  margin-block-start: 7px;
+  color: var(--et-color-text-muted);
+  font-size: 13px;
+  line-height: 1.65;
+}
+.et-feature-panel__action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-block-size: 44px;
+  padding: 10px 17px;
+  border-radius: 12px;
+  background: var(--et-color-primary);
+  color: var(--et-color-on-primary);
+  font-weight: 700;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.et-feature-panel__action:hover { background: var(--et-color-primary-hover); }
+.et-feature-panel__action .material-icons-outlined { font-size: 18px; }
+[dir="rtl"] .et-feature-panel__action .material-icons-outlined { transform: rotate(180deg); }
+
+/* School managers have one featured creation path, not four equal calls to action. */
+.et-action-grid--manager .et-action-card:first-child {
+  border-color: #484483;
+  background: linear-gradient(138deg, #393c77, #51458b);
+  color: #ffffff;
+  box-shadow: 0 14px 28px rgb(39 35 104 / 0.14);
+}
+.et-action-grid--manager .et-action-card:first-child:hover {
+  border-color: #5d56a9;
+  background: linear-gradient(138deg, #454786, #6552a4);
+}
+.et-action-grid--manager .et-action-card:first-child .et-action-title { color: #ffffff; }
+.et-action-grid--manager .et-action-card:first-child .et-action-description { color: #e0e0ff; }
+.et-action-grid--manager .et-action-card:first-child .et-action-arrow { color: #d4f9f4; }
+.et-action-grid--manager .et-action-card:first-child .et-action-icon {
+  background: rgb(255 255 255 / 0.16);
+  color: #ffffff;
+}
+
+/* Keep the three already-localized admin review stages visibly sequential. */
+.et-admin-process-steps { counter-reset: none; }
+.et-admin-process-steps > li {
+  position: relative;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 13px 10px;
+}
+.et-admin-process-steps > li > span:first-child {
+  inline-size: 40px;
+  block-size: 40px;
+  flex: 0 0 40px;
+  border-radius: 13px;
+  background: var(--et-color-primary-soft);
+  color: var(--et-color-primary);
+  font-size: 14px;
+  font-weight: 750;
+}
+.et-admin-process-steps > li > div { min-inline-size: 0; }
+.et-admin-process-steps > li > div > p:first-child {
+  color: var(--et-color-text);
+  font-weight: 700;
+  line-height: 1.5;
+}
+.et-admin-process-steps > li > div > p:last-child {
+  color: var(--et-color-text-muted);
+  line-height: 1.65;
+}
+@media (min-width: 768px) {
+  .et-admin-process-steps > li:not(:last-child)::after {
+    content: "";
+    position: absolute;
+    inset-inline-end: -6px;
+    inset-block-start: 32px;
+    inline-size: 18px;
+    block-size: 1px;
+    background: var(--et-color-border-strong);
+    pointer-events: none;
+  }
+}
+
+@media (max-width: 1100px) {
+  .et-overview-metrics { grid-template-columns: minmax(0, 1fr); }
+  .et-priority-panel { min-block-size: 200px; }
+}
+
+@media (max-width: 767px) {
+  .et-priority-panel { padding: 23px; border-radius: 18px; }
+  .et-stat-grid--secondary,
+  .et-stat-grid--two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .et-stat-grid--secondary .et-stat { padding: 18px; }
+  .et-student-progress { grid-template-columns: minmax(0, 1fr); }
+  .et-student-progress__focus,
+  .et-student-progress__secondary { padding: 18px; border-radius: 16px; }
+  .et-student-progress__secondary { display: flex; flex-direction: row; align-items: center; justify-content: space-between; }
+  .et-feature-panel { grid-template-columns: auto minmax(0, 1fr); padding: 21px; gap: 14px; }
+  .et-feature-panel__icon { inline-size: 47px; block-size: 47px; border-radius: 14px; }
+  .et-feature-panel__action { grid-column: 1 / -1; width: 100%; }
+  .et-action-grid--manager .et-action-card:first-child { grid-column: auto; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .et-priority-panel__action { transition: none !important; transform: none !important; }
+  .et-student-progress__action { transition: none !important; }
+}
+
 /* RTL reverses document flow via logical properties, not a second UI. */
 [dir="rtl"] .et-topbar,
 [dir="rtl"] .et-sidebar,
