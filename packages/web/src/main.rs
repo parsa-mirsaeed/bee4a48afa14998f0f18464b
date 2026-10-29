@@ -44,6 +44,7 @@ const MAIN_CSS: Asset = asset!("/assets/main.css");
 const DASHBOARD_REMAKE_CSS: Asset = asset!("/assets/dashboard-remake.css");
 const DESIGN_SYSTEM_CSS: Asset = asset!("/assets/design-system.css");
 const DESIGN_SYSTEM_COMPAT_CSS: Asset = asset!("/assets/design-system-compat.css");
+const EXPERIENCE_2026_CSS: Asset = asset!("/assets/experience-2026.css");
 
 #[cfg(feature = "server")]
 async fn database_readiness(
@@ -181,6 +182,7 @@ fn App() -> Element {
         document::Link { rel: "stylesheet", href: DASHBOARD_REMAKE_CSS }
         document::Link { rel: "stylesheet", href: DESIGN_SYSTEM_CSS }
         document::Link { rel: "stylesheet", href: DESIGN_SYSTEM_COMPAT_CSS }
+        document::Link { rel: "stylesheet", href: EXPERIENCE_2026_CSS }
         LocaleProvider { Router::<Route> {} }
     }
 }
