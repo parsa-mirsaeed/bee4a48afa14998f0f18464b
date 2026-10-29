@@ -1,0 +1,503 @@
+/* Aurora Workspace — EduTalent visual system v1.
+ * Loads after the canonical design system. It changes presentation, never
+ * authorization, route behavior, data states, or the role capabilities.
+ * Keep legacy --et-* aliases aligned until all screens use canonical tokens.
+ */
+
+:root {
+  --et-color-bg: #f5f6fc;
+  --et-color-surface: #ffffff;
+  --et-color-surface-subtle: #f0f2fa;
+  --et-color-surface-strong: #e8ebf6;
+  --et-color-text: #1b2041;
+  --et-color-text-muted: #616b87;
+  --et-color-border: #e0e5f0;
+  --et-color-border-strong: #bfc8dc;
+  --et-color-primary: #5741da;
+  --et-color-on-primary: #ffffff;
+  --et-color-primary-hover: #402bb9;
+  --et-color-primary-soft: #f0ecff;
+  --et-color-focus: #4d37cf;
+  --et-color-danger: #b4233e;
+  --et-color-danger-soft: #fff0f3;
+  --et-color-warning: #8c5700;
+  --et-color-warning-soft: #fff4d9;
+  --et-color-success: #087449;
+  --et-color-success-soft: #e7fbf0;
+  --et-color-info: #1c59ba;
+  --et-color-info-soft: #eaf3ff;
+
+  --et-bg: var(--et-color-bg);
+  --et-surface: var(--et-color-surface);
+  --et-surface-subtle: var(--et-color-surface-subtle);
+  --et-surface-muted: var(--et-color-surface-strong);
+  --et-text: var(--et-color-text);
+  --et-text-muted: var(--et-color-text-muted);
+  --et-text-subtle: #7a839f;
+  --et-border: var(--et-color-border);
+  --et-border-strong: var(--et-color-border-strong);
+  --et-accent: var(--et-color-primary);
+  --et-accent-hover: var(--et-color-primary-hover);
+  --et-accent-soft: var(--et-color-primary-soft);
+  --et-focus: var(--et-color-focus);
+  --et-danger: var(--et-color-danger);
+  --et-danger-soft: var(--et-color-danger-soft);
+  --et-info: var(--et-color-info);
+  --et-info-soft: var(--et-color-info-soft);
+
+  --et-radius-sm: 0.75rem;
+  --et-radius-md: 1rem;
+  --et-radius-lg: 1.25rem;
+  --et-radius-xl: 1.5rem;
+  --et-shadow-1: 0 2px 8px rgb(30 35 80 / 0.035);
+  --et-shadow-2: 0 14px 35px rgb(30 35 80 / 0.085);
+  --et-shadow-3: 0 24px 64px rgb(17 22 56 / 0.18);
+  --et-shell-sidebar: 276px;
+  --et-shell-topbar: 82px;
+}
+
+.dark {
+  --et-color-bg: #101326;
+  --et-color-surface: #1b2039;
+  --et-color-surface-subtle: #252b49;
+  --et-color-surface-strong: #303857;
+  --et-color-text: #f3f5ff;
+  --et-color-text-muted: #b0b9d6;
+  --et-color-border: #363e5b;
+  --et-color-border-strong: #57617f;
+  --et-color-primary: #b8a8ff;
+  --et-color-on-primary: #161a34;
+  --et-color-primary-hover: #c9bfff;
+  --et-color-primary-soft: #37315c;
+  --et-color-focus: #d4caff;
+  --et-color-danger: #ff9bac;
+  --et-color-danger-soft: #432839;
+  --et-color-warning: #f6c66d;
+  --et-color-warning-soft: #473a25;
+  --et-color-success: #8be2b7;
+  --et-color-success-soft: #1b3a35;
+  --et-color-info: #9bc7ff;
+  --et-color-info-soft: #1e3558;
+  --et-text-subtle: #909ab9;
+}
+
+.et-dashboard-shell {
+  font-feature-settings: "ss01" on;
+}
+
+.et-sidebar {
+  background: #14182e;
+  border-inline-end: 1px solid #292f51;
+  isolation: isolate;
+  color: #e9ecff;
+}
+
+.et-sidebar::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 0 0 auto 0;
+  block-size: 340px;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse at 92% 3%, rgb(130 110 255 / 0.24), transparent 54%),
+    radial-gradient(ellipse at 10% 55%, rgb(87 218 224 / 0.08), transparent 66%);
+}
+
+.et-sidebar-brand {
+  min-block-size: 97px;
+  padding-inline: 23px;
+  border-block-end: 1px solid rgb(224 230 255 / 0.10);
+}
+
+.et-brand-button {
+  gap: 13px;
+  padding: 5px 0;
+  color: #ffffff;
+  text-align: start;
+}
+
+.et-brand-mark {
+  width: 46px;
+  height: 46px;
+  flex-basis: 46px;
+  border-radius: 15px;
+  background: linear-gradient(145deg, #8a79ff 4%, #5f54dc 58%, #4bd8cf 140%);
+  color: #ffffff;
+  box-shadow: 0 8px 24px rgb(112 86 241 / 0.34), inset 0 1px 0 rgb(255 255 255 / 0.32);
+  transform: rotate(-7deg);
+}
+
+.et-brand-mark .material-icons-outlined { transform: rotate(7deg); font-size: 25px; }
+.et-brand-name { color: #ffffff; font-size: 20px; font-weight: 700; letter-spacing: -0.045em; }
+.et-brand-context { margin-block-start: 4px; color: #acb7d8; font-size: 11px; letter-spacing: 0.075em; }
+[dir="rtl"] .et-brand-context { letter-spacing: 0; }
+
+.et-sidebar-nav {
+  padding: 22px 13px 16px;
+  scrollbar-color: #4b5271 transparent;
+}
+
+.et-sidebar-nav-heading {
+  padding-inline: 14px;
+  margin-block-end: 13px;
+  color: #9aa8cd;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+[dir="rtl"] .et-sidebar-nav-heading { letter-spacing: normal; }
+
+.et-ui-sidebar-nav__list { gap: 5px; }
+
+.et-sidebar .et-ui-sidebar-nav__item {
+  position: relative;
+  min-block-size: 49px;
+  padding: 11px 14px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  color: #b8c1dd;
+  font-weight: 550;
+  background: transparent;
+  transition: color 160ms ease, background-color 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+
+.et-sidebar .et-ui-sidebar-nav__item .material-icons-outlined {
+  font-size: 21px;
+  color: #9faad1;
+  transition: color 160ms ease;
+}
+
+.et-sidebar .et-ui-sidebar-nav__item:hover {
+  background: rgb(229 235 255 / 0.095);
+  color: #ffffff;
+  border-color: rgb(229 235 255 / 0.08);
+}
+.et-sidebar .et-ui-sidebar-nav__item:hover .material-icons-outlined { color: #d5caff; }
+
+.et-sidebar .et-ui-sidebar-nav__item--active,
+.et-sidebar .et-ui-sidebar-nav__item--active:hover {
+  background: linear-gradient(100deg, #5545bc, #473c96);
+  border-color: rgb(213 207 255 / 0.33);
+  color: #ffffff;
+  font-weight: 700;
+  box-shadow: 0 7px 22px rgb(16 11 55 / 0.25), inset 0 1px 0 rgb(255 255 255 / 0.12);
+}
+.et-sidebar .et-ui-sidebar-nav__item--active .material-icons-outlined,
+.et-sidebar .et-ui-sidebar-nav__item--active:hover .material-icons-outlined { color: #e6e0ff; }
+
+.et-sidebar-footer {
+  padding: 15px 13px 21px;
+  border-block-start: 1px solid rgb(224 230 255 / 0.10);
+}
+
+.et-user-summary {
+  padding: 11px;
+  border: 1px solid rgb(222 229 255 / 0.12);
+  border-radius: 14px;
+  background: rgb(255 255 255 / 0.055);
+  gap: 11px;
+}
+.et-avatar {
+  inline-size: 41px;
+  block-size: 41px;
+  flex-basis: 41px;
+  border: 1px solid rgb(150 240 228 / 0.35);
+  border-radius: 12px;
+  background: #2c5b69;
+  color: #c3fff5;
+}
+.et-user-name { color: #ffffff; font-size: 13px; }
+.et-user-role { color: #b7c2e4; font-size: 11px; }
+.et-sidebar-utilities { gap: 6px; margin-block-start: 10px; }
+.et-language-row { border-color: rgb(255 255 255 / 0.12); background: transparent; min-block-size: 44px; }
+.et-sidebar .language-switcher-toggle,
+.et-sidebar .language-switcher-dropdown,
+.et-sidebar .et-language-row button { color: #d5ddf7; }
+.et-sidebar .et-logout-button {
+  min-block-size: 44px;
+  color: #ffc7d2;
+  border-radius: 12px;
+}
+.et-sidebar .et-logout-button:hover { background: rgb(255 150 175 / 0.12); color: #ffffff; }
+
+.et-dashboard-main { background: var(--et-color-bg); }
+
+.et-topbar {
+  min-block-size: 82px;
+  flex-basis: 82px;
+  padding-inline: clamp(22px, 3.2vw, 52px);
+  background: var(--et-color-surface);
+  border-block-end: 1px solid var(--et-color-border);
+  box-shadow: 0 1px 0 rgb(255 255 255 / 0.8);
+}
+
+.et-topbar-start { gap: 18px; }
+.et-page-heading-wrap { display: grid; grid-template-columns: minmax(0, 1fr); }
+.et-topbar-kicker {
+  color: var(--et-color-primary);
+  font-size: 10px;
+  font-weight: 750;
+  line-height: 1.45;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+}
+[dir="rtl"] .et-topbar-kicker { letter-spacing: normal; }
+.et-topbar-title { font-size: 19px; font-weight: 750; letter-spacing: -0.035em; line-height: 1.4; }
+.et-topbar-role { margin-block-start: 0; color: var(--et-color-text-muted); font-size: 12px; }
+.et-topbar-end .et-ui-icon-button {
+  border: 1px solid var(--et-color-border);
+  border-radius: 13px;
+  background: var(--et-color-surface);
+  box-shadow: var(--et-shadow-1);
+}
+.et-topbar-end .et-ui-icon-button:hover { background: var(--et-color-primary-soft); color: var(--et-color-primary); }
+
+.et-dashboard-content {
+  background:
+    radial-gradient(ellipse 64% 38% at 98% -9%, rgb(116 99 244 / 0.09), transparent 74%),
+    var(--et-color-bg);
+  scrollbar-color: var(--et-color-border-strong) transparent;
+}
+
+.et-dashboard-content-inner {
+  max-inline-size: 92rem;
+  padding: clamp(22px, 3.4vw, 46px) clamp(20px, 3.25vw, 52px) 68px;
+}
+
+.et-page-stack { gap: 30px; }
+
+.et-overview-intro {
+  isolation: isolate;
+  position: relative;
+  overflow: hidden;
+  min-block-size: 190px;
+  padding: clamp(26px, 3.3vw, 44px) clamp(25px, 4.2vw, 58px);
+  border: 1px solid #4a498a;
+  border-radius: 24px;
+  background: linear-gradient(112deg, #262a60 0%, #353376 57%, #544097 100%);
+  color: #ffffff;
+  box-shadow: 0 18px 40px rgb(38 34 112 / 0.16);
+}
+
+/* The orbital path is EduTalent's one expressive signature. It evokes a
+ * journey between learning milestones without claiming synthetic progress. */
+.et-overview-intro::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  pointer-events: none;
+  inline-size: 320px;
+  block-size: 320px;
+  inset-inline-end: -62px;
+  inset-block-start: -108px;
+  border: 1px solid rgb(220 227 255 / 0.24);
+  border-radius: 50%;
+  box-shadow: 0 0 0 55px rgb(255 255 255 / 0.035), 0 0 0 111px rgb(255 255 255 / 0.025);
+}
+.et-overview-intro::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  pointer-events: none;
+  inline-size: 13px;
+  block-size: 13px;
+  inset-inline-end: 242px;
+  inset-block-start: 37px;
+  border-radius: 50%;
+  background: #77f2e5;
+  box-shadow: 110px 125px 0 -3px #d1bcff, -74px 125px 0 -4px #ffffff, 0 0 0 7px rgb(119 242 229 / 0.15);
+}
+.et-overview-title {
+  position: relative;
+  max-inline-size: 690px;
+  color: #ffffff;
+  font-size: clamp(30px, 3vw, 44px);
+  font-weight: 750;
+  letter-spacing: -0.055em;
+  line-height: 1.17;
+}
+.et-overview-copy {
+  position: relative;
+  max-inline-size: 640px;
+  margin-block-start: 13px;
+  color: #e0e5ff;
+  font-size: 14px;
+  line-height: 1.8;
+}
+[dir="rtl"] .et-overview-title { letter-spacing: normal; }
+
+.et-section { gap: 17px; }
+.et-section-heading { align-items: baseline; gap: 16px; }
+.et-section-title,
+.et-ui-section__title {
+  color: var(--et-color-text);
+  font-size: clamp(17px, 1.6vw, 20px);
+  font-weight: 700;
+  letter-spacing: -0.025em;
+}
+[dir="rtl"] .et-section-title,
+[dir="rtl"] .et-ui-section__title { letter-spacing: normal; }
+.et-section-support { font-size: 13px; line-height: 1.7; }
+
+.et-action-grid { gap: 15px; }
+.et-action-card {
+  min-block-size: 158px;
+  padding: 22px;
+  border: 1px solid var(--et-color-border);
+  border-radius: 19px;
+  background: var(--et-color-surface);
+  box-shadow: var(--et-shadow-1);
+  transition: transform 170ms ease, border-color 170ms ease, background-color 170ms ease, box-shadow 170ms ease;
+}
+.et-action-card:hover {
+  transform: translateY(-3px);
+  border-color: #bcb0ff;
+  background: var(--et-color-surface);
+  box-shadow: var(--et-shadow-2);
+}
+.et-action-icon {
+  inline-size: 45px;
+  block-size: 45px;
+  border-radius: 14px;
+  background: var(--et-color-primary-soft);
+  color: var(--et-color-primary);
+}
+.et-action-icon .material-icons-outlined { font-size: 23px; }
+.et-action-arrow { color: var(--et-color-primary); }
+.et-action-title { color: var(--et-color-text); font-size: 15px; }
+.et-action-description { color: var(--et-color-text-muted); font-size: 12px; line-height: 1.7; }
+
+.et-stat-grid {
+  gap: 14px;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.et-stat {
+  border: 1px solid var(--et-color-border);
+  border-radius: 18px;
+  padding: 22px 24px;
+  background: var(--et-color-surface);
+  box-shadow: var(--et-shadow-1);
+}
+.et-stat:last-child { border-inline-end: 1px solid var(--et-color-border); }
+.et-stat-label { color: var(--et-color-text-muted); font-weight: 600; }
+.et-stat-value { margin-block-start: 11px; font-size: clamp(25px, 2.8vw, 36px); letter-spacing: -0.04em; }
+
+.et-panel, .et-ui-panel, .et-ui-card {
+  border: 1px solid var(--et-color-border);
+  border-radius: 19px;
+  background: var(--et-color-surface);
+  box-shadow: var(--et-shadow-1);
+}
+.et-panel-header {
+  padding: 19px 23px;
+  border-block-end: 1px solid var(--et-color-border);
+}
+.et-list-row { padding: 17px 22px; transition: background-color 140ms ease; }
+.et-list-row:hover { background: var(--et-color-surface-subtle); }
+.et-list-title { font-size: 14px; }
+.et-list-meta { color: var(--et-color-text-muted); }
+.et-state-panel { border-radius: 18px; padding: 34px 24px; }
+.et-info-note { border-radius: 15px; }
+
+.et-ui-button {
+  border-radius: 12px;
+  font-weight: 650;
+  box-shadow: none;
+}
+.et-ui-button--primary {
+  background: var(--et-color-primary);
+  color: var(--et-color-on-primary);
+}
+.et-ui-button--primary:not(:disabled):hover { background: var(--et-color-primary-hover); box-shadow: 0 5px 18px rgb(87 65 218 / 0.2); }
+.et-ui-button--secondary { background: var(--et-color-surface); }
+.et-ui-icon-button { border-radius: 12px; }
+
+.et-ui-input, .et-ui-select, .et-ui-textarea {
+  border-color: var(--et-color-border-strong);
+  border-radius: 12px;
+  background: var(--et-color-surface);
+}
+
+.et-dashboard-shell input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+.et-dashboard-shell select,
+.et-dashboard-shell textarea {
+  border-color: var(--et-color-border-strong);
+  border-radius: 12px;
+  background-color: var(--et-color-surface);
+}
+.et-dashboard-shell input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):focus,
+.et-dashboard-shell select:focus,
+.et-dashboard-shell textarea:focus {
+  border-color: var(--et-color-primary);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--et-color-focus) 16%, transparent);
+}
+
+.et-dashboard-shell table thead { background: var(--et-color-surface-subtle); }
+.et-dashboard-shell th { color: var(--et-color-text-muted); font-size: 12px; }
+.et-dashboard-shell td { font-size: 13px; }
+.et-dashboard-shell tbody tr { transition: background-color 130ms ease; }
+.et-dashboard-shell tbody tr:hover { background: var(--et-color-surface-subtle); }
+
+.et-notification-panel {
+  border-color: var(--et-color-border);
+  border-radius: 19px;
+  box-shadow: var(--et-shadow-3);
+}
+
+.et-dashboard-shell :where(button, a, input, select, textarea, [tabindex]):focus-visible {
+  outline: 3px solid var(--et-color-focus);
+  outline-offset: 3px;
+}
+
+/* RTL reverses document flow via logical properties, not a second UI. */
+[dir="rtl"] .et-topbar,
+[dir="rtl"] .et-sidebar,
+[dir="rtl"] .et-overview-intro { direction: rtl; }
+
+/* The existing drawer and viewport-scroll contract remains canonical. */
+@media (max-width: 1100px) {
+  .et-sidebar {
+    inline-size: min(328px, 89vw);
+    max-inline-size: 328px;
+    background: #14182e;
+  }
+  .et-sidebar-brand { min-block-size: 82px; }
+  .et-topbar { min-block-size: 74px; flex-basis: 74px; }
+  .et-mobile-menu-button { border-radius: 12px; }
+  .et-mobile-menu-button:hover { background: var(--et-color-primary-soft); color: var(--et-color-primary); }
+}
+
+@media (max-width: 767px) {
+  .et-topbar { min-block-size: 69px; flex-basis: 69px; padding-inline: 17px; }
+  .et-topbar-title { font-size: 16px; }
+  .et-topbar-kicker { font-size: 9px; }
+  .et-topbar-role { display: none; }
+  .et-dashboard-content-inner { padding: 20px 16px 42px; }
+  .et-page-stack { gap: 22px; }
+  .et-overview-intro { min-block-size: 0; padding: 29px 24px; border-radius: 19px; }
+  .et-overview-intro::before { inline-size: 190px; block-size: 190px; inset-inline-end: -106px; inset-block-start: -75px; }
+  .et-overview-intro::after { display: none; }
+  .et-overview-title { font-size: clamp(26px, 7.3vw, 34px); }
+  .et-overview-copy { font-size: 13px; }
+  .et-action-card { min-block-size: 134px; padding: 18px; }
+  .et-stat { padding: 17px 19px; }
+  .et-panel, .et-ui-panel, .et-ui-card { border-radius: 15px; }
+  .et-section-heading { align-items: flex-start; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .et-action-card,
+  .et-sidebar .et-ui-sidebar-nav__item,
+  .et-list-row,
+  .et-dashboard-shell tbody tr,
+  .et-brand-mark {
+    animation: none !important;
+    transition: none !important;
+    transform: none !important;
+  }
+}
