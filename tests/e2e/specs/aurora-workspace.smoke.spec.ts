@@ -167,6 +167,20 @@ test('Persian manager directory uses RTL-aware filter and search affordances @sm
   await expect(page.locator('.et-manager-users__tabs button[aria-pressed="true"]')).toHaveCount(1);
 });
 
+test('manager overview explains actual work rather than release internals in EN and FA @smoke @aurora @i18n', async ({ page }) => {
+  await signIn(page, 'e2e-manager-a@example.test');
+  const hero = page.locator('.et-overview-intro');
+  await expect(hero).toContainText('Manage your school community, classrooms, and learning resources in one place.');
+  await expect(page.locator('body')).not.toContainText('production-backed workflows');
+  await expect(page.locator('body')).not.toContainText('Synthetic activity');
+
+  await page.evaluate(() => localStorage.setItem('edutalent_locale', 'fa'));
+  await page.reload();
+  await expect.poll(() => page.evaluate(() => document.documentElement.dir)).toBe('rtl');
+  await expect(hero).toContainText('مدیریت کاربران، کلاس‌ها و منابع آموزشی مدرسه');
+  await expect(page.locator('body')).not.toContainText('شاخص‌های ساختگی');
+});
+
 test('school classes inventory cards open details with Enter and Space @smoke @aurora @manager @accessibility', async ({ page }) => {
   await signIn(page, 'e2e-manager-a@example.test');
   await page.goto('/dashboard/classes');
