@@ -92,6 +92,19 @@ Once Phase 1–4 behavior is proven:
 
 Maintain a change ledger: `route | role | old component | canonical owner | behavior risk | visual state | test | review status`. PR descriptions should name the affected routes, screenshot evidence, verified breakpoints/locales, risk, and CI commit SHA. Do not mark later phases complete because the shared CSS looks polished.
 
+### Current implementation and QA ledger
+
+The current draft branch has progressed beyond shell styling into all five role overviews and the first dense manager-directory workflow:
+
+- **Implemented (not yet visually signed off):** role-specific teacher grading priority, student assignment queue, parent academic-assistance entry, manager first-action hierarchy, admin knowledge-review stage presentation.
+- **Implemented:** canonical shared table/tab/form/dialog/alert/data-state styling; manager directory layout, semantic filter names, table headings, 44px row action targets, and RTL-aware search/filter icons.
+- **Implemented:** accessible mounted focus for compact navigation instead of timing-sensitive requestAnimationFrame code; 44px high-contrast close control.
+- **Regression tests added:** role-specific navigation, mobile drawer focus under reduced motion, 44px directory row actions, in-panel table overflow at 390px, and Persian logical icon positioning.
+- **Previous CI evidence:** Web Rust checks and most browser journeys passed; the reduced-motion focus check failed on an older head. A later branch's full validation result alone is not permission to merge. Re-run and inspect exact latest-head `AI Change Proof`, including browser smoke.
+- **Outstanding:** confirm new focus behavior in browser, review desktop/tablet/mobile screenshots in LTR/RTL and light/dark, audit user CRUD pending states/error recovery, complete other dense workflows, consolidate legacy CSS, obtain reviewer approval.
+
+A passing compiler does not imply keyboard correctness; a passing screenshot does not imply authorization safety. This ledger tracks implementation, not a release claim.
+
 ### Phase 1 implementation ledger
 
 - [x] Repository, role routes, product capability matrix entry points, and current design-system owners identified.
