@@ -753,6 +753,192 @@
   .et-student-progress__action { transition: none !important; }
 }
 
+/* Phase 3: canonical dense-workflow presentation.
+ * These selectors style the existing accessible components; no parallel
+ * controls, synthetic filters, or altered permissions are introduced.
+ */
+.et-dashboard-shell .et-ui-table-scroll {
+  max-inline-size: 100%;
+  overflow-x: auto;
+  overflow-y: auto;
+  border: 1px solid var(--et-color-border);
+  border-radius: 18px;
+  background: var(--et-color-surface);
+  box-shadow: var(--et-shadow-1);
+  scrollbar-width: thin;
+  scrollbar-color: var(--et-color-border-strong) transparent;
+}
+.et-dashboard-shell .et-ui-table {
+  inline-size: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  color: var(--et-color-text);
+  background: var(--et-color-surface);
+}
+.et-dashboard-shell .et-ui-table thead th {
+  background: var(--et-color-surface-subtle);
+  color: var(--et-color-text-muted);
+  font-size: 12px;
+  font-weight: 750;
+  line-height: 1.5;
+}
+.et-dashboard-shell .et-ui-table th,
+.et-dashboard-shell .et-ui-table td {
+  padding: 15px 19px;
+  border-block-end: 1px solid var(--et-color-border);
+  text-align: start;
+  vertical-align: middle;
+  line-height: 1.65;
+}
+.et-dashboard-shell .et-ui-table tbody th { font-weight: 700; }
+.et-dashboard-shell .et-ui-table tbody tr:hover { background: var(--et-color-surface-subtle); }
+.et-dashboard-shell .et-ui-table tbody tr:focus-within { background: var(--et-color-primary-soft); }
+.et-dashboard-shell .et-ui-table tbody tr:last-child > * { border-block-end: 0; }
+.et-dashboard-shell .et-ui-table caption { color: var(--et-color-text-muted); }
+
+.et-dashboard-shell .et-ui-tabs {
+  gap: 7px;
+  border-block-end: 1px solid var(--et-color-border);
+  padding-block-end: 7px;
+}
+.et-dashboard-shell .et-ui-tab {
+  min-block-size: 44px;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  padding-inline: 15px;
+  color: var(--et-color-text-muted);
+  font-size: 13px;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+.et-dashboard-shell .et-ui-tab:hover { background: var(--et-color-surface-subtle); }
+.et-dashboard-shell .et-ui-tab--active {
+  border-color: color-mix(in srgb, var(--et-color-primary) 24%, transparent);
+  background: var(--et-color-primary-soft);
+  color: var(--et-color-primary);
+}
+.et-dashboard-shell .et-ui-tab--active:hover { background: var(--et-color-primary-soft); }
+
+.et-dashboard-shell .et-ui-field {
+  min-inline-size: 0;
+  gap: 8px;
+}
+.et-dashboard-shell .et-ui-field__label {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--et-color-text);
+  font-weight: 700;
+}
+.et-dashboard-shell .et-ui-field__hint { color: var(--et-color-text-muted); }
+.et-dashboard-shell .et-ui-field__error { color: var(--et-color-danger); }
+.et-dashboard-shell :is(.et-ui-input, .et-ui-textarea, .et-ui-select) {
+  min-block-size: 44px;
+  border-radius: 12px;
+  color: var(--et-color-text);
+  background: var(--et-color-surface);
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+.et-dashboard-shell :is(.et-ui-input, .et-ui-textarea, .et-ui-select):hover:not(:disabled) {
+  border-color: var(--et-color-primary);
+}
+.et-dashboard-shell :is(.et-ui-input, .et-ui-textarea, .et-ui-select)[aria-invalid="true"] {
+  border-color: var(--et-color-danger);
+  background: color-mix(in srgb, var(--et-color-danger-soft) 35%, var(--et-color-surface));
+}
+.et-dashboard-shell :is(.et-ui-input, .et-ui-textarea, .et-ui-select):disabled {
+  opacity: 1;
+  color: var(--et-color-text-muted);
+  background: var(--et-color-surface-subtle);
+}
+.et-dashboard-shell :is(.et-ui-input, .et-ui-textarea, .et-ui-select):focus-visible {
+  outline: 3px solid var(--et-color-focus);
+  outline-offset: 2px;
+}
+.et-dashboard-shell .et-ui-control__leading { color: var(--et-color-text-muted); }
+
+.et-ui-layer__backdrop { background: rgb(12 16 43 / 0.62); }
+.et-ui-dialog {
+  border: 1px solid var(--et-color-border);
+  border-radius: 20px;
+  box-shadow: 0 26px 80px rgb(10 13 39 / 0.25);
+}
+.et-ui-dialog__header {
+  min-block-size: 73px;
+  padding: 16px clamp(20px, 2.8vw, 28px);
+  background: var(--et-color-surface);
+}
+.et-ui-dialog__title {
+  color: var(--et-color-text);
+  font-size: clamp(17px, 1.9vw, 20px);
+  font-weight: 750;
+}
+.et-ui-dialog__body {
+  min-block-size: 0;
+  padding: clamp(20px, 2.8vw, 29px);
+  background: var(--et-color-surface);
+}
+.et-ui-confirm__actions {
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.et-ui-drawer { background: var(--et-color-surface); }
+.et-ui-popover {
+  border-color: var(--et-color-border);
+  border-radius: 17px;
+  box-shadow: var(--et-shadow-3);
+}
+
+.et-dashboard-shell .et-ui-data-state {
+  min-block-size: 210px;
+  padding: 30px 24px;
+  border: 1px dashed var(--et-color-border-strong);
+  border-radius: 19px;
+  background: var(--et-color-surface);
+}
+.et-dashboard-shell .et-ui-data-state__icon {
+  display: grid;
+  place-items: center;
+  inline-size: 50px;
+  block-size: 50px;
+  border-radius: 15px;
+  background: var(--et-color-primary-soft);
+  color: var(--et-color-primary);
+}
+.et-dashboard-shell .et-ui-data-state__title { margin-block-start: 15px; color: var(--et-color-text); }
+.et-dashboard-shell .et-ui-data-state__description { line-height: 1.75; }
+
+.et-dashboard-shell .et-ui-alert {
+  border: 1px solid var(--et-tone-border);
+  border-radius: 14px;
+  background: var(--et-tone-bg);
+  color: var(--et-tone-fg);
+}
+.et-dashboard-shell .et-ui-alert__message { line-height: 1.7; }
+.et-dashboard-shell .et-ui-status-badge { font-size: 12px; line-height: 1.45; }
+
+@media (max-width: 767px) {
+  .et-dashboard-shell .et-ui-table th,
+  .et-dashboard-shell .et-ui-table td {
+    padding: 12px 13px;
+    font-size: 12px;
+  }
+  .et-dashboard-shell .et-ui-dialog {
+    inline-size: 100%;
+    max-block-size: min(90dvh, 54rem);
+    border-radius: 16px;
+  }
+  .et-ui-dialog__header { min-block-size: 64px; padding: 13px 18px; }
+  .et-ui-dialog__body { padding: 18px; }
+  .et-ui-confirm__actions > * { min-inline-size: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .et-dashboard-shell .et-ui-tab,
+  .et-dashboard-shell :is(.et-ui-input, .et-ui-textarea, .et-ui-select) {
+    transition: none !important;
+  }
+}
+
 /* RTL reverses document flow via logical properties, not a second UI. */
 [dir="rtl"] .et-topbar,
 [dir="rtl"] .et-sidebar,
