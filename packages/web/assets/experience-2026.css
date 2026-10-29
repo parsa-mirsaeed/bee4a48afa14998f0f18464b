@@ -1166,6 +1166,56 @@
   .et-manager-classes__view-switch > button { transition: none !important; transform: none !important; }
 }
 
+.et-manager-classes__enrollment-form > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+.et-manager-classes__enrollment-form label {
+  color: var(--et-color-text);
+  font-weight: 700;
+}
+.et-manager-classes__enrollment-select {
+  min-inline-size: 160px;
+  min-block-size: 44px;
+  flex: 1;
+  border: 1px solid var(--et-color-border-strong);
+  border-radius: 11px;
+  background: var(--et-color-surface);
+  color: var(--et-color-text);
+}
+.et-manager-classes__enrollment-select:focus-visible {
+  outline: 3px solid var(--et-color-focus);
+  outline-offset: 2px;
+}
+.et-manager-classes__roster {
+  overflow-y: auto;
+  border: 1px solid var(--et-color-border);
+  border-radius: 12px;
+  background: var(--et-color-surface);
+}
+.et-manager-classes__roster > div {
+  border-color: var(--et-color-border);
+}
+.et-manager-classes__remove-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-inline-size: 44px;
+  min-block-size: 44px;
+  flex: 0 0 44px;
+  border-radius: 11px;
+}
+.et-manager-classes__remove-action:hover {
+  background: var(--et-color-danger-soft);
+  color: var(--et-color-danger);
+}
+@media (max-width: 767px) {
+  .et-manager-classes__enrollment-form > div > select {
+    flex: 1 1 100%;
+  }
+}
+
 /* RTL reverses document flow via logical properties, not a second UI. */
 [dir="rtl"] .et-topbar,
 [dir="rtl"] .et-sidebar,
