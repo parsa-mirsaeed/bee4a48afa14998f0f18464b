@@ -1071,6 +1071,101 @@
   .et-dashboard-shell .et-manager-users__summary { min-block-size: 112px; }
 }
 
+/* Class-management workflow: accessible view modes, cards, and create form. */
+.et-manager-classes__toolbar {
+  border: 1px solid var(--et-color-border);
+  border-radius: 19px;
+  background: var(--et-color-surface);
+  box-shadow: var(--et-shadow-1);
+}
+.et-manager-classes__view-switch {
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--et-color-border);
+  border-radius: 13px;
+  background: var(--et-color-surface-subtle);
+}
+.et-manager-classes__view-switch > button {
+  min-block-size: 40px;
+  padding-inline: 15px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 700;
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+.et-manager-classes__view-switch > button[aria-pressed="true"] {
+  border-color: var(--et-color-border);
+  background: var(--et-color-surface);
+  color: var(--et-color-primary);
+  box-shadow: 0 2px 7px rgb(22 24 67 / 0.06);
+}
+.et-manager-classes__grid { gap: 18px; }
+.et-manager-classes__list { gap: 14px; }
+.et-dashboard-shell .et-manager-classes__card {
+  min-inline-size: 0;
+  overflow: hidden;
+  border: 1px solid var(--et-color-border);
+  border-radius: 20px;
+  box-shadow: var(--et-shadow-1);
+  background: var(--et-color-surface);
+  cursor: pointer;
+  transition: border-color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
+}
+.et-dashboard-shell .et-manager-classes__card:hover {
+  border-color: var(--et-color-primary);
+  box-shadow: var(--et-shadow-2);
+  transform: translateY(-2px);
+}
+.et-dashboard-shell .et-manager-classes__card:focus-visible {
+  outline: 3px solid var(--et-color-focus);
+  outline-offset: 3px;
+}
+.et-manager-classes__card > div:last-child {
+  background: var(--et-color-surface-subtle);
+  border-color: var(--et-color-border);
+}
+.et-manager-classes__card > div:last-child > div + div {
+  border-inline-start: 1px solid var(--et-color-border);
+  border-left: 0;
+}
+[dir="ltr"] .et-manager-classes__card > div:last-child > div + div {
+  border-left: 1px solid var(--et-color-border);
+}
+.et-manager-classes__create-form { display: grid; gap: 17px; }
+.et-manager-classes__create-form label {
+  color: var(--et-color-text);
+  font-weight: 700;
+}
+.et-manager-classes__subject-select {
+  min-block-size: 46px;
+  inline-size: 100%;
+  border: 1px solid var(--et-color-border-strong);
+  border-radius: 12px;
+  background: var(--et-color-surface);
+  color: var(--et-color-text);
+  padding-inline: 15px 38px;
+}
+.et-manager-classes__subject-select:focus-visible {
+  outline: 3px solid var(--et-color-focus);
+  outline-offset: 2px;
+}
+.et-manager-classes__subject-select:disabled {
+  background: var(--et-color-surface-subtle);
+  color: var(--et-color-text-muted);
+}
+@media (max-width: 767px) {
+  .et-manager-classes__toolbar { padding: 17px; }
+  .et-manager-classes__toolbar > div { align-items: stretch; }
+  .et-manager-classes__toolbar > div > div { flex-wrap: wrap; }
+  .et-manager-classes__grid { gap: 13px; }
+  .et-manager-classes__view-switch > button { min-block-size: 44px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .et-dashboard-shell .et-manager-classes__card,
+  .et-manager-classes__view-switch > button { transition: none !important; transform: none !important; }
+}
+
 /* RTL reverses document flow via logical properties, not a second UI. */
 [dir="rtl"] .et-topbar,
 [dir="rtl"] .et-sidebar,
