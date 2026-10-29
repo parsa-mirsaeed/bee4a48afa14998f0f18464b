@@ -86,10 +86,28 @@ pub fn TeacherOverviewSection(on_navigate: EventHandler<String>) -> Element {
                 None => rsx! { div { class: "et-state-panel", "{locale.t(\"common.loading\")}" } },
                 Some(Err(_)) => rsx! { div { class: "et-state-panel et-state-panel--error", "{locale.t(\"errors.generic_description\")}" } },
                 Some(Ok(value)) => rsx! {
-                    div { class: "et-stat-grid",
-                        TeacherStateBlock { label: locale.t("dashboard.pending_grading"), value: value.pending_grading.to_string() }
-                        TeacherStateBlock { label: locale.t("classes.my_classes"), value: value.total_classes.to_string() }
-                        TeacherStateBlock { label: locale.t("dashboard.total_students"), value: value.total_students.to_string() }
+                    div { class: "et-overview-metrics",
+                        section { class: "et-priority-panel", "aria-label": locale.t("dashboard.pending_grading"),
+                            div { class: "et-priority-panel__eyebrow",
+                                span { class: "material-icons-outlined", "aria-hidden": "true", "task_alt" }
+                                span { "{locale.t(\"dashboard.pending_grading\")}" }
+                            }
+                            p { class: "et-priority-panel__value", "{value.pending_grading}" }
+                            p { class: "et-priority-panel__description",
+                                "{locale.t(\"teachers.quick_actions.grade_submissions_desc\")}"
+                            }
+                            button {
+                                class: "et-priority-panel__action",
+                                r#type: "button",
+                                onclick: move |_| on_navigate.call("submissions".to_string()),
+                                span { "{locale.t(\"nav.grading\")}" }
+                                span { class: "material-icons-outlined", "aria-hidden": "true", "arrow_forward" }
+                            }
+                        }
+                        div { class: "et-stat-grid et-stat-grid--secondary",
+                            TeacherStateBlock { label: locale.t("classes.my_classes"), value: value.total_classes.to_string() }
+                            TeacherStateBlock { label: locale.t("dashboard.total_students"), value: value.total_students.to_string() }
+                        }
                     }
                 }
             }
