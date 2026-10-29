@@ -22,6 +22,11 @@ pub fn Sidebar(
     } else {
         "Portal"
     };
+    let navigation_heading = if locale.current() == Locale::Fa {
+        "بخش‌های سامانه"
+    } else {
+        "Explore"
+    };
     let sidebar_class = if mobile_open {
         "et-sidebar et-sidebar--mobile-open"
     } else {
@@ -83,6 +88,7 @@ pub fn Sidebar(
             }
 
             div { class: "et-sidebar-nav",
+                p { class: "et-sidebar-nav-heading", "{navigation_heading}" }
                 SidebarNav {
                     label: locale.t("navigation.primary"),
                     items: ui_items,
