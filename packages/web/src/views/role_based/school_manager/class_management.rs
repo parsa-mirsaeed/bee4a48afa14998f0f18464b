@@ -157,20 +157,22 @@ pub fn ClassManagementSection() -> Element {
                 }
             }
 
-            div { class: "et-ui-card p-6 mb-6",
+            div { class: "et-ui-card et-manager-classes__toolbar p-6 mb-6",
                 div { class: "flex justify-between items-center flex-wrap gap-4",
                     h2 { class: "text-xl font-bold text-gray-900 dark:text-white",
                         "{locale.t(\"school_manager.classes.active_classes\")}"
                     }
 
                     div { class: "flex gap-3",
-                        div { class: "flex bg-gray-100 dark:bg-gray-800 rounded-lg p-1",
+                        div { class: "et-manager-classes__view-switch flex bg-gray-100 dark:bg-gray-800 rounded-lg p-1", role: "group", "aria-label": locale.t("school_manager.classes.active_classes"),
                             button {
                                 class: if view_mode() == "grid" {
                                     "px-3 py-1.5 rounded-md text-sm font-medium bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm transition-all duration-200"
                                 } else {
                                     "px-3 py-1.5 rounded-md text-sm font-medium text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-all duration-200"
                                 },
+                                r#type: "button",
+                                "aria-pressed": if view_mode() == "grid" { "true" } else { "false" },
                                 onclick: move |_| view_mode.set("grid"),
                                 span { class: "material-icons-outlined text-sm mr-1 align-middle", "grid_view" }
                                 "{locale.t(\"common.grid\")}"
@@ -182,6 +184,8 @@ pub fn ClassManagementSection() -> Element {
                                 } else {
                                     "px-3 py-1.5 rounded-md text-sm font-medium text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-all duration-200"
                                 },
+                                r#type: "button",
+                                "aria-pressed": if view_mode() == "list" { "true" } else { "false" },
                                 onclick: move |_| view_mode.set("list"),
                                 span { class: "material-icons-outlined text-sm mr-1 align-middle", "view_list" }
                                 "{locale.t(\"common.list\")}"
@@ -212,9 +216,9 @@ pub fn ClassManagementSection() -> Element {
                     } else {
                         div {
                             class: if view_mode() == "grid" {
-                                "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6"
+                                "et-manager-classes__grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6"
                             } else {
-                                "flex flex-col gap-4"
+                                "et-manager-classes__list flex flex-col gap-4"
                             },
                             for class in classes.iter() {
                                 {
@@ -246,9 +250,9 @@ pub fn ClassManagementSection() -> Element {
                 None => rsx! {
                     div {
                         class: if view_mode() == "grid" {
-                            "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6"
+                            "et-manager-classes__grid grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6"
                         } else {
-                            "flex flex-col gap-4"
+                            "et-manager-classes__list flex flex-col gap-4"
                         },
                         for _ in 0..6 {
                             SkeletonCard {}
@@ -270,7 +274,7 @@ pub fn ClassManagementSection() -> Element {
                             }
                         }
 
-                        div { class: "space-y-4",
+                        div { class: "et-manager-classes__create-form space-y-4",
                             crate::views::role_based::shared::forms::FormInput {
                                 label: locale.t("school_manager.classes.create_modal.class_name"),
                                 name: "class_name".to_string(),
@@ -281,11 +285,13 @@ pub fn ClassManagementSection() -> Element {
                             }
 
                             div {
-                                label { class: "block text-gray-700 dark:text-gray-200 font-medium mb-2 text-sm",
+                                label { r#for: "et-create-class-subject", class: "block text-gray-700 dark:text-gray-200 font-medium mb-2 text-sm",
                                     "{locale.t(\"common.subject\")}"
                                 }
                                 select {
-                                    class: "w-full px-4 py-2.5 rounded-lg glassmorphism border-none focus:ring-2 focus:ring-primary text-gray-800 dark:text-gray-100 bg-transparent transition-all duration-200 appearance-none",
+                                    id: "et-create-class-subject",
+                                    "aria-required": "true",
+                                    class: "et-manager-classes__subject-select w-full px-4 py-2.5 rounded-lg focus:ring-2 focus:ring-primary text-gray-800 dark:text-gray-100 transition-all duration-200 appearance-none",
                                     value: "{selected_subject_id}",
                                     onchange: move |e| selected_subject_id.set(e.value()),
                                     disabled: is_submitting(),
@@ -358,8 +364,16 @@ fn ClassCard(class: ClassSectionResponse, on_click: EventHandler) -> Element {
     let locale = use_locale();
     rsx! {
         div {
-            class: "et-ui-card p-0 transition-all duration-300 hover:-translate-y-1 hover:shadow-xl cursor-pointer group flex flex-col h-full",
+            class: "et-ui-card et-manager-classes__card p-0 group flex flex-col h-full",
+            role: "button",
+            tabindex: "0",
             onclick: move |_| on_click.call(()),
+            onkeydown: move |event| {
+                if event.key() == Key::Enter || event.key().to_string() == " " {
+                    event.prevent_default();
+                    on_click.call(());
+                }
+            },
 
             div { class: "p-6 flex-1",
                 div { class: "flex justify-between items-start mb-4",
