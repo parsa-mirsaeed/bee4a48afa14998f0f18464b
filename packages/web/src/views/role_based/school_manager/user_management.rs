@@ -46,14 +46,14 @@ pub fn UserManagementSection() -> Element {
                 title: locale.t("school_manager.users.title"),
                 description: Some(locale.t("school_manager.users.description")),
                 div {
-                    class: "space-y-8 animate-fade-in",
+                    class: "et-manager-users space-y-8 animate-fade-in",
 
                     UserManagementActions {
                         on_add_user: move |_| view_mode.set("create".to_string())
                     }
 
                     div {
-                        class: "grid grid-cols-1 md:grid-cols-3 gap-6",
+                        class: "et-manager-users__summary-grid grid grid-cols-1 md:grid-cols-3 gap-6",
 
                         UserSummaryCard {
                             title: locale.t("school_manager.users.summary.students"),
@@ -61,7 +61,6 @@ pub fn UserManagementSection() -> Element {
                             icon: "school".to_string(),
                             color: "bg-blue-500".to_string(),
                             icon_bg: "bg-blue-500 shadow-lg shadow-blue-500/30".to_string(),
-                            action: locale.t("school_manager.users.manage_btn.students"),
                         }
 
                         UserSummaryCard {
@@ -70,7 +69,6 @@ pub fn UserManagementSection() -> Element {
                             icon: "person_outline".to_string(),
                             color: "bg-green-500".to_string(),
                             icon_bg: "bg-green-500 shadow-lg shadow-green-500/30".to_string(),
-                            action: locale.t("school_manager.users.manage_btn.teachers"),
                         }
 
                         UserSummaryCard {
@@ -79,27 +77,32 @@ pub fn UserManagementSection() -> Element {
                             icon: "family_restroom".to_string(),
                             color: "bg-yellow-500".to_string(),
                             icon_bg: "bg-yellow-500 shadow-lg shadow-yellow-500/30".to_string(),
-                            action: locale.t("school_manager.users.manage_btn.parents"),
                         }
                     }
 
                     div {
-                        class: "flex gap-2 border-b border-gray-200 dark:border-gray-700 overflow-x-auto",
+                        class: "et-manager-users__tabs flex gap-2 border-b border-gray-200 dark:border-gray-700 overflow-x-auto",
+                        role: "group",
+                        "aria-label": locale.t("school_manager.users.title"),
                         button {
                             class: if active_tab() == "directory" {
-                                "px-4 py-2 font-medium text-primary border-b-2 border-primary transition-all duration-300"
+                                "et-manager-users__tab et-manager-users__tab--active px-4 py-2 font-medium text-primary border-b-2 border-primary transition-all duration-300"
                             } else {
-                                "px-4 py-2 font-medium text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 border-b-2 border-transparent transition-all duration-300"
+                                "et-manager-users__tab px-4 py-2 font-medium text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 border-b-2 border-transparent transition-all duration-300"
                             },
+                            r#type: "button",
+                            "aria-pressed": if active_tab() == "directory" { "true" } else { "false" },
                             onclick: move |_| active_tab.set("directory".to_string()),
                             "{locale.t(\"school_manager.users.tabs.directory\")}"
                         }
                         button {
                             class: if active_tab() == "requests" {
-                                "px-4 py-2 font-medium text-primary border-b-2 border-primary transition-all duration-300"
+                                "et-manager-users__tab et-manager-users__tab--active px-4 py-2 font-medium text-primary border-b-2 border-primary transition-all duration-300"
                             } else {
-                                "px-4 py-2 font-medium text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 border-b-2 border-transparent transition-all duration-300"
+                                "et-manager-users__tab px-4 py-2 font-medium text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 border-b-2 border-transparent transition-all duration-300"
                             },
+                            r#type: "button",
+                            "aria-pressed": if active_tab() == "requests" { "true" } else { "false" },
                             onclick: move |_| active_tab.set("requests".to_string()),
                             "{locale.t(\"school_manager.users.tabs.requests\")}"
                         }
@@ -172,14 +175,13 @@ pub fn UserSummaryCard(
     icon: String,
     color: String,
     icon_bg: String,
-    action: String,
 ) -> Element {
     let count_display = count.clone().unwrap_or_else(|| "...".to_string());
     let _ = color;
 
     rsx! {
         div {
-            class: "et-ui-card relative overflow-hidden group hover:-translate-y-1 transition-all duration-300",
+            class: "et-ui-card et-manager-users__summary relative overflow-hidden",
 
             div {
                 class: "flex justify-between items-start mb-4",
@@ -205,10 +207,6 @@ pub fn UserSummaryCard(
                 }
             }
 
-            div {
-                class: "pt-2 text-sm font-medium text-gray-500 dark:text-gray-400",
-                "{action}"
-            }
         }
     }
 }
@@ -320,10 +318,10 @@ pub fn UserList() -> Element {
 
     rsx! {
         div {
-            class: "et-ui-card p-0 rounded-xl overflow-hidden",
+            class: "et-ui-card et-manager-users__directory p-0 rounded-xl overflow-hidden",
 
             div {
-                class: "p-6 flex flex-col md:flex-row justify-between items-center gap-4 border-b border-gray-100 dark:border-gray-800",
+                class: "et-manager-users__filters p-6 flex flex-col md:flex-row justify-between items-center gap-4 border-b border-gray-100 dark:border-gray-800",
 
                 h3 {
                     class: "text-lg font-bold text-gray-900 dark:text-white",
@@ -337,6 +335,7 @@ pub fn UserList() -> Element {
                         class: "relative",
                         select {
                             class: "appearance-none pl-4 pr-10 py-2 rounded-lg bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 text-sm focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all",
+                            "aria-label": locale.t("school_manager.users.directory.all_roles"),
                             value: "{role_filter}",
                             onchange: move |e| {
                                 role_filter.set(e.value());
@@ -354,6 +353,7 @@ pub fn UserList() -> Element {
                         class: "relative",
                         select {
                             class: "appearance-none pl-4 pr-10 py-2 rounded-lg bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 text-sm focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all",
+                            "aria-label": locale.t("school_manager.users.directory.all_status"),
                             value: "{status_filter}",
                             onchange: move |e| {
                                 status_filter.set(e.value());
@@ -373,6 +373,7 @@ pub fn UserList() -> Element {
                             class: "w-full sm:w-64 pl-10 pr-4 py-2 rounded-lg bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 placeholder-gray-400 text-sm focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all",
                             r#type: "text",
                             placeholder: "{locale.t(\"school_manager.users.directory.search_placeholder\")}",
+                            "aria-label": locale.t("school_manager.users.directory.search_placeholder"),
                             value: "{search_query}",
                             oninput: move |e| {
                                 search_query.set(e.value());
@@ -393,17 +394,17 @@ pub fn UserList() -> Element {
             match &*users_resource.read() {
                 Some(Ok(users)) => rsx! {
                     div {
-                        class: "overflow-x-auto",
+                        class: "et-manager-users__table-scroll overflow-x-auto",
                         table {
-                            class: "w-full text-left border-collapse",
+                            class: "et-manager-users__table w-full text-left border-collapse",
                             thead {
                                 tr {
                                     class: "bg-gray-50/50 dark:bg-gray-700/50 border-b border-gray-200 dark:border-gray-700",
-                                    th { class: "px-6 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider", "{locale.t(\"school_manager.users.table.name\")}" }
-                                    th { class: "px-6 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider", "{locale.t(\"school_manager.users.table.role\")}" }
-                                    th { class: "px-6 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider", "{locale.t(\"school_manager.users.table.status\")}" }
-                                    th { class: "px-6 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider", "{locale.t(\"school_manager.users.table.joined\")}" }
-                                    th { class: "px-6 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider text-right", "{locale.t(\"school_manager.users.table.actions\")}" }
+                                    th { scope: "col", class: "px-6 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider", "{locale.t(\"school_manager.users.table.name\")}" }
+                                    th { scope: "col", class: "px-6 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider", "{locale.t(\"school_manager.users.table.role\")}" }
+                                    th { scope: "col", class: "px-6 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider", "{locale.t(\"school_manager.users.table.status\")}" }
+                                    th { scope: "col", class: "px-6 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider", "{locale.t(\"school_manager.users.table.joined\")}" }
+                                    th { scope: "col", class: "px-6 py-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider text-right", "{locale.t(\"school_manager.users.table.actions\")}" }
                                 }
                             }
                             tbody {
@@ -454,22 +455,25 @@ pub fn UserList() -> Element {
                                                     let user_reactivate = user.id.to_string();
                                                     rsx! {
                                                         button {
-                                                            class: "p-1 text-blue-600 hover:bg-blue-50 rounded dark:text-blue-400 dark:hover:bg-blue-900/30 transition-colors",
+                                                            class: "et-manager-users__row-action p-1 text-blue-600 hover:bg-blue-50 rounded dark:text-blue-400 dark:hover:bg-blue-900/30 transition-colors",
                                                             title: "{locale.t(\"school_manager.users.actions.edit\")}",
+                                                            "aria-label": locale.t("school_manager.users.actions.edit"),
                                                             onclick: move |_| editing_user.set(Some(user_edit.clone())),
                                                             span { class: "material-icons-outlined text-lg", "edit" }
                                                         }
                                                         if user.is_active {
                                                             button {
-                                                                class: "p-1 text-red-600 hover:bg-red-50 rounded dark:text-red-400 dark:hover:bg-red-900/30 transition-colors",
+                                                                class: "et-manager-users__row-action p-1 text-red-600 hover:bg-red-50 rounded dark:text-red-400 dark:hover:bg-red-900/30 transition-colors",
                                                                 title: "{locale.t(\"school_manager.users.actions.deactivate\")}",
+                                                                "aria-label": locale.t("school_manager.users.actions.deactivate"),
                                                                 onclick: move |_| handle_deactivate(user_deactivate.clone()),
                                                                 span { class: "material-icons-outlined text-lg", "block" }
                                                             }
                                                         } else {
                                                             button {
-                                                                class: "p-1 text-green-600 hover:bg-green-50 rounded dark:text-green-400 dark:hover:bg-green-900/30 transition-colors",
+                                                                class: "et-manager-users__row-action p-1 text-green-600 hover:bg-green-50 rounded dark:text-green-400 dark:hover:bg-green-900/30 transition-colors",
                                                                 title: "{locale.t(\"school_manager.users.actions.reactivate\")}",
+                                                                "aria-label": locale.t("school_manager.users.actions.reactivate"),
                                                                 onclick: move |_| handle_reactivate(user_reactivate.clone()),
                                                                 span { class: "material-icons-outlined text-lg", "check_circle" }
                                                             }
