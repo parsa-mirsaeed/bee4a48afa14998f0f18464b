@@ -74,9 +74,9 @@ test('teacher priority shows persisted grading workload and opens submissions @s
   await signIn(page, 'e2e-teacher-a@example.test');
   const priority = page.locator('.et-priority-panel');
   await expect(priority).toBeVisible();
-  await expect(priority.locator('.et-priority-panel__value')).toContainText(/^\\d+$/);
+  await expect(priority.locator('.et-priority-panel__value')).toContainText(/^\d+$/);
   await priority.locator('.et-priority-panel__action').click();
-  await expect(page).toHaveURL(/\\/dashboard\\/submissions$/);
+  await expect(page).toHaveURL(/\/dashboard\/submissions$/);
 });
 
 test('student task summary opens the real assignment list @smoke @aurora @student', async ({ page }) => {
@@ -85,7 +85,7 @@ test('student task summary opens the real assignment list @smoke @aurora @studen
   const summary = page.locator('.et-student-progress');
   await expect(summary).toBeVisible();
   await summary.locator('.et-student-progress__action').click();
-  await expect(page).toHaveURL(/\\/dashboard\\/assignments$/);
+  await expect(page).toHaveURL(/\/dashboard\/assignments$/);
   await expect(page.getByText('E2E Assignment A1', { exact: true }).first()).toBeVisible();
 });
 
@@ -95,7 +95,7 @@ test('parent academic assistance stays scoped to a real enabled route @smoke @au
   const assistance = page.locator('.et-feature-panel');
   await expect(assistance).toBeVisible();
   await assistance.locator('.et-feature-panel__action').click();
-  await expect(page).toHaveURL(/\\/dashboard\\/ai-chat$/);
+  await expect(page).toHaveURL(/\/dashboard\/ai-chat$/);
 });
 
 test('manager primary action navigates to authorized user management @smoke @aurora @manager', async ({ page }) => {
@@ -103,7 +103,7 @@ test('manager primary action navigates to authorized user management @smoke @aur
   const firstAction = page.locator('.et-action-grid--manager .et-action-card').first();
   await expect(firstAction).toBeVisible();
   await firstAction.click();
-  await expect(page).toHaveURL(/\\/dashboard\\/users$/);
+  await expect(page).toHaveURL(/\/dashboard\/users$/);
 });
 
 test('admin retains three localized knowledge-review stages @smoke @aurora @admin', async ({ page }) => {
