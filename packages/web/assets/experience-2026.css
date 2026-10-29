@@ -939,6 +939,91 @@
   }
 }
 
+/* School manager directory: distinguish passive counts from real actions. */
+.et-manager-users__summary-grid { gap: 15px; }
+.et-dashboard-shell .et-manager-users__summary {
+  min-block-size: 140px;
+  padding: 23px;
+  border-radius: 18px;
+  box-shadow: var(--et-shadow-1);
+  transform: none;
+  transition: none;
+}
+.et-manager-users__summary .text-3xl {
+  color: var(--et-color-text);
+  font-variant-numeric: tabular-nums;
+  font-size: 31px;
+  line-height: 1.3;
+}
+.et-manager-users__tabs { gap: 9px; padding-block-end: 7px; }
+.et-manager-users__tab {
+  min-block-size: 44px;
+  padding-inline: 16px;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+.et-manager-users__tab:hover { background: var(--et-color-surface-subtle); }
+.et-manager-users__tab--active {
+  border-color: color-mix(in srgb, var(--et-color-primary) 25%, transparent);
+  background: var(--et-color-primary-soft);
+  color: var(--et-color-primary);
+}
+.et-dashboard-shell .et-manager-users__directory {
+  border: 1px solid var(--et-color-border);
+  border-radius: 19px;
+  box-shadow: var(--et-shadow-1);
+}
+.et-manager-users__filters { align-items: center; gap: 17px; }
+.et-manager-users__filters select,
+.et-manager-users__filters input {
+  min-block-size: 44px;
+  border: 1px solid var(--et-color-border-strong);
+  border-radius: 11px;
+  color: var(--et-color-text);
+  background: var(--et-color-surface);
+}
+.et-manager-users__filters select:focus-visible,
+.et-manager-users__filters input:focus-visible {
+  outline: 3px solid var(--et-color-focus);
+  outline-offset: 2px;
+}
+.et-manager-users__table-scroll {
+  inline-size: 100%;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--et-color-border-strong) transparent;
+}
+.et-manager-users__table { inline-size: 100%; min-inline-size: 650px; }
+.et-manager-users__table thead th {
+  background: var(--et-color-surface-subtle);
+  color: var(--et-color-text-muted);
+  font-weight: 700;
+}
+.et-manager-users__table td { color: var(--et-color-text); }
+.et-manager-users__table tbody tr:hover,
+.et-manager-users__table tbody tr:focus-within {
+  background: var(--et-color-primary-soft);
+}
+.et-manager-users__row-action {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  inline-size: 44px;
+  block-size: 44px;
+  flex: 0 0 44px;
+  border-radius: 11px;
+}
+.et-manager-users__row-action:hover { background: var(--et-color-primary-soft); }
+
+@media (max-width: 767px) {
+  .et-manager-users__filters { align-items: stretch; padding: 18px; }
+  .et-manager-users__filters > div { inline-size: 100%; }
+  .et-manager-users__filters > div > div { min-inline-size: 0; }
+  .et-manager-users__table { min-inline-size: 610px; }
+  .et-dashboard-shell .et-manager-users__summary { min-block-size: 112px; }
+}
+
 /* RTL reverses document flow via logical properties, not a second UI. */
 [dir="rtl"] .et-topbar,
 [dir="rtl"] .et-sidebar,
