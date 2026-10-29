@@ -125,7 +125,7 @@ fn PlatformKnowledgeReviewSection() -> Element {
             children: rsx! {
                 div { class: "space-y-6",
                     div { class: "et-ui-card p-5",
-                        ol { class: "grid grid-cols-1 gap-3 text-sm md:grid-cols-3",
+                        ol { class: "et-admin-process-steps grid grid-cols-1 gap-3 text-sm md:grid-cols-3",
                             LifecycleStep {
                                 number: "1",
                                 title: admin_t("platform_admin.review.step1.title", locale),
