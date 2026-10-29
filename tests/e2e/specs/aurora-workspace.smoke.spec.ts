@@ -58,7 +58,8 @@ test('Aurora mobile drawer keeps keyboard lifecycle and reduced-motion @smoke @a
 
   await open.click();
   await expect(sidebar).toHaveClass(/et-sidebar--mobile-open/);
-  await expect(sidebar.locator('.et-sidebar-mobile-close')).toBeFocused();
+  const close = sidebar.locator('.et-sidebar-mobile-close');
+  await expect(close, 'Mounted drawer close control must capture focus even with reduced motion').toBeFocused();
   await expect(sidebar.locator('.et-ui-sidebar-nav__item').first()).toHaveCSS('transition-duration', '0s');
   await page.keyboard.press('Escape');
   await expect(open).toBeFocused();
@@ -110,4 +111,44 @@ test('admin retains three localized knowledge-review stages @smoke @aurora @admi
   await signIn(page, 'e2e-admin@example.test');
   const steps = page.locator('.et-admin-process-steps > li');
   await expect(steps).toHaveCount(3);
+});
+
+test('manager directory has accessible filters, semantic table headings, and 44px row actions @smoke @aurora @manager @accessibility', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await signIn(page, 'e2e-manager-a@example.test');
+  await page.goto('/dashboard/users');
+
+  const filters = page.locator('.et-manager-users__filters');
+  const selects = filters.locator('select');
+  await expect(selects).toHaveCount(2);
+  for (const select of await selects.all()) {
+    await expect(select).toHaveAttribute('aria-label', /.+/);
+  }
+  await expect(filters.locator('input')).toHaveAttribute('aria-label', /.+/);
+
+  const directory = page.locator('.et-manager-users__table');
+  await expect(page.getByText('E2E Teacher A', { exact: true })).toBeVisible();
+  await expect(directory.locator('thead th[scope="col"]')).toHaveCount(5);
+  const tabs = page.locator('.et-manager-users__tabs');
+  await expect(tabs.locator('button[aria-pressed="true"]')).toHaveCount(1);
+
+  const editAction = directory.locator('.et-manager-users__row-action').first();
+  await expect(editAction).toHaveAttribute('aria-label', /.+/);
+  const box = await editAction.boundingBox();
+  expect(box).not.toBeNull();
+  expect(box!.width).toBeGreaterThanOrEqual(44);
+  expect(box!.height).toBeGreaterThanOrEqual(44);
+});
+
+test('manager mobile directory scrolls horizontally within its panel, not the page @smoke @aurora @manager @responsive', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await signIn(page, 'e2e-manager-a@example.test');
+  await page.goto('/dashboard/users');
+  await expect(page.getByText('E2E Teacher A', { exact: true })).toBeVisible();
+  const scroll = page.locator('.et-manager-users__table-scroll');
+  await expect(scroll).toBeVisible();
+  expect(await scroll.evaluate((element) => element.scrollWidth > element.clientWidth)).toBeTruthy();
+  await scroll.evaluate((element) => element.scrollTo({ left: element.scrollWidth }));
+  const pageOverflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
+  expect(pageOverflow, 'wide directory table should not force document horizontal scroll').toBeFalsy();
 });
