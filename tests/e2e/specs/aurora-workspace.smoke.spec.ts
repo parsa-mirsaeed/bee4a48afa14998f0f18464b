@@ -152,3 +152,17 @@ test('manager mobile directory scrolls horizontally within its panel, not the pa
   const pageOverflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
   expect(pageOverflow, 'wide directory table should not force document horizontal scroll').toBeFalsy();
 });
+
+test('Persian manager directory uses RTL-aware filter and search affordances @smoke @aurora @manager @rtl', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('edutalent_locale', 'fa'));
+  await signIn(page, 'e2e-manager-a@example.test');
+  await page.goto('/dashboard/users');
+  await expect.poll(() => page.evaluate(() => document.documentElement.dir)).toBe('rtl');
+  await expect(page.getByText('E2E Teacher A', { exact: true })).toBeVisible();
+
+  const firstFilterIcon = page.locator('.et-manager-users__filter > .material-icons-outlined').first();
+  const searchIcon = page.locator('.et-manager-users__search > .material-icons-outlined');
+  await expect(firstFilterIcon).toHaveCSS('left', '12px');
+  await expect(searchIcon).toHaveCSS('right', '12px');
+  await expect(page.locator('.et-manager-users__tabs button[aria-pressed="true"]')).toHaveCount(1);
+});
