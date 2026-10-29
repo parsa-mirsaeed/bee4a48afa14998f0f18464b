@@ -19,12 +19,6 @@ pub fn DashboardLayout(user: User, active_section: String, children: Element) ->
     let mut mobile_nav_open = use_signal(|| false);
     let navigation_items = RoutingService::get_navigation_items(&user, &locale);
 
-    use_effect(move || {
-        if mobile_nav_open() {
-            focus_mobile_close_on_frame();
-        }
-    });
-
     let page_title = navigation_items
         .iter()
         .find(|item| item.id == active_section)
@@ -74,33 +68,6 @@ pub fn DashboardLayout(user: User, active_section: String, children: Element) ->
                     }
                 }
             }
-        }
-    }
-}
-
-/// Defer drawer focus until after the new DOM class and CSS visibility settle.
-/// The active-open check avoids stealing focus back if the user closes quickly.
-fn focus_mobile_close_on_frame() {
-    #[cfg(target_arch = "wasm32")]
-    {
-        use wasm_bindgen::{closure::Closure, JsCast};
-
-        let callback = Closure::once_into_js(move |_: f64| {
-            let Some(document) = web_sys::window().and_then(|window| window.document()) else {
-                return;
-            };
-            let Ok(Some(button)) =
-                document.query_selector(".et-sidebar--mobile-open .et-sidebar-mobile-close")
-            else {
-                return;
-            };
-            if let Ok(button) = button.dyn_into::<web_sys::HtmlElement>() {
-                let _ = button.focus();
-            }
-        });
-
-        if let Some(window) = web_sys::window() {
-            let _ = window.request_animation_frame(callback.unchecked_ref());
         }
     }
 }
