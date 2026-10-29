@@ -77,9 +77,9 @@ pub fn SchoolManagerOverviewSection(on_navigate: EventHandler<String>) -> Elemen
     let locale = use_locale();
     let is_fa = locale.current() == Locale::Fa;
     let intro = if is_fa {
-        "عملیات مدرسه را از مسیرهای واقعی و فعال سامانه مدیریت کنید. فقط قابلیت‌های در دسترس نمایش داده می‌شوند."
+        "مدیریت کاربران، کلاس‌ها و منابع آموزشی مدرسه را از یک فضای یکپارچه انجام دهید."
     } else {
-        "Manage the school through production-backed workflows. Only available capabilities are shown."
+        "Manage your school community, classrooms, and learning resources in one place."
     };
     let quick_actions = if is_fa {
         "اقدام‌های اصلی"
@@ -92,16 +92,10 @@ pub fn SchoolManagerOverviewSection(on_navigate: EventHandler<String>) -> Elemen
         "Knowledge submissions"
     };
     let knowledge_description = if is_fa {
-        "منابع کنترل‌شده مدرسه را برای بررسی ثبت کنید."
+        "منابع آموزشی مدرسه را برای بررسی ارسال کنید."
     } else {
-        "Register governed school sources for review."
+        "Share school learning resources for review."
     };
-    let truthfulness_note = if is_fa {
-        "خلاصه‌های عملیاتی فقط زمانی نمایش داده می‌شوند که از داده واقعی مدرسه پشتیبانی شوند؛ شاخص‌های ساختگی فعالیت، پایداری، تأخیر یا روند نمایش داده نمی‌شوند."
-    } else {
-        "Operational summaries appear only when backed by real school data. Synthetic activity, uptime, latency, storage and trend metrics are intentionally omitted."
-    };
-
     rsx! {
         div { class: "et-page-stack",
             header { class: "et-overview-intro",
@@ -141,10 +135,6 @@ pub fn SchoolManagerOverviewSection(on_navigate: EventHandler<String>) -> Elemen
                 }
             }
 
-            div { class: "et-info-note",
-                span { class: "material-icons-outlined text-lg", "aria-hidden": "true", "verified_user" }
-                p { "{truthfulness_note}" }
-            }
         }
     }
 }
