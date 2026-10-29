@@ -184,6 +184,11 @@
   font-weight: 700;
   box-shadow: 0 7px 22px rgb(16 11 55 / 0.25), inset 0 1px 0 rgb(255 255 255 / 0.12);
 }
+.et-sidebar :where(button, a, [tabindex]):focus-visible {
+  outline: 3px solid #d2c8ff;
+  outline-offset: 3px;
+}
+
 .et-sidebar .et-ui-sidebar-nav__item--active .material-icons-outlined,
 .et-sidebar .et-ui-sidebar-nav__item--active:hover .material-icons-outlined { color: #e6e0ff; }
 
