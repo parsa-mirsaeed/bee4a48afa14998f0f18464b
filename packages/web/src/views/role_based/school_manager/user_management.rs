@@ -234,6 +234,9 @@ pub fn UserList() -> Element {
     let mut search_query = use_signal(|| initial_query);
     let mut action_message = use_signal(|| None::<String>);
     let mut editing_user = use_signal(|| None::<UserListItem>);
+    // Deactivation changes account access. Keep an explicit, localized
+    // confirmation separate from the server-side authorization check.
+    let mut pending_deactivation = use_signal(|| None::<String>);
 
     let mut users_resource = use_resource(move || {
         let role_filter = role_filter.read().clone();
@@ -452,6 +455,13 @@ pub fn UserList() -> Element {
                                                 {
                                                     let user_edit = user.clone();
                                                     let user_deactivate = user.id.to_string();
+                                                    let deactivation_scope = user.id.to_string();
+                                                    let deactivation_confirm_id = user.id.to_string();
+                                                    let deactivation_prompt = if locale.is_rtl() {
+                                                        format!("آیا حساب {} غیرفعال شود؟", user.name)
+                                                    } else {
+                                                        format!("Deactivate the account for {}?", user.name)
+                                                    };
                                                     let user_reactivate = user.id.to_string();
                                                     rsx! {
                                                         button {
@@ -466,8 +476,35 @@ pub fn UserList() -> Element {
                                                                 class: "et-manager-users__row-action p-1 text-red-600 hover:bg-red-50 rounded dark:text-red-400 dark:hover:bg-red-900/30 transition-colors",
                                                                 title: "{locale.t(\"school_manager.users.actions.deactivate\")}",
                                                                 "aria-label": locale.t("school_manager.users.actions.deactivate"),
-                                                                onclick: move |_| handle_deactivate(user_deactivate.clone()),
+                                                                "aria-expanded": if pending_deactivation().as_deref() == Some(deactivation_scope.as_str()) { "true" } else { "false" },
+                                                                onclick: move |_| pending_deactivation.set(Some(user_deactivate.clone())),
                                                                 span { class: "material-icons-outlined text-lg", "block" }
+                                                            }
+
+                                                            if pending_deactivation().as_deref() == Some(deactivation_scope.as_str()) {
+                                                                div {
+                                                                    class: "et-manager-users__deactivation-prompt",
+                                                                    role: "group",
+                                                                    "aria-label": locale.t("school_manager.users.actions.deactivate"),
+                                                                    p { "{deactivation_prompt}" }
+                                                                    div { class: "et-manager-users__deactivation-actions",
+                                                                        button {
+                                                                            class: "et-manager-users__deactivate-confirm",
+                                                                            r#type: "button",
+                                                                            onclick: move |_| {
+                                                                                pending_deactivation.set(None);
+                                                                                handle_deactivate(deactivation_confirm_id.clone());
+                                                                            },
+                                                                            "{locale.t("school_manager.users.actions.deactivate")}"
+                                                                        }
+                                                                        button {
+                                                                            class: "et-manager-users__deactivate-cancel",
+                                                                            r#type: "button",
+                                                                            onclick: move |_| pending_deactivation.set(None),
+                                                                            "{locale.t("common.cancel")}"
+                                                                        }
+                                                                    }
+                                                                }
                                                             }
                                                         } else {
                                                             button {
