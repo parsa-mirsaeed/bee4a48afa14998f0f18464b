@@ -561,6 +561,8 @@ fn ClassDetailModal(
                                     for student in students.iter() {
                                         {
                                             let enrollment_id = student["enrollment_id"].as_str().unwrap_or_default().to_string();
+                                            let trigger_enrollment_id = enrollment_id.clone();
+                                            let confirm_enrollment_id = enrollment_id.clone();
                                             let student_name = student["name"].as_str().unwrap_or_default().to_string();
                                             let removal_label = format!("{}: {}", locale.t("common.delete"), student_name);
                                             let confirmation = if locale.current() == Locale::Fa {
@@ -579,7 +581,7 @@ fn ClassDetailModal(
                                                         r#type: "button",
                                                         "aria-label": "{removal_label}",
                                                         "aria-expanded": if pending_removal().as_deref() == Some(enrollment_id.as_str()) { "true" } else { "false" },
-                                                        onclick: move |_| pending_removal.set(Some(enrollment_id.clone())),
+                                                        onclick: move |_| pending_removal.set(Some(trigger_enrollment_id.clone())),
                                                         disabled: is_loading(),
                                                         title: "{locale.t(\"common.delete\")}",
                                                         span { class: "material-icons-outlined text-sm", "person_remove" }
@@ -597,7 +599,7 @@ fn ClassDetailModal(
                                                                     disabled: is_loading(),
                                                                     onclick: move |_| {
                                                                         pending_removal.set(None);
-                                                                        handle_unenroll(enrollment_id.clone());
+                                                                        handle_unenroll(confirm_enrollment_id.clone());
                                                                     },
                                                                     "{locale.t(\"common.delete\")}"
                                                                 }
