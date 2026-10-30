@@ -1477,16 +1477,13 @@
   min-inline-size: 0;
   align-items: stretch;
   box-sizing: border-box;
+  background: linear-gradient(135deg, #14182e 0%, #28285e 57%, #473381 100%);
+  color: #fff;
 }
 .et-auth-context > div {
   inline-size: 100%;
   min-inline-size: 0;
   max-inline-size: 100%;
-}
-.et-auth-context {
-  min-inline-size: 0;
-  background: linear-gradient(135deg, #14182e 0%, #28285e 57%, #473381 100%);
-  color: #fff;
 }
 .et-auth-context::before {
   content: "";
