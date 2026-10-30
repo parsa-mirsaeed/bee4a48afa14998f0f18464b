@@ -193,7 +193,12 @@ fn CurrentPolicyRetryButton(
     on_retried: EventHandler<u64>,
 ) -> Element {
     let locale = use_locale().current();
-    let mut confirm_open = use_signal(|| false);
+    // A background overview refresh can remount a policy card after Save.
+    // Keep the requested confirmation in the stable section scope so it cannot
+    // silently disappear when the card refreshes between click and response.
+    let mut active_confirmation = use_context::<Signal<Option<String>>>();
+    let scope_key = format!("{school_id:?}:{teacher_user_id:?}:{assignment_id:?}:{job_id:?}");
+    let scope_for_open = scope_key.clone();
     let mut busy = use_signal(|| false);
     let mut error = use_signal(|| false);
 
@@ -208,10 +213,10 @@ fn CurrentPolicyRetryButton(
                 r#type: "button",
                 class: "rounded-lg border border-blue-400 px-3 py-2 text-sm font-semibold text-blue-800 disabled:opacity-50 dark:text-blue-300",
                 disabled: busy(),
-                onclick: move |_| confirm_open.set(true),
+                onclick: move |_| active_confirmation.set(Some(scope_for_open.clone())),
                 {t("platform_admin.personalization.regenerate_current", locale)}
             }
-            if confirm_open() {
+            if active_confirmation().as_deref() == Some(scope_key.as_str()) {
                 div { class: "mt-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-gray-900 dark:bg-gray-900 dark:text-gray-100",
                     role: "alertdialog",
                     "aria-label": t("platform_admin.personalization.regenerate_confirm_label", locale),
@@ -221,7 +226,7 @@ fn CurrentPolicyRetryButton(
                             r#type: "button",
                             class: "rounded border px-3 py-2",
                             disabled: busy(),
-                            onclick: move |_| confirm_open.set(false),
+                            onclick: move |_| active_confirmation.set(None),
                             {t("platform_admin.personalization.cancel", locale)}
                         }
                         button {
@@ -248,7 +253,7 @@ fn CurrentPolicyRetryButton(
                                     };
                                     match result {
                                         Ok(count) => {
-                                            confirm_open.set(false);
+                                            active_confirmation.set(None);
                                             on_retried.call(count);
                                         }
                                         Err(_) => error.set(true),
@@ -277,6 +282,10 @@ fn CurrentPolicyRetryButton(
 #[component]
 pub fn PlatformPersonalizationSection() -> Element {
     let locale = use_locale().current();
+    // Persistent across overview/resource refreshes and keyed policy card mounts.
+    // The same scope can only have one pending new-execution confirmation.
+    let active_confirmation = use_signal(|| None::<String>);
+    use_context_provider(|| active_confirmation);
     let mut selected_school = use_signal(|| None::<(String, String)>);
     // Explicit refresh generation makes the school-selection fetch deterministic.
     // Relying only on implicit resource dependency tracking can leave the resource
