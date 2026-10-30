@@ -1446,6 +1446,10 @@
   background: var(--et-color-bg);
 }
 .et-auth-shell > .et-auth-context {
+  /* This panel is informational, never an action surface. Even if an older
+   * layout or hydration transition paints across the form, it must not eat
+   * pointer events needed for authentication. */
+  pointer-events: none;
   grid-column: 1;
   grid-row: 1;
   inline-size: 100%;
