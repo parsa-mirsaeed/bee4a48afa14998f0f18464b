@@ -74,7 +74,7 @@ pub fn ParentAcademicChatSection() -> Element {
                                 }
                             }
                             if messages().is_empty() {
-                                p { class: "text-sm text-gray-500", "{locale.t(\"parent.ai.empty\")}" }
+                                p { class: "et-parent-chat__empty text-sm text-gray-500", role: "status", "{locale.t(\"parent.ai.empty\")}" }
                             }
                             div { class: "et-parent-chat__suggestions flex flex-wrap gap-2",
                                 button {
