@@ -411,3 +411,54 @@ test('Aurora login remains clickable in Persian RTL desktop layout @smoke @auror
   await signIn.click();
   await expect(page).toHaveURL(/\/dashboard$/);
 });
+
+test('teacher assignment filters expose exactly one current choice @smoke @aurora @teacher @student @accessibility', async ({ page }) => {
+  await signIn(page, 'e2e-teacher-a@example.test');
+  await page.goto('/dashboard/assignments');
+  const teacherFilters = page.locator('.et-teacher-assignments .et-assignment-filters');
+  await expect(teacherFilters).toHaveAttribute('role', 'group');
+  await expect(teacherFilters.getByRole('button')).toHaveCount(4);
+  await expect(teacherFilters.locator('button[aria-pressed="true"]')).toHaveCount(1);
+  await teacherFilters.getByRole('button').nth(1).click();
+  await expect(teacherFilters.getByRole('button').nth(1)).toHaveAttribute('aria-pressed', 'true');
+
+
+});
+
+test('student assignment filter group and cards remain usable at mobile width @smoke @aurora @student @responsive', async ({ page }, testInfo: TestInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await signIn(page, 'e2e-student-a@example.test');
+  await page.goto('/dashboard/assignments');
+  const filters = page.locator('.et-student-assignments .et-assignment-filters');
+  await expect(filters).toHaveAttribute('role', 'group');
+  await expect(filters.getByRole('button')).toHaveCount(5);
+  await expect(filters.locator('button[aria-pressed="true"]')).toHaveCount(1);
+  await expect(page.locator('.et-student-assignment-card').first()).toBeVisible();
+  await filters.getByRole('button').nth(1).click();
+  await expect(filters.getByRole('button').nth(1)).toHaveAttribute('aria-pressed', 'true');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)).toBeFalsy();
+  await testInfo.attach('aurora-student-assignments-mobile', {
+    body: await page.screenshot({ fullPage: true }),
+    contentType: 'image/png',
+  });
+});
+
+test('parent academic guidance has accessible scoped controls, consent remains required @smoke @aurora @parent @accessibility', async ({ page }, testInfo: TestInfo) => {
+  await signIn(page, 'e2e-parent-a@example.test');
+  await page.goto('/dashboard/ai-chat');
+  const workspace = page.locator('.et-parent-chat__workspace');
+  await expect(workspace).toBeVisible();
+  const childPicker = workspace.locator('select');
+  await expect(childPicker).toBeVisible();
+  await childPicker.selectOption({ index: 1 });
+  const suggestions = workspace.locator('.et-parent-chat__suggestions');
+  await expect(suggestions.getByRole('button')).toHaveCount(2);
+  await expect(workspace.locator('[role="log"]')).toBeVisible();
+  await expect(workspace.locator('textarea')).toBeVisible();
+  const send = workspace.getByRole('button').last();
+  await expect(send).toBeDisabled();
+  await testInfo.attach('aurora-parent-chat', {
+    body: await page.screenshot({ fullPage: true }),
+    contentType: 'image/png',
+  });
+});
