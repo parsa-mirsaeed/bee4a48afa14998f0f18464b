@@ -363,6 +363,21 @@ test('Aurora sign-in matches the workspace on desktop and mobile without changin
     return {
       columnsSeparate: contextBox.right <= panelBox.left + 1,
       buttonClickable: target === button || button.contains(target),
+      brandPanelWithinViewport: contextBox.left >= -1 &&
+        contextBox.right <= window.innerWidth + 1,
+      brandInkWithinViewport: [...context.querySelectorAll<HTMLElement>(
+        '.et-auth-context__brand, .et-auth-context__headline, .et-auth-context__copy, .et-auth-context__footnote',
+      )].every((node) => {
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        const lines = [...range.getClientRects()];
+        return lines.length > 0 && lines.every((line) =>
+          line.left >= 1 &&
+          line.right <= contextBox.right - 1 &&
+          line.width > 0
+        );
+      }),
+      brandPosition: { left: contextBox.left, right: contextBox.right },
       brandContentBounded: [...context.querySelectorAll<HTMLElement>(
         '.et-auth-context__brand, .et-auth-context__headline, .et-auth-context__copy',
       )].every((node) => {
@@ -375,7 +390,9 @@ test('Aurora sign-in matches the workspace on desktop and mobile without changin
   });
   expect(desktopHitTest.columnsSeparate, 'desktop brand and form columns must not overlap').toBeTruthy();
   expect(desktopHitTest.buttonClickable, 'the sign-in button must receive pointer events').toBeTruthy();
-  expect(desktopHitTest.brandContentBounded, 'desktop headline and brand must fit inside their panel').toBeTruthy();
+  expect(desktopHitTest.brandContentBounded, 'desktop headline and brand boxes must fit inside their panel').toBeTruthy();
+  expect(desktopHitTest.brandPanelWithinViewport, JSON.stringify(desktopHitTest.brandPosition)).toBeTruthy();
+  expect(desktopHitTest.brandInkWithinViewport, 'the rendered brand text must not be cropped at the left screen edge').toBeTruthy();
   await expect(page.locator('input[type="email"]')).toBeVisible();
   await expect(page.locator('input[type="password"]')).toBeVisible();
   await testInfo.attach('aurora-login-desktop', {
@@ -426,6 +443,20 @@ test('Aurora login remains clickable in Persian RTL desktop layout @smoke @auror
     });
   });
   expect(brandFits, 'RTL sign-in branding must not be cropped').toBeTruthy();
+  const rtlBrandInkFits = await page.locator('.et-auth-context').evaluate((aside) => {
+    const bounds = aside.getBoundingClientRect();
+    return bounds.left >= -1 && [...aside.querySelectorAll<HTMLElement>(
+      '.et-auth-context__brand, .et-auth-context__headline, .et-auth-context__copy, .et-auth-context__footnote',
+    )].every((node) => {
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      const lines = [...range.getClientRects()];
+      return lines.length > 0 && lines.every((line) =>
+        line.left >= 1 && line.right <= bounds.right - 1 && line.width > 0
+      );
+    });
+  });
+  expect(rtlBrandInkFits, 'RTL rendered brand text must be fully inside the desktop panel').toBeTruthy();
   await page.locator('input[type="email"]').fill('e2e-manager-a@example.test');
   await page.locator('input[type="password"]').fill('e2e-password');
   await signIn.click();
