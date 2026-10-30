@@ -1436,11 +1436,16 @@
 /* Sign-in uses the same Aurora palette as the authenticated workspaces.
  * No new authentication flow, credentials logic, or remote media is added. */
 .et-auth-shell {
-  /* The SSR default is Persian. Keep the two visual columns in a physical
-   * layout so hydration's later LTR preference cannot leave the brand painted
-   * over the form. Restore each panel's native writing direction separately. */
+  /* Keep physical grid tracks stable across SSR Persian and hydrated English.
+   * Do not permit a direction-dependent over-wide grid to overflow to the
+   * physical left and clip the decorative brand copy. */
   display: grid;
   direction: ltr;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  margin: 0;
   grid-template-columns: minmax(0, 1fr) minmax(0, 34rem);
   min-block-size: 100dvh;
   background: var(--et-color-bg);
@@ -1452,10 +1457,15 @@
   pointer-events: none;
   grid-column: 1;
   grid-row: 1;
-  inline-size: 100%;
-  max-inline-size: 100%;
-  min-inline-size: 0;
+  justify-self: stretch;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  margin: 0;
+  padding: clamp(2rem, 5vw, 4.5rem);
   direction: ltr;
+  text-align: left;
 }
 .et-auth-shell > .et-auth-panel {
   grid-column: 2;
@@ -1470,6 +1480,7 @@
 [dir="rtl"] .et-auth-shell > :is(.et-auth-context, .et-auth-panel) {
   direction: rtl;
 }
+[dir="rtl"] .et-auth-shell > .et-auth-context { text-align: right; }
 .et-auth-context {
   isolation: isolate;
   position: relative;
