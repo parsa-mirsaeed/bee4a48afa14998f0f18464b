@@ -1436,11 +1436,12 @@
 /* Sign-in uses the same Aurora palette as the authenticated workspaces.
  * No new authentication flow, credentials logic, or remote media is added. */
 .et-auth-shell {
-  /* Keep physical grid tracks stable across SSR Persian and hydrated English.
-   * Do not permit a direction-dependent over-wide grid to overflow to the
-   * physical left and clip the decorative brand copy. */
-  display: flex;
-  flex-direction: row;
+  /* Physical rather than logical placement is deliberate here: the SSR
+   * locale is Persian, and hydration can restore English on the client.
+   * Keep the decorative panel and the actionable form anchored independently
+   * so neither direction change can translate or cover the other. */
+  position: relative;
+  display: block;
   direction: ltr;
   box-sizing: border-box;
   width: 100%;
@@ -1448,36 +1449,56 @@
   min-width: 0;
   margin: 0;
   min-block-size: 100dvh;
+  overflow-x: clip;
   background: var(--et-color-bg);
 }
 .et-auth-shell > .et-auth-context {
-  /* This panel is informational, never an action surface. Even if an older
-   * layout or hydration transition paints across the form, it must not eat
-   * pointer events needed for authentication. */
-  pointer-events: none;
-  flex: 1 1 0;
-  box-sizing: border-box;
-  width: 100%;
-  max-width: 100%;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  right: auto;
+  width: calc(100% - 34rem);
   min-width: 0;
+  max-width: none;
+  box-sizing: border-box;
   margin: 0;
-  padding: clamp(2rem, 5vw, 4.5rem);
+  padding: 0;
+  pointer-events: none;
   direction: ltr;
   text-align: left;
 }
 .et-auth-shell > .et-auth-panel {
-  flex: 0 0 min(34rem, 100%);
-  inline-size: auto;
-  max-inline-size: 100%;
-  min-inline-size: 0;
   position: relative;
   z-index: 1;
+  width: min(34rem, 100%);
+  min-width: 0;
+  max-width: none;
+  margin: 0 0 0 auto;
   direction: ltr;
 }
 [dir="rtl"] .et-auth-shell > :is(.et-auth-context, .et-auth-panel) {
   direction: rtl;
 }
 [dir="rtl"] .et-auth-shell > .et-auth-context { text-align: right; }
+.et-auth-context > .et-auth-context__brand,
+.et-auth-context > .et-auth-context__story,
+.et-auth-context > .et-auth-context__footnote {
+  position: absolute;
+  left: clamp(1.75rem, 5vw, 4.5rem);
+  right: clamp(1.75rem, 5vw, 4.5rem);
+  width: auto;
+  min-width: 0;
+  max-width: none;
+  margin: 0;
+}
+.et-auth-context > .et-auth-context__brand { top: clamp(2rem, 5vw, 4.5rem); }
+.et-auth-context > .et-auth-context__story {
+  top: 50%;
+  transform: translateY(-50%);
+}
+.et-auth-context > .et-auth-context__footnote { bottom: clamp(2rem, 5vw, 4.5rem); }
+[dir="rtl"] .et-auth-context__story { direction: rtl; }
 .et-auth-context {
   isolation: isolate;
   position: relative;
@@ -1644,13 +1665,15 @@
   line-height: 1.65;
 }
 .et-auth-mobile-brand { display: none; }
-@media (max-width: 767px) {
-  .et-auth-shell { flex-direction: column; }
+@media (max-width: 1100px) {
   .et-auth-shell > .et-auth-context { display: none; }
   .et-auth-shell > .et-auth-panel {
-    flex: 1 0 auto;
-    inline-size: 100%;
+    width: 100%;
+    min-height: 100dvh;
+    margin: 0;
   }
+}
+@media (max-width: 767px) {
   .et-auth-panel {
     min-block-size: 100dvh;
     padding: 19px 16px 28px;
