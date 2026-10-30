@@ -287,7 +287,7 @@ test('admin regeneration confirmation survives an overview data refresh and clos
   await expect(confirmation).toBeFocused();
   await expect(confirmation).toContainText('new jobs');
 
-  const refresh = admin.locator('> div').first().getByRole('button', { name: 'Refresh', exact: true });
+  const refresh = admin.locator(':scope > div').first().getByRole('button', { name: 'Refresh', exact: true });
   await refresh.click();
   await expect(confirmation).toBeVisible();
   await expect(confirmation).toContainText('new jobs');
