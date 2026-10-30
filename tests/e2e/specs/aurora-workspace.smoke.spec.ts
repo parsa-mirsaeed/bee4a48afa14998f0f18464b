@@ -264,7 +264,32 @@ test('roster removal requires confirmation and Cancel preserves enrollment @smok
   await expect(remove).toHaveAttribute('aria-expanded', 'true');
   const confirmation = row.locator('.et-manager-classes__remove-confirmation');
   await expect(confirmation).toContainText(originalStudent);
-  await expect(confirmation.getByRole('button', { name: /delete/i })).toBeVisible();
+  const confirmDelete = confirmation.getByRole('button', { name: /delete/i });
+  await expect(confirmDelete).toBeVisible();
+
+  // In dark mode --et-color-danger is light pink, so white foreground is
+  // unreadable. Exercise the live CSS cascade rather than checking a class.
+  await page.locator('html').evaluate((html) => html.classList.add('dark'));
+  const contrast = await confirmDelete.evaluate((button) => {
+    const style = getComputedStyle(button);
+    const rgb = (value: string) => {
+      const channels = value.match(/[\\d.]+/g)?.slice(0, 3).map(Number) ?? [];
+      if (channels.length !== 3) throw new Error(`Cannot parse CSS color ${value}`);
+      return channels.map((v) => {
+        const x = v / 255;
+        return x <= 0.04045 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4);
+      });
+    };
+    const lum = (value: string) => {
+      const [r, g, b] = rgb(value);
+      return r * 0.2126 + g * 0.7152 + b * 0.0722;
+    };
+    const foreground = lum(style.color);
+    const background = lum(style.backgroundColor);
+    return (Math.max(foreground, background) + 0.05) /
+      (Math.min(foreground, background) + 0.05);
+  });
+  expect(contrast, 'dark-mode destructive confirmation should meet 4.5:1 text contrast').toBeGreaterThanOrEqual(4.5);
   await confirmation.getByRole('button', { name: 'Cancel' }).click();
   await expect(confirmation).toHaveCount(0);
   await expect(remove).toHaveAttribute('aria-expanded', 'false');
