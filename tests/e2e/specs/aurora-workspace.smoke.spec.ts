@@ -363,10 +363,19 @@ test('Aurora sign-in matches the workspace on desktop and mobile without changin
     return {
       columnsSeparate: contextBox.right <= panelBox.left + 1,
       buttonClickable: target === button || button.contains(target),
+      brandContentBounded: [...context.querySelectorAll<HTMLElement>(
+        '.et-auth-context__brand, .et-auth-context__headline, .et-auth-context__copy',
+      )].every((node) => {
+        const bounds = node.getBoundingClientRect();
+        return bounds.left >= contextBox.left - 2 &&
+          bounds.right <= contextBox.right + 2 &&
+          node.scrollWidth <= node.clientWidth + 2;
+      }),
     };
   });
   expect(desktopHitTest.columnsSeparate, 'desktop brand and form columns must not overlap').toBeTruthy();
   expect(desktopHitTest.buttonClickable, 'the sign-in button must receive pointer events').toBeTruthy();
+  expect(desktopHitTest.brandContentBounded, 'desktop headline and brand must fit inside their panel').toBeTruthy();
   await expect(page.locator('input[type="email"]')).toBeVisible();
   await expect(page.locator('input[type="password"]')).toBeVisible();
   await testInfo.attach('aurora-login-desktop', {
@@ -406,6 +415,17 @@ test('Aurora login remains clickable in Persian RTL desktop layout @smoke @auror
     return hit === button || button.contains(hit);
   });
   expect(clickable, 'RTL sign-in control must not be under the desktop brand panel').toBeTruthy();
+  const brandFits = await page.locator('.et-auth-context').evaluate((aside) => {
+    const bounds = aside.getBoundingClientRect();
+    return [...aside.querySelectorAll<HTMLElement>(
+      '.et-auth-context__brand, .et-auth-context__headline, .et-auth-context__copy',
+    )].every((node) => {
+      const rect = node.getBoundingClientRect();
+      return rect.left >= bounds.left - 2 && rect.right <= bounds.right + 2 &&
+        node.scrollWidth <= node.clientWidth + 2;
+    });
+  });
+  expect(brandFits, 'RTL sign-in branding must not be cropped').toBeTruthy();
   await page.locator('input[type="email"]').fill('e2e-manager-a@example.test');
   await page.locator('input[type="password"]').fill('e2e-password');
   await signIn.click();
