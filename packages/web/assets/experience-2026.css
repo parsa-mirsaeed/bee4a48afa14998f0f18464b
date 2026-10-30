@@ -1216,6 +1216,74 @@
   }
 }
 
+
+/* Roster removal is deliberately two-step. The trigger stays mounted while
+ * the confirmation opens, preserving keyboard focus and protecting data. */
+.et-manager-classes__roster-row {
+  min-inline-size: 0;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+.et-manager-classes__roster-row > div:first-child {
+  min-inline-size: 0;
+  flex: 1 1 180px;
+  overflow-wrap: anywhere;
+}
+.et-manager-classes__remove-confirmation {
+  flex: 1 0 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--et-color-danger) 20%, var(--et-color-border));
+  border-radius: 12px;
+  color: var(--et-color-text);
+  background: var(--et-color-surface-subtle);
+}
+.et-manager-classes__remove-message {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.6;
+}
+.et-manager-classes__remove-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+.et-manager-classes__confirm-button,
+.et-manager-classes__cancel-button {
+  min-block-size: 44px;
+  min-inline-size: 78px;
+  padding-inline: 14px;
+  border: 1px solid var(--et-color-border-strong);
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 700;
+}
+.et-manager-classes__confirm-button {
+  border-color: var(--et-color-danger);
+  color: #fff;
+  background: var(--et-color-danger);
+}
+.et-manager-classes__confirm-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+.et-manager-classes__cancel-button {
+  color: var(--et-color-text);
+  background: var(--et-color-surface);
+}
+.et-manager-classes__cancel-button:hover {
+  background: var(--et-color-primary-soft);
+}
+@media (max-width: 767px) {
+  .et-manager-classes__remove-choices { inline-size: 100%; }
+  .et-manager-classes__remove-choices > button { flex: 1 1 120px; }
+}
+
 /* RTL reverses document flow via logical properties, not a second UI. */
 [dir="rtl"] .et-topbar,
 [dir="rtl"] .et-sidebar,
