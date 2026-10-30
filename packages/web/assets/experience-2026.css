@@ -1647,10 +1647,22 @@
   direction: rtl;
 }
 [dir="rtl"] .et-auth-form .et-ui-control__leading {
+  /* The shared control uses logical inset-inline-start. Combining that
+   * with a physical right inset can stretch the absolute span across the
+   * field and leave the lock glyph centered. Reset both logical insets
+   * before using one physical right anchor. */
+  position: absolute;
+  inset-inline-start: auto;
+  inset-inline-end: auto;
   left: auto;
   right: 0.8rem;
+  inline-size: 1.15rem;
+  block-size: 1.15rem;
+  text-align: center;
 }
 [dir="rtl"] .et-auth-form .et-ui-input-action {
+  inset-inline-start: auto;
+  inset-inline-end: auto;
   right: auto;
   left: 0.35rem;
 }
