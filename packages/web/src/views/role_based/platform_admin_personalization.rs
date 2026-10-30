@@ -214,7 +214,11 @@ fn CurrentPolicyRetryButton(
     // silently disappear when the card refreshes between click and response.
     let mut active_confirmation = use_context::<Signal<Option<String>>>();
     let scope_key = regeneration_confirmation_key(
-        &school_id, &teacher_user_id, &assignment_id, &job_id, &confirmation_owner,
+        &school_id,
+        &teacher_user_id,
+        &assignment_id,
+        &job_id,
+        &confirmation_owner,
     );
     let scope_for_open = scope_key.clone();
     let mut busy = use_signal(|| false);
@@ -1070,16 +1074,31 @@ mod regeneration_confirmation_tests {
         let assignment = Some("assignment-a".to_string());
         let no_job = None;
         let a = regeneration_confirmation_key(
-            &school, &teacher, &assignment, &no_job, &Some("job-1".to_string()),
+            &school,
+            &teacher,
+            &assignment,
+            &no_job,
+            &Some("job-1".to_string()),
         );
         let b = regeneration_confirmation_key(
-            &school, &teacher, &assignment, &no_job, &Some("job-2".to_string()),
+            &school,
+            &teacher,
+            &assignment,
+            &no_job,
+            &Some("job-2".to_string()),
         );
-        assert_ne!(a, b, "only the clicked job card should own the confirmation");
+        assert_ne!(
+            a, b,
+            "only the clicked job card should own the confirmation"
+        );
         assert_eq!(
             a,
             regeneration_confirmation_key(
-                &school, &teacher, &assignment, &no_job, &Some("job-1".to_string()),
+                &school,
+                &teacher,
+                &assignment,
+                &no_job,
+                &Some("job-1".to_string()),
             ),
             "refresh must preserve the selected owner"
         );
