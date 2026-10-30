@@ -419,6 +419,32 @@ test('Aurora sign-in matches the workspace on desktop and mobile without changin
   await page.locator('.et-auth-panel .language-switcher-toggle').click();
   await expect.poll(() => page.evaluate(() => document.documentElement.dir)).toBe('rtl');
   await expect(page.locator('.et-auth-form-wrap')).toBeVisible();
+
+  const rtlPasswordIcons = await page.evaluate(() => {
+    const input = document.querySelector<HTMLInputElement>('.et-auth-form input[type="password"]')!;
+    const control = input.closest('.et-ui-control')!;
+    const leading = control.querySelector<HTMLElement>('.et-ui-control__leading')!;
+    const toggle = control.querySelector<HTMLButtonElement>('.et-ui-input-action')!;
+    const fieldRect = input.getBoundingClientRect();
+    const lockRect = leading.getBoundingClientRect();
+    const toggleRect = toggle.getBoundingClientRect();
+    const hit = document.elementFromPoint(
+      toggleRect.left + toggleRect.width / 2,
+      toggleRect.top + toggleRect.height / 2,
+    );
+    return {
+      leadingOnRight: lockRect.left >= fieldRect.left + fieldRect.width * 0.55,
+      toggleOnLeft: toggleRect.right <= fieldRect.left + fieldRect.width * 0.45,
+      iconsDoNotOverlap: toggleRect.right + 8 < lockRect.left,
+      revealClickable: hit === toggle || toggle.contains(hit),
+      revealTargetHeight: toggleRect.height,
+    };
+  });
+  expect(rtlPasswordIcons.leadingOnRight, 'RTL lock icon belongs at the right of the password field').toBeTruthy();
+  expect(rtlPasswordIcons.toggleOnLeft, 'RTL reveal action belongs at the left of the password field').toBeTruthy();
+  expect(rtlPasswordIcons.iconsDoNotOverlap, 'RTL reveal action and lock icon must not overlap').toBeTruthy();
+  expect(rtlPasswordIcons.revealClickable, 'RTL reveal action must receive pointer events').toBeTruthy();
+  expect(rtlPasswordIcons.revealTargetHeight).toBeGreaterThanOrEqual(44);
   await testInfo.attach('aurora-login-mobile-fa', {
     body: await page.screenshot({ fullPage: true }),
     contentType: 'image/png',
