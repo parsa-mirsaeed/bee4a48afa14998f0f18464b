@@ -243,3 +243,31 @@ test('class enrollment controls expose a student label and safe touch targets @s
   expect(box!.width).toBeGreaterThanOrEqual(44);
   expect(box!.height).toBeGreaterThanOrEqual(44);
 });
+
+test('roster removal requires confirmation and Cancel preserves enrollment @smoke @aurora @manager @safety', async ({ page }) => {
+  await signIn(page, 'e2e-manager-a@example.test');
+  await page.goto('/dashboard/classes');
+  const card = page.locator('.et-manager-classes__card').filter({ hasText: 'E2E Class A1' }).first();
+  await expect(card).toBeVisible();
+  await card.click();
+
+  const dialog = page.getByRole('dialog');
+  const roster = dialog.locator('.et-manager-classes__roster');
+  const rows = roster.locator('.et-manager-classes__roster-row');
+  await expect(rows.first()).toBeVisible();
+  const originalCount = await rows.count();
+  const row = rows.first();
+  const originalStudent = await row.locator('p').first().innerText();
+  const remove = row.locator('.et-manager-classes__remove-action');
+
+  await remove.click();
+  await expect(remove).toHaveAttribute('aria-expanded', 'true');
+  const confirmation = row.locator('.et-manager-classes__remove-confirmation');
+  await expect(confirmation).toContainText(originalStudent);
+  await expect(confirmation.getByRole('button', { name: /delete/i })).toBeVisible();
+  await confirmation.getByRole('button', { name: 'Cancel' }).click();
+  await expect(confirmation).toHaveCount(0);
+  await expect(remove).toHaveAttribute('aria-expanded', 'false');
+  await expect(rows).toHaveCount(originalCount);
+  await expect(row).toContainText(originalStudent);
+});
