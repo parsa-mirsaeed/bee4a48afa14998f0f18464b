@@ -319,3 +319,23 @@ test('Aurora tablet in Persian dark mode retains navigation focus, contrast toke
     contentType: 'image/png',
   });
 });
+
+test('manager account deactivation is confirmed and Cancel leaves access unchanged @smoke @aurora @manager @safety', async ({ page }) => {
+  await signIn(page, 'e2e-manager-a@example.test');
+  await page.goto('/dashboard/users');
+  const directory = page.locator('.et-manager-users__table');
+  const row = directory.locator('tbody tr').filter({ hasText: 'E2E Teacher A' });
+  await expect(row).toBeVisible();
+  const originalStatus = await row.locator('td').nth(2).innerText();
+  const trigger = row.locator('.et-manager-users__row-action[aria-expanded]');
+  await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+  await trigger.click();
+
+  const confirmation = row.locator('.et-manager-users__deactivation-prompt');
+  await expect(confirmation).toContainText('E2E Teacher A');
+  await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+  await confirmation.getByRole('button', { name: 'Cancel' }).click();
+  await expect(confirmation).toHaveCount(0);
+  await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+  await expect(row.locator('td').nth(2)).toHaveText(originalStatus);
+});
