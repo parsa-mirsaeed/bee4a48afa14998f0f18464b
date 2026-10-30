@@ -1475,6 +1475,16 @@
   position: relative;
   overflow: hidden;
   min-inline-size: 0;
+  align-items: stretch;
+  box-sizing: border-box;
+}
+.et-auth-context > div {
+  inline-size: 100%;
+  min-inline-size: 0;
+  max-inline-size: 100%;
+}
+.et-auth-context {
+  min-inline-size: 0;
   background: linear-gradient(135deg, #14182e 0%, #28285e 57%, #473381 100%);
   color: #fff;
 }
@@ -1504,6 +1514,7 @@
     0 0 0 114px rgb(176 161 255 / 0.025);
 }
 .et-auth-context__brand {
+  max-inline-size: 100%;
   gap: 13px;
   color: #fff;
   font-size: 20px;
@@ -1522,8 +1533,12 @@
 }
 .et-auth-context__mark .material-icons-outlined { font-size: 25px; }
 .et-auth-context__headline {
-  max-inline-size: 680px;
-  font-size: clamp(36px, 4.5vw, 68px);
+  inline-size: 100%;
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  font-size: clamp(36px, 3.9vw, 56px);
   font-weight: 760;
   line-height: 1.11;
   letter-spacing: -0.035em;
@@ -1531,7 +1546,10 @@
 }
 [dir="rtl"] .et-auth-context__headline { letter-spacing: 0; line-height: 1.38; }
 .et-auth-context__copy {
-  max-inline-size: 570px;
+  inline-size: 100%;
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  overflow-wrap: anywhere;
   color: #e0e1ff;
   font-size: clamp(14px, 1.18vw, 17px);
   line-height: 1.85;
