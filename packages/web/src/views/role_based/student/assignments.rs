@@ -45,8 +45,8 @@ pub fn StudentAssignments() -> Element {
     let mut resource = use_resource(move || async move { get_student_assignments().await });
 
     rsx! {
-        div { class: "space-y-6",
-            div { class: "flex flex-wrap gap-2",
+        div { class: "et-student-assignments space-y-6",
+            div { class: "et-assignment-filters flex flex-wrap gap-2", role: "group", "aria-label": locale.t("assignments.title"),
                 AssignmentFilter { value: "all", label: locale.t("student.assignments.filter_all"), filter }
                 AssignmentFilter { value: "pending", label: locale.t("student.assignments.filter_pending"), filter }
                 AssignmentFilter { value: "overdue", label: locale.t("student.assignments.filter_overdue"), filter }
@@ -163,6 +163,7 @@ fn AssignmentFilter(value: &'static str, label: String, filter: Signal<String>) 
             } else {
                 "rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-600 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300"
             },
+            r#type: "button",
             "aria-pressed": if active { "true" } else { "false" },
             onclick: move |_| filter.set(value.to_string()),
             "{label}"
@@ -191,7 +192,7 @@ fn StudentAssignmentCard(
     let action = assignment_action_label(assignment.presentation_state, locale.current());
 
     rsx! {
-        article { class: "et-ui-card p-5",
+        article { class: "et-ui-card et-student-assignment-card p-5",
             div { class: "flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between",
                 div {
                     h3 { class: "font-semibold text-gray-900 dark:text-white", "{assignment.title}" }
