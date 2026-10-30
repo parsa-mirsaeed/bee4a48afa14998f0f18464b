@@ -1656,6 +1656,128 @@
   .et-auth-form-wrap { padding: 21px 17px; }
 }
 
+/* Role task workflows: keep filters, assignment rows, and parent guidance
+ * cohesive with Aurora without inventing status, data, or unsupported actions. */
+.et-dashboard-shell .et-assignment-filters {
+  align-items: center;
+  gap: 8px;
+  padding: 5px;
+  border: 1px solid var(--et-color-border);
+  border-radius: 15px;
+  background: var(--et-color-surface);
+  max-inline-size: 100%;
+}
+.et-dashboard-shell .et-assignment-filters > button {
+  min-block-size: 44px;
+  padding-inline: 15px;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  font-size: 13px;
+  font-weight: 700;
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+.et-dashboard-shell .et-assignment-filters > button[aria-pressed="true"] {
+  color: var(--et-color-primary);
+  background: var(--et-color-primary-soft);
+  border-color: color-mix(in srgb, var(--et-color-primary) 20%, transparent);
+  box-shadow: none;
+}
+.et-dashboard-shell .et-assignment-filters > button:hover {
+  border-color: var(--et-color-border-strong);
+  background: var(--et-color-surface-subtle);
+}
+.et-dashboard-shell .et-assignment-filters > button:focus-visible {
+  outline: 3px solid var(--et-color-focus);
+  outline-offset: 2px;
+}
+.et-dashboard-shell .et-assignment-filters > button[aria-pressed="true"]:hover {
+  background: var(--et-color-primary-soft);
+}
+.et-dashboard-shell .et-teacher-assignments .et-ui-card,
+.et-dashboard-shell .et-student-assignment-card {
+  border: 1px solid var(--et-color-border);
+  border-radius: 19px;
+  background: var(--et-color-surface);
+  box-shadow: var(--et-shadow-1);
+}
+.et-dashboard-shell .et-student-assignment-card {
+  padding: clamp(18px, 2.2vw, 24px);
+}
+.et-dashboard-shell .et-student-assignment-card h3 {
+  color: var(--et-color-text);
+  font-size: 16px;
+  line-height: 1.5;
+}
+.et-dashboard-shell .et-student-assignment-card > button {
+  min-block-size: 44px;
+  border-radius: 11px;
+}
+.et-dashboard-shell .et-parent-chat__workspace {
+  border: 1px solid var(--et-color-border);
+  border-radius: 20px;
+  padding: clamp(18px, 2.6vw, 28px);
+  box-shadow: var(--et-shadow-1);
+  background: var(--et-color-surface);
+}
+.et-dashboard-shell .et-parent-chat__workspace :is(select,textarea) {
+  min-inline-size: 0;
+  min-block-size: 44px;
+  border: 1px solid var(--et-color-border-strong);
+  border-radius: 12px;
+  background: var(--et-color-surface);
+  color: var(--et-color-text);
+  line-height: 1.7;
+}
+.et-dashboard-shell .et-parent-chat__workspace :is(select,textarea):focus-visible {
+  outline: 3px solid var(--et-color-focus);
+  outline-offset: 2px;
+}
+.et-parent-chat__history {
+  max-block-size: 28rem;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--et-color-border-strong) transparent;
+}
+.et-dashboard-shell .et-parent-chat__message {
+  padding: 16px;
+  border: 1px solid var(--et-color-border);
+  border-radius: 14px;
+  background: var(--et-color-surface-subtle);
+  overflow-wrap: anywhere;
+}
+.et-parent-chat__suggestions { gap: 8px; }
+.et-parent-chat__suggestions button {
+  min-block-size: 44px;
+  border: 1px solid var(--et-color-border);
+  border-radius: 11px;
+  background: var(--et-color-surface-subtle);
+  color: var(--et-color-text);
+}
+.et-parent-chat__suggestions button:hover {
+  background: var(--et-color-primary-soft);
+  color: var(--et-color-primary);
+}
+.et-parent-chat__workspace button:focus-visible {
+  outline: 3px solid var(--et-color-focus);
+  outline-offset: 2px;
+}
+@media (max-width: 767px) {
+  .et-dashboard-shell .et-assignment-filters {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+  .et-dashboard-shell .et-assignment-filters > button {
+    flex: 0 0 auto;
+  }
+  .et-dashboard-shell .et-parent-chat__workspace { padding: 16px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .et-dashboard-shell .et-assignment-filters > button {
+    transition: none !important;
+  }
+}
+
 /* RTL reverses document flow via logical properties, not a second UI. */
 [dir="rtl"] .et-topbar,
 [dir="rtl"] .et-sidebar,
