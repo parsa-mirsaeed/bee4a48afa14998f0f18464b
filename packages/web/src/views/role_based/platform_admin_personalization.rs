@@ -125,6 +125,8 @@ fn ScopeRetryButton(
     school_id: Option<String>,
     teacher_user_id: Option<String>,
     assignment_id: Option<String>,
+    // A recent job owns its own confirmation even when scopes match.
+    confirmation_owner: Option<String>,
     on_retried: EventHandler<u64>,
 ) -> Element {
     let locale = use_locale().current();
@@ -175,10 +177,23 @@ fn ScopeRetryButton(
                 teacher_user_id: teacher_user_id.clone(),
                 assignment_id: assignment_id.clone(),
                 job_id: None,
+                confirmation_owner,
                 on_retried: move |count| on_retried.call(count),
             }
         }
     }
+}
+
+fn regeneration_confirmation_key(
+    school_id: &Option<String>,
+    teacher_user_id: &Option<String>,
+    assignment_id: &Option<String>,
+    job_id: &Option<String>,
+    confirmation_owner: &Option<String>,
+) -> String {
+    // The owner affects only which card renders a dialog; retry requests keep
+    // their existing school/teacher/assignment scope semantics.
+    format!("{school_id:?}:{teacher_user_id:?}:{assignment_id:?}:{job_id:?}:{confirmation_owner:?}")
 }
 
 /// Deliberately a second action: original retries keep historical AI policy,
@@ -190,6 +205,7 @@ fn CurrentPolicyRetryButton(
     teacher_user_id: Option<String>,
     assignment_id: Option<String>,
     job_id: Option<String>,
+    confirmation_owner: Option<String>,
     on_retried: EventHandler<u64>,
 ) -> Element {
     let locale = use_locale().current();
@@ -197,7 +213,9 @@ fn CurrentPolicyRetryButton(
     // Keep the requested confirmation in the stable section scope so it cannot
     // silently disappear when the card refreshes between click and response.
     let mut active_confirmation = use_context::<Signal<Option<String>>>();
-    let scope_key = format!("{school_id:?}:{teacher_user_id:?}:{assignment_id:?}:{job_id:?}");
+    let scope_key = regeneration_confirmation_key(
+        &school_id, &teacher_user_id, &assignment_id, &job_id, &confirmation_owner,
+    );
     let scope_for_open = scope_key.clone();
     let mut busy = use_signal(|| false);
     let mut error = use_signal(|| false);
@@ -945,6 +963,7 @@ fn PersonalizationJobCard(
                     school_id: Some(job.school_id.clone()),
                     teacher_user_id: Some(job.teacher_user_id.clone()),
                     assignment_id: Some(job.assignment_id.clone()),
+                    confirmation_owner: Some(job.job_id.clone()),
                     on_retried: move |_| on_retried.call(()),
                 }
             }
@@ -1017,6 +1036,7 @@ fn PersonalizationJobCard(
                     teacher_user_id: None,
                     assignment_id: None,
                     job_id: Some(regeneration_job_id.clone()),
+                    confirmation_owner: None,
                     on_retried: move |_| on_retried.call(()),
                 }
             }
@@ -1036,5 +1056,32 @@ fn CompactField(label: String, value: String) -> Element {
             dt { class: "text-xs font-medium text-gray-500", "{label}" }
             dd { class: "mt-1 break-words font-medium text-gray-900 dark:text-white", dir: "auto", "{value}" }
         }
+    }
+}
+
+#[cfg(test)]
+mod regeneration_confirmation_tests {
+    use super::regeneration_confirmation_key;
+
+    #[test]
+    fn recent_jobs_for_same_assignment_use_distinct_confirmation_owners() {
+        let school = Some("school-a".to_string());
+        let teacher = Some("teacher-a".to_string());
+        let assignment = Some("assignment-a".to_string());
+        let no_job = None;
+        let a = regeneration_confirmation_key(
+            &school, &teacher, &assignment, &no_job, &Some("job-1".to_string()),
+        );
+        let b = regeneration_confirmation_key(
+            &school, &teacher, &assignment, &no_job, &Some("job-2".to_string()),
+        );
+        assert_ne!(a, b, "only the clicked job card should own the confirmation");
+        assert_eq!(
+            a,
+            regeneration_confirmation_key(
+                &school, &teacher, &assignment, &no_job, &Some("job-1".to_string()),
+            ),
+            "refresh must preserve the selected owner"
+        );
     }
 }
