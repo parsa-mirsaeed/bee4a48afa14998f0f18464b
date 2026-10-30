@@ -217,8 +217,18 @@ fn CurrentPolicyRetryButton(
                 {t("platform_admin.personalization.regenerate_current", locale)}
             }
             if active_confirmation().as_deref() == Some(scope_key.as_str()) {
-                div { class: "mt-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-gray-900 dark:bg-gray-900 dark:text-gray-100",
+                div { class: "et-admin-regeneration-confirm mt-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-gray-900 dark:bg-gray-900 dark:text-gray-100",
                     role: "alertdialog",
+                    tabindex: "-1",
+                    onmounted: move |element| async move {
+                        let _ = element.data().set_focus(true).await;
+                    },
+                    onkeydown: move |event| {
+                        if event.key() == Key::Escape && !busy() {
+                            event.stop_propagation();
+                            active_confirmation.set(None);
+                        }
+                    },
                     "aria-label": t("platform_admin.personalization.regenerate_confirm_label", locale),
                     p { {t("platform_admin.personalization.regenerate_confirm", locale)} }
                     div { class: "mt-3 flex flex-wrap gap-2",
@@ -310,7 +320,7 @@ pub fn PlatformPersonalizationSection() -> Element {
             title: t("platform_admin.personalization.title", locale),
             description: Some(t("platform_admin.personalization.description", locale)),
             children: rsx! {
-                div { class: "space-y-6",
+                div { class: "et-admin-personalization space-y-6",
                     div { class: "flex justify-end",
                         button {
                             r#type: "button",
@@ -372,7 +382,7 @@ pub fn PlatformPersonalizationSection() -> Element {
                                 h2 { class: "text-lg font-semibold text-gray-900 dark:text-white",
                                     {t("platform_admin.personalization.schools", locale)}
                                 }
-                                div { class: "grid grid-cols-1 gap-4 xl:grid-cols-2",
+                                div { class: "et-admin-policy-grid grid grid-cols-1 gap-4 xl:grid-cols-2",
                                     for policy in data.schools.iter() {
                                         SchoolPolicyCard {
                                             key: "{policy.school_id}-{policy.policy_version}",
@@ -433,7 +443,7 @@ pub fn PlatformPersonalizationSection() -> Element {
                                             }
                                         },
                                         Some(Ok(items)) => rsx! {
-                                            div { class: "grid grid-cols-1 gap-4 xl:grid-cols-2",
+                                            div { class: "et-admin-policy-grid grid grid-cols-1 gap-4 xl:grid-cols-2",
                                                 for item in items.iter() {
                                                     TeacherPolicyCard {
                                                         key: "{item.teacher_id}-{item.override_version}-{item.effective_version}-{item.effective_enabled}-{item.effective_paused}-{item.effective_llm_profile_id}-{item.effective_delivery_policy}",
@@ -558,7 +568,7 @@ fn SchoolPolicyCard(
     let mut error = use_signal(|| false);
 
     rsx! {
-        article { class: "et-ui-card p-5",
+        article { class: "et-ui-card et-admin-policy-card p-5",
             div { class: "flex flex-wrap items-start justify-between gap-3",
                 div {
                     h3 { class: "font-semibold text-gray-900 dark:text-white", "{policy.school_name}" }
@@ -584,7 +594,7 @@ fn SchoolPolicyCard(
                 }
             }
 
-            div { class: "mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2",
+            div { class: "et-admin-policy-fields mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2",
                 label { class: "flex items-center gap-2 text-sm",
                     input {
                         r#type: "checkbox",
@@ -716,7 +726,7 @@ fn TeacherPolicyCard(
     let mut error = use_signal(|| false);
 
     rsx! {
-        article { class: "et-ui-card p-5",
+        article { class: "et-ui-card et-admin-policy-card p-5",
             h3 { class: "font-semibold text-gray-900 dark:text-white", "{policy.teacher_name}" }
             p { class: "mt-1 text-xs text-gray-500",
                 {format!(
@@ -751,7 +761,7 @@ fn TeacherPolicyCard(
             }
 
             if mode() == "override" {
-                div { class: "mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2",
+                div { class: "et-admin-policy-fields mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2",
                     label { class: "flex items-center gap-2 text-sm",
                         input {
                             r#type: "checkbox",
