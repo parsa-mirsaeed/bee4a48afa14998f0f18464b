@@ -122,6 +122,12 @@ The `@smoke @aurora @manager @safety` regression exercises the trigger, explicit
 
 The focus regression on head `6f69aa3` was resolved (browser check passed). That same run failed one bilingual copy test because the test suite's English preload script overrode a manual localStorage change on reload. The test now invokes the actual language control. This fix and the two-step removal require **new exact-head** browser and Rust validation; do not infer new pass status from older runs.
 
+### Sign-in visual unification — follow-on slice
+
+The real `LoginPage` now loads the same Aurora theme adapter as the authenticated dashboard rather than keeping an unrelated authentication palette. The desktop context uses the ink/violet visual motif, while compact layouts replace the hidden context with an accessible EduTalent brand mark. Existing English/Persian fields, validation, password reveal, recovery-unavailable dialog, SSR/hydration guard, offline operation, and authentication service are unchanged.
+
+A browser regression captures desktop and mobile Persian sign-in screenshots, checks the actual CSS and mobile brand, and ensures the form remains accessible without horizontal overflow. Exact-head browser/compile evidence and human visual review are required before sign-off.
+
 ### Phase 1 implementation ledger
 
 - [x] Repository, role routes, product capability matrix entry points, and current design-system owners identified.
