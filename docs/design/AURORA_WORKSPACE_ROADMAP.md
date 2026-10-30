@@ -1,6 +1,6 @@
 # Aurora Workspace — EduTalent UI/UX redesign execution roadmap
 
-**Status:** Phase 1 implementation branch in progress; subsequent phases are planned, not claimed complete.
+**Status:** Draft branch implements the shared shell, five role-first overviews, and manager directory/classes workflow slices. The full redesign remains incomplete and subject to exact-head CI, visual QA, and review.
 **Scope:** authenticated EduTalent web UI, across platform administrator, school manager, teacher, student, and parent roles.
 **Implementation stack:** Rust/Dioxus 0.7, existing shared UI components, Tailwind/CSS, existing localization.
 **Design specification:** [DESIGN.md](../../DESIGN.md).
@@ -113,6 +113,14 @@ A passing compiler does not imply keyboard correctness; a passing screenshot doe
 - **Tests added (verification pending exact-head CI):** keyboard opens class details, switch mode semantics, create subject labeling, enrollment select labeling, roster icon target dimensions.
 - **Focus remediation:** removed timing-sensitive reliance on the initial Dioxus mount and added bounded post-render retries that stop on success or drawer dismissal. Only the latest exact-head browser run can validate the fix.
 - **Release gate remains open:** do not merge before Rust, Playwright, accessible focus, RTL/light/dark screenshot review, and reviewer sign-off. Class removal and role permission lifecycle require further operational review.
+
+### Current QA: inline roster removal
+
+The class-detail roster's original one-click unenrollment ran a destructive server action directly from the icon button. The action is now two-stage: the original trigger stays mounted, a localized inline confirmation names the student, Cancel removes the prompt without changing data, and only the explicit Delete button invokes the existing authorized `unenroll_student` operation. The request and refresh paths are otherwise unchanged. Visual tokens and touch targets match the rest of the manager workspace.
+
+The `@smoke @aurora @manager @safety` regression exercises the trigger, explicit confirmation, cancellation, and preservation of the roster. It intentionally does not execute a destructive API request on seeded fixtures.
+
+The focus regression on head `6f69aa3` was resolved (browser check passed). That same run failed one bilingual copy test because the test suite's English preload script overrode a manual localStorage change on reload. The test now invokes the actual language control. This fix and the two-step removal require **new exact-head** browser and Rust validation; do not infer new pass status from older runs.
 
 ### Phase 1 implementation ledger
 
