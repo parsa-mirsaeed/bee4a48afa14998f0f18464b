@@ -295,3 +295,27 @@ test('admin regeneration confirmation survives an overview data refresh and clos
   await confirmation.press('Escape');
   await expect(confirmation).toHaveCount(0);
 });
+
+test('Aurora tablet in Persian dark mode retains navigation focus, contrast tokens and no sideways page scroll @smoke @aurora @rtl @dark @responsive', async ({ page }, testInfo: TestInfo) => {
+  await page.setViewportSize({ width: 820, height: 1024 });
+  await page.addInitScript(() => localStorage.setItem('edutalent_locale', 'fa'));
+  await signIn(page, 'e2e-manager-a@example.test');
+  await expect.poll(() => page.evaluate(() => document.documentElement.dir)).toBe('rtl');
+
+  await page.locator('html').evaluate((element) => element.classList.add('dark'));
+  await expect(page.locator('.et-dashboard-main')).toHaveCSS('background-color', 'rgb(16, 19, 38)');
+  await expect(page.locator('.et-topbar')).toHaveCSS('background-color', 'rgb(27, 32, 57)');
+  const menu = page.locator('.et-mobile-menu-button');
+  await expect(menu).toBeVisible();
+  await menu.click();
+  const close = page.locator('.et-sidebar-mobile-close');
+  await expect(close).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(menu).toBeFocused();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)).toBeFalsy();
+
+  await testInfo.attach('aurora-tablet-dark-fa', {
+    body: await page.screenshot({ fullPage: true }),
+    contentType: 'image/png',
+  });
+});
