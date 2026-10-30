@@ -453,7 +453,12 @@ test('parent academic guidance has accessible scoped controls, consent remains r
   await childPicker.selectOption({ index: 1 });
   const suggestions = workspace.locator('.et-parent-chat__suggestions');
   await expect(suggestions.getByRole('button')).toHaveCount(2);
-  await expect(workspace.locator('[role="log"]')).toBeVisible();
+  // An empty log is intentionally zero-height; the visible status explains
+  // that no child-scoped answers have been generated yet.
+  const history = workspace.locator('[role="log"]');
+  await expect(history).toBeAttached();
+  await expect(history).toHaveAttribute('aria-label', /.+/);
+  await expect(workspace.locator('.et-parent-chat__empty')).toBeVisible();
   await expect(workspace.locator('textarea')).toBeVisible();
   const send = workspace.getByRole('button').last();
   await expect(send).toBeDisabled();
