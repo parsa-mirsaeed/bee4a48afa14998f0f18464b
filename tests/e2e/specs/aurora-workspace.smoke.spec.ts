@@ -345,6 +345,10 @@ test('Aurora sign-in matches the workspace on desktop and mobile without changin
   await page.goto('/');
   await expect(page.locator('.et-auth-context')).toBeVisible();
   await expect(page.locator('.et-auth-context')).toHaveCSS('background-image', /linear-gradient/);
+  await expect(page.locator('.et-auth-shell')).toHaveCSS('position', 'relative');
+  await expect(page.locator('.et-auth-context')).toHaveCSS('position', 'absolute');
+  await expect(page.locator('.et-auth-context__story')).toHaveCSS('position', 'absolute');
+  await expect(page.locator('.et-auth-panel')).toHaveCSS('position', 'relative');
   await expect(page.locator('.et-auth-form-wrap')).toHaveCSS('border-radius', '24px');
   // Catch the regression where the SSR Persian grid positioned the brand
   // panel across the hydrated English form. An element can look visible yet
@@ -396,9 +400,15 @@ test('Aurora sign-in matches the workspace on desktop and mobile without changin
   await expect(page.locator('input[type="email"]')).toBeVisible();
   await expect(page.locator('input[type="password"]')).toBeVisible();
   await testInfo.attach('aurora-login-desktop', {
-    body: await page.screenshot({ fullPage: true }),
+    body: await page.screenshot({ fullPage: false }),
     contentType: 'image/png',
   });
+
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await expect(page.locator('.et-auth-context')).toBeHidden();
+  await expect(page.locator('.et-auth-panel')).toBeVisible();
+  await expect(page.locator('.et-auth-form-wrap')).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)).toBeFalsy();
 
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.locator('.et-auth-context')).toBeHidden();
