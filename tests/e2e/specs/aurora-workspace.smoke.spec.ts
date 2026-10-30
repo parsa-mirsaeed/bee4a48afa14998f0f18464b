@@ -271,3 +271,27 @@ test('roster removal requires confirmation and Cancel preserves enrollment @smok
   await expect(rows).toHaveCount(originalCount);
   await expect(row).toContainText(originalStudent);
 });
+
+test('admin regeneration confirmation survives an overview data refresh and closes with Escape @smoke @aurora @admin @accessibility', async ({ page }) => {
+  await signIn(page, 'e2e-admin@example.test');
+  await page.goto('/dashboard/personalization');
+  const admin = page.locator('.et-admin-personalization');
+  await expect(admin).toBeVisible();
+  const card = admin.locator('.et-admin-policy-card', { hasText: 'E2E School A' });
+  await expect(card).toBeVisible();
+
+  const regenerate = card.getByRole('button', { name: 'Retry with current AI settings', exact: true });
+  await regenerate.click();
+  const confirmation = card.getByRole('alertdialog');
+  await expect(confirmation).toBeVisible();
+  await expect(confirmation).toBeFocused();
+  await expect(confirmation).toContainText('new jobs');
+
+  const refresh = admin.locator('> div').first().getByRole('button', { name: 'Refresh', exact: true });
+  await refresh.click();
+  await expect(confirmation).toBeVisible();
+  await expect(confirmation).toContainText('new jobs');
+
+  await confirmation.press('Escape');
+  await expect(confirmation).toHaveCount(0);
+});
