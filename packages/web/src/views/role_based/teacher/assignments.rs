@@ -394,15 +394,17 @@ fn CreateAssignmentModal(on_close: EventHandler, on_created: EventHandler) -> El
             open: true,
             on_close: move |_| if !busy() { on_close.call(()) },
             children: rsx! {
-                div { class: "space-y-5",
+                div { class: "et-teacher-assignment-form space-y-5",
                     if let Some(message) = error() {
                         div { class: "rounded-lg bg-red-50 p-3 text-sm text-red-800 dark:bg-red-900/20 dark:text-red-200", role: "alert", "{message}" }
                     }
-                    LabeledInput { label: locale.t("teacher.assignments.title_label"), value: title, required: true }
+                    LabeledInput { field_id: "et-teacher-assignment-title".to_string(), label: locale.t("teacher.assignments.title_label"), value: title, required: true }
                     div {
-                        label { class: "mb-1 block text-sm font-medium", "{locale.t(\"teacher.assignments.class_label\")} *" }
+                        label { r#for: "et-teacher-assignment-class", class: "mb-1 block text-sm font-medium", "{locale.t(\"teacher.assignments.class_label\")} *" }
                         select {
                             class: "w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 dark:border-gray-700 dark:bg-gray-900",
+                            id: "et-teacher-assignment-class",
+                            "aria-required": "true",
                             value: "{class_id}",
                             onchange: move |event| {
                                 let selected = event.value();
@@ -426,10 +428,12 @@ fn CreateAssignmentModal(on_close: EventHandler, on_created: EventHandler) -> El
                             }
                         }
                     }
-                    LabeledInput { label: locale.t("teacher.assignments.due_date_label"), value: due_date, required: true, input_type: "date" }
+                    LabeledInput { field_id: "et-teacher-assignment-due".to_string(), label: locale.t("teacher.assignments.due_date_label"), value: due_date, required: true, input_type: "date" }
                     div {
-                        label { class: "mb-1 block text-sm font-medium", "{locale.t(\"teacher.assignments.instructions_label\")} *" }
+                        label { r#for: "et-teacher-assignment-instructions", class: "mb-1 block text-sm font-medium", "{locale.t(\"teacher.assignments.instructions_label\")} *" }
                         textarea {
+                            id: "et-teacher-assignment-instructions",
+                            "aria-required": "true",
                             class: "min-h-32 w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 dark:border-gray-700 dark:bg-gray-900",
                             value: "{body}",
                             oninput: move |event| body.set(event.value()),
@@ -453,6 +457,7 @@ fn CreateAssignmentModal(on_close: EventHandler, on_created: EventHandler) -> El
 
 #[component]
 fn LabeledInput(
+    field_id: String,
     label: String,
     value: Signal<String>,
     required: bool,
@@ -460,8 +465,9 @@ fn LabeledInput(
 ) -> Element {
     rsx! {
         div {
-            label { class: "mb-1 block text-sm font-medium", "{label}" if required { " *" } }
+            label { r#for: "{field_id}", class: "mb-1 block text-sm font-medium", "{label}" if required { " *" } }
             input {
+                id: "{field_id}",
                 class: "w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 dark:border-gray-700 dark:bg-gray-900",
                 r#type: "{input_type}",
                 value: "{value}",
