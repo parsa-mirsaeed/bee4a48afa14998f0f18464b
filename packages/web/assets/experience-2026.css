@@ -1268,6 +1268,11 @@
   color: #fff;
   background: var(--et-color-danger);
 }
+/* Dark semantic danger is pale pink. Pair it with ink, not white, so the
+ * destructive confirmation remains readable (WCAG AA small text). */
+.dark .et-manager-classes__confirm-button {
+  color: #101326;
+}
 .et-manager-classes__confirm-button:disabled {
   cursor: not-allowed;
   opacity: 0.6;
