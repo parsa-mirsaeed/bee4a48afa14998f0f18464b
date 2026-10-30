@@ -1782,6 +1782,53 @@
   }
 }
 
+/* Teacher create-assignment form: native labels, touch targets and clear
+ * required-field focus. Its existing validation and persistence stay intact. */
+.et-teacher-assignment-form {
+  display: grid;
+  gap: 19px;
+  min-inline-size: 0;
+}
+.et-teacher-assignment-form label {
+  display: block;
+  color: var(--et-color-text);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.6;
+}
+.et-teacher-assignment-form :is(input, select, textarea):not([type="checkbox"]) {
+  display: block;
+  inline-size: 100%;
+  min-inline-size: 0;
+  min-block-size: 44px;
+  border: 1px solid var(--et-color-border-strong);
+  border-radius: 12px;
+  background: var(--et-color-surface);
+  color: var(--et-color-text);
+  padding-inline: 13px;
+}
+.et-teacher-assignment-form textarea { resize: vertical; line-height: 1.7; }
+.et-teacher-assignment-form :is(input, select, textarea):focus-visible {
+  outline: 3px solid var(--et-color-focus);
+  outline-offset: 2px;
+}
+.et-teacher-assignment-form button {
+  min-block-size: 44px;
+  border-radius: 11px;
+}
+.et-teacher-assignment-form fieldset {
+  min-inline-size: 0;
+  border-radius: 13px;
+}
+@media (max-width: 767px) {
+  .et-teacher-assignment-form > div:last-child {
+    flex-wrap: wrap;
+  }
+  .et-teacher-assignment-form > div:last-child button {
+    flex: 1 1 120px;
+  }
+}
+
 /* RTL reverses document flow via logical properties, not a second UI. */
 [dir="rtl"] .et-topbar,
 [dir="rtl"] .et-sidebar,
