@@ -58,7 +58,7 @@ pub fn LoginPage() -> Element {
                     }
                     span { "EduTalent" }
                 }
-                div {
+                div { class: "et-auth-context__story",
                     h1 { class: "et-auth-context__headline", "{locale.t(\"auth.context_headline\")}" }
                     p { class: "et-auth-context__copy", "{locale.t(\"auth.context_copy\")}" }
                 }
