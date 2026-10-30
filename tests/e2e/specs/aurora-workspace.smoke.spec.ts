@@ -467,3 +467,25 @@ test('parent academic guidance has accessible scoped controls, consent remains r
     contentType: 'image/png',
   });
 });
+
+test('teacher create assignment fields are explicitly labeled, required, and keyboard focusable @smoke @aurora @teacher @forms @accessibility', async ({ page }) => {
+  await signIn(page, 'e2e-teacher-a@example.test');
+  await page.goto('/dashboard/assignments');
+  await page.locator('.et-teacher-assignments button.btn-primary').first().click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
+  const fields = [
+    ['et-teacher-assignment-title', 'input'],
+    ['et-teacher-assignment-class', 'select'],
+    ['et-teacher-assignment-due', 'input'],
+    ['et-teacher-assignment-instructions', 'textarea'],
+  ] as const;
+  for (const [id, element] of fields) {
+    const control = dialog.locator(`${element}#${id}`);
+    await expect(control).toBeVisible();
+    await expect(dialog.locator(`label[for="${id}"]`)).toBeVisible();
+    await expect(control).toHaveAttribute('aria-required', 'true');
+    await control.focus();
+    await expect(control).toBeFocused();
+  }
+});
