@@ -1381,6 +1381,58 @@
   }
 }
 
+
+/* Account access changes use a deliberate confirmation, not a one-click icon. */
+.et-manager-users__deactivation-prompt {
+  min-inline-size: 230px;
+  display: grid;
+  gap: 11px;
+  margin-block-start: 11px;
+  padding: 13px;
+  border: 1px solid color-mix(in srgb, var(--et-color-danger) 22%, var(--et-color-border));
+  border-radius: 12px;
+  background: var(--et-color-surface-subtle);
+  color: var(--et-color-text);
+  white-space: normal;
+  text-align: start;
+}
+.et-manager-users__deactivation-prompt p {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 1.65;
+  font-weight: 650;
+}
+.et-manager-users__deactivation-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.et-manager-users__deactivation-actions button {
+  min-block-size: 44px;
+  min-inline-size: 84px;
+  padding-inline: 13px;
+  border: 1px solid var(--et-color-border-strong);
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 700;
+}
+.et-manager-users__deactivate-confirm {
+  color: #fff;
+  background: var(--et-color-danger);
+  border-color: var(--et-color-danger);
+}
+.dark .et-manager-users__deactivate-confirm { color: #101326; }
+.et-manager-users__deactivate-cancel {
+  color: var(--et-color-text);
+  background: var(--et-color-surface);
+}
+.et-manager-users__deactivate-cancel:hover { background: var(--et-color-primary-soft); }
+@media (max-width: 767px) {
+  .et-manager-users__deactivation-prompt { min-inline-size: 190px; }
+  .et-manager-users__deactivation-actions button { flex: 1 1 88px; }
+}
+
 /* RTL reverses document flow via logical properties, not a second UI. */
 [dir="rtl"] .et-topbar,
 [dir="rtl"] .et-sidebar,
