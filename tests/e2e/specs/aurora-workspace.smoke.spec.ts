@@ -339,3 +339,31 @@ test('manager account deactivation is confirmed and Cancel leaves access unchang
   await expect(trigger).toHaveAttribute('aria-expanded', 'false');
   await expect(row.locator('td').nth(2)).toHaveText(originalStatus);
 });
+
+test('Aurora sign-in matches the workspace on desktop and mobile without changing authentication @smoke @aurora @login @responsive', async ({ page }, testInfo: TestInfo) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/');
+  await expect(page.locator('.et-auth-context')).toBeVisible();
+  await expect(page.locator('.et-auth-context')).toHaveCSS('background-image', /linear-gradient/);
+  await expect(page.locator('.et-auth-form-wrap')).toHaveCSS('border-radius', '24px');
+  await expect(page.locator('input[type="email"]')).toBeVisible();
+  await expect(page.locator('input[type="password"]')).toBeVisible();
+  await testInfo.attach('aurora-login-desktop', {
+    body: await page.screenshot({ fullPage: true }),
+    contentType: 'image/png',
+  });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.locator('.et-auth-context')).toBeHidden();
+  await expect(page.locator('.et-auth-mobile-brand')).toBeVisible();
+  await expect(page.locator('.et-auth-form-wrap')).toHaveCSS('border-radius', '20px');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)).toBeFalsy();
+
+  await page.locator('.et-auth-panel .language-switcher-toggle').click();
+  await expect.poll(() => page.evaluate(() => document.documentElement.dir)).toBe('rtl');
+  await expect(page.locator('.et-auth-form-wrap')).toBeVisible();
+  await testInfo.attach('aurora-login-mobile-fa', {
+    body: await page.screenshot({ fullPage: true }),
+    contentType: 'image/png',
+  });
+});
