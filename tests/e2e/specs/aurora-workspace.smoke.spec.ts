@@ -174,8 +174,12 @@ test('manager overview explains actual work rather than release internals in EN 
   await expect(page.locator('body')).not.toContainText('production-backed workflows');
   await expect(page.locator('body')).not.toContainText('Synthetic activity');
 
-  await page.evaluate(() => localStorage.setItem('edutalent_locale', 'fa'));
-  await page.reload();
+  // Exercise the visible language switcher. The suite's addInitScript pins
+  // English at navigation time, so a storage-write-plus-reload cannot switch
+  // this test to Persian and would hide a real translation regression.
+  const languageSwitcher = page.locator('.et-sidebar .language-switcher-toggle');
+  await expect(languageSwitcher).toBeVisible();
+  await languageSwitcher.click();
   await expect.poll(() => page.evaluate(() => document.documentElement.dir)).toBe('rtl');
   await expect(hero).toContainText('مدیریت کاربران، کلاس‌ها و منابع آموزشی مدرسه');
   await expect(page.locator('body')).not.toContainText('شاخص‌های ساختگی');
