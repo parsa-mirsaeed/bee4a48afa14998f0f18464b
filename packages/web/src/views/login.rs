@@ -5,6 +5,8 @@ use crate::ui::{Button, ButtonSize, Dialog, EmailField, FeedbackTone, InlineAler
 use crate::Route;
 use dioxus::prelude::*;
 
+const EXPERIENCE_2026_CSS: Asset = asset!("/assets/experience-2026.css");
+
 #[component]
 pub fn LoginPage() -> Element {
     let mut email = use_signal(String::new);
@@ -47,6 +49,7 @@ pub fn LoginPage() -> Element {
     let t_service_unavailable = locale.t("auth.service_unavailable");
 
     rsx! {
+        document::Stylesheet { href: EXPERIENCE_2026_CSS }
         div { class: "et-auth-shell",
             aside { class: "et-auth-context", "aria-label": "EduTalent",
                 div { class: "et-auth-context__brand",
@@ -63,6 +66,10 @@ pub fn LoginPage() -> Element {
             }
 
             main { class: "et-auth-panel",
+                div { class: "et-auth-mobile-brand",
+                    span { class: "material-icons-outlined", "aria-hidden": "true", "school" }
+                    span { "EduTalent" }
+                }
                 div { class: "et-auth-panel__top",
                     LanguageSwitcher { class: "et-auth-language".to_string() }
                 }
