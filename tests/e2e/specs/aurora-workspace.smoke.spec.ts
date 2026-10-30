@@ -346,6 +346,27 @@ test('Aurora sign-in matches the workspace on desktop and mobile without changin
   await expect(page.locator('.et-auth-context')).toBeVisible();
   await expect(page.locator('.et-auth-context')).toHaveCSS('background-image', /linear-gradient/);
   await expect(page.locator('.et-auth-form-wrap')).toHaveCSS('border-radius', '24px');
+  // Catch the regression where the SSR Persian grid positioned the brand
+  // panel across the hydrated English form. An element can look visible yet
+  // remain unclickable because a sibling intercepts pointer events.
+  const desktopHitTest = await page.evaluate(() => {
+    const context = document.querySelector<HTMLElement>('.et-auth-context')!;
+    const panel = document.querySelector<HTMLElement>('.et-auth-panel')!;
+    const button = document.querySelector<HTMLButtonElement>('.et-auth-form button[type="submit"]')!;
+    const contextBox = context.getBoundingClientRect();
+    const panelBox = panel.getBoundingClientRect();
+    const buttonBox = button.getBoundingClientRect();
+    const target = document.elementFromPoint(
+      buttonBox.left + buttonBox.width / 2,
+      buttonBox.top + buttonBox.height / 2,
+    );
+    return {
+      columnsSeparate: contextBox.right <= panelBox.left + 1,
+      buttonClickable: target === button || button.contains(target),
+    };
+  });
+  expect(desktopHitTest.columnsSeparate, 'desktop brand and form columns must not overlap').toBeTruthy();
+  expect(desktopHitTest.buttonClickable, 'the sign-in button must receive pointer events').toBeTruthy();
   await expect(page.locator('input[type="email"]')).toBeVisible();
   await expect(page.locator('input[type="password"]')).toBeVisible();
   await testInfo.attach('aurora-login-desktop', {
@@ -366,4 +387,27 @@ test('Aurora sign-in matches the workspace on desktop and mobile without changin
     body: await page.screenshot({ fullPage: true }),
     contentType: 'image/png',
   });
+});
+
+test('Aurora login remains clickable in Persian RTL desktop layout @smoke @aurora @login @rtl @accessibility', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.addInitScript(() => localStorage.setItem('edutalent_locale', 'fa'));
+  await page.goto('/');
+  await expect.poll(() => page.evaluate(() => document.documentElement.dir)).toBe('rtl');
+  const signIn = page.locator('.et-auth-form button[type="submit"]');
+  await expect(signIn).toBeVisible();
+
+  const clickable = await signIn.evaluate((button) => {
+    const rectangle = button.getBoundingClientRect();
+    const hit = document.elementFromPoint(
+      rectangle.left + rectangle.width / 2,
+      rectangle.top + rectangle.height / 2,
+    );
+    return hit === button || button.contains(hit);
+  });
+  expect(clickable, 'RTL sign-in control must not be under the desktop brand panel').toBeTruthy();
+  await page.locator('input[type="email"]').fill('e2e-manager-a@example.test');
+  await page.locator('input[type="password"]').fill('e2e-password');
+  await signIn.click();
+  await expect(page).toHaveURL(/\/dashboard$/);
 });
