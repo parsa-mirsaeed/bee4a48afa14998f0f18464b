@@ -418,6 +418,8 @@ fn ClassDetailModal(
     let mut selected_student = use_signal(String::new);
     let mut is_loading = use_signal(|| false);
     let mut error_msg = use_signal(|| None::<String>);
+    // Require a deliberate second choice before changing an enrollment.
+    let mut pending_removal = use_signal(|| None::<String>);
     let locale = use_locale();
 
     let mut enrolled_resource = use_resource(move || {
@@ -559,20 +561,54 @@ fn ClassDetailModal(
                                     for student in students.iter() {
                                         {
                                             let enrollment_id = student["enrollment_id"].as_str().unwrap_or_default().to_string();
+                                            let student_name = student["name"].as_str().unwrap_or_default().to_string();
+                                            let removal_label = format!("{}: {}", locale.t("common.delete"), student_name);
+                                            let confirmation = if locale.current() == Locale::Fa {
+                                                format!("آیا {} از این کلاس حذف شود؟", student_name)
+                                            } else {
+                                                format!("Remove {} from this class?", student_name)
+                                            };
                                             rsx! {
-                                                div { class: "flex items-center justify-between p-3",
+                                                div { class: "et-manager-classes__roster-row flex items-center justify-between p-3",
                                                     div {
-                                                        p { class: "font-medium text-gray-900 dark:text-white text-sm", "{student[\"name\"].as_str().unwrap_or_default()}" }
+                                                        p { class: "font-medium text-gray-900 dark:text-white text-sm", "{student_name}" }
                                                         p { class: "text-xs text-gray-500 dark:text-gray-400", "{student[\"email\"].as_str().unwrap_or_default()}" }
                                                     }
                                                     button {
                                                         class: "et-manager-classes__remove-action text-red-500 hover:text-red-700 p-1 rounded transition-colors",
                                                         r#type: "button",
-                                                        "aria-label": format!("{}: {}", locale.t("common.delete"), student["name"].as_str().unwrap_or_default()),
-                                                        onclick: move |_| handle_unenroll(enrollment_id.clone()),
+                                                        "aria-label": "{removal_label}",
+                                                        "aria-expanded": if pending_removal().as_deref() == Some(enrollment_id.as_str()) { "true" } else { "false" },
+                                                        onclick: move |_| pending_removal.set(Some(enrollment_id.clone())),
                                                         disabled: is_loading(),
                                                         title: "{locale.t(\"common.delete\")}",
                                                         span { class: "material-icons-outlined text-sm", "person_remove" }
+                                                    }
+                                                    if pending_removal().as_deref() == Some(enrollment_id.as_str()) {
+                                                        div {
+                                                            class: "et-manager-classes__remove-confirmation",
+                                                            role: "group",
+                                                            "aria-label": "{removal_label}",
+                                                            p { class: "et-manager-classes__remove-message", "{confirmation}" }
+                                                            div { class: "et-manager-classes__remove-choices",
+                                                                button {
+                                                                    class: "et-manager-classes__confirm-button",
+                                                                    r#type: "button",
+                                                                    disabled: is_loading(),
+                                                                    onclick: move |_| {
+                                                                        pending_removal.set(None);
+                                                                        handle_unenroll(enrollment_id.clone());
+                                                                    },
+                                                                    "{locale.t(\"common.delete\")}"
+                                                                }
+                                                                button {
+                                                                    class: "et-manager-classes__cancel-button",
+                                                                    r#type: "button",
+                                                                    onclick: move |_| pending_removal.set(None),
+                                                                    "{locale.t(\"common.cancel\")}"
+                                                                }
+                                                            }
+                                                        }
                                                     }
                                                 }
                                             }
