@@ -1635,6 +1635,25 @@
   outline: 3px solid var(--et-color-focus);
   outline-offset: 2px;
 }
+/* Mobile Persian sign-in has both a leading lock glyph and a trailing
+ * reveal action. Explicit physical anchors keep them at opposite ends of the
+ * input regardless of the SSR-to-hydration locale transition. */
+[dir="rtl"] .et-auth-form .et-ui-control {
+  direction: rtl;
+}
+[dir="rtl"] .et-auth-form .et-ui-control__leading {
+  left: auto;
+  right: 0.8rem;
+}
+[dir="rtl"] .et-auth-form .et-ui-input-action {
+  right: auto;
+  left: 0.35rem;
+}
+[dir="rtl"] .et-auth-form .et-ui-control--trailing .et-ui-input {
+  padding-left: 3.3rem;
+  padding-right: 2.9rem;
+}
+
 .et-auth-form .et-ui-button--primary,
 .et-auth-form button[type="submit"] {
   min-block-size: 50px;
