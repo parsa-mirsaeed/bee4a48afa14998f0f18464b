@@ -495,13 +495,13 @@ pub fn UserList() -> Element {
                                                                                 pending_deactivation.set(None);
                                                                                 handle_deactivate(deactivation_confirm_id.clone());
                                                                             },
-                                                                            "{locale.t("school_manager.users.actions.deactivate")}"
+                                                                            "{locale.t(\"school_manager.users.actions.deactivate\")}"
                                                                         }
                                                                         button {
                                                                             class: "et-manager-users__deactivate-cancel",
                                                                             r#type: "button",
                                                                             onclick: move |_| pending_deactivation.set(None),
-                                                                            "{locale.t("common.cancel")}"
+                                                                            "{locale.t(\"common.cancel\")}"
                                                                         }
                                                                     }
                                                                 }
