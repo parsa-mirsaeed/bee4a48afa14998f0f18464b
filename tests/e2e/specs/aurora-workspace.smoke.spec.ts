@@ -273,7 +273,7 @@ test('roster removal requires confirmation and Cancel preserves enrollment @smok
   const contrast = await confirmDelete.evaluate((button) => {
     const style = getComputedStyle(button);
     const rgb = (value: string) => {
-      const channels = value.match(/[\\d.]+/g)?.slice(0, 3).map(Number) ?? [];
+      const channels = value.match(/[0-9.]+/g)?.slice(0, 3).map(Number) ?? [];
       if (channels.length !== 3) throw new Error(`Cannot parse CSS color ${value}`);
       return channels.map((v) => {
         const x = v / 255;
