@@ -61,7 +61,7 @@ pub fn AssignmentsList() -> Element {
     };
 
     rsx! {
-        div { class: "space-y-6",
+        div { class: "et-teacher-assignments space-y-6",
             if let Some((success, message)) = notice() {
                 div {
                     class: if success {
@@ -75,7 +75,7 @@ pub fn AssignmentsList() -> Element {
             }
 
             div { class: "flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between",
-                div { class: "flex flex-wrap gap-2",
+                div { class: "et-assignment-filters flex flex-wrap gap-2", role: "group", "aria-label": locale.t("assignments.title"),
                     FilterButton { value: "all", label: locale.t("teacher.assignments.all_filter"), filter }
                     FilterButton { value: "draft", label: locale.t("teacher.assignments.draft_filter"), filter }
                     FilterButton { value: "active", label: locale.t("teacher.assignments.active_filter"), filter }
@@ -194,6 +194,8 @@ fn FilterButton(value: &'static str, label: String, filter: Signal<String>) -> E
     let active = filter() == value;
     rsx! {
         button {
+            r#type: "button",
+            "aria-pressed": if active { "true" } else { "false" },
             class: if active {
                 "rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white"
             } else {
