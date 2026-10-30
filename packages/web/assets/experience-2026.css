@@ -1439,14 +1439,14 @@
   /* Keep physical grid tracks stable across SSR Persian and hydrated English.
    * Do not permit a direction-dependent over-wide grid to overflow to the
    * physical left and clip the decorative brand copy. */
-  display: grid;
+  display: flex;
+  flex-direction: row;
   direction: ltr;
   box-sizing: border-box;
   width: 100%;
   max-width: 100%;
   min-width: 0;
   margin: 0;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 34rem);
   min-block-size: 100dvh;
   background: var(--et-color-bg);
 }
@@ -1455,9 +1455,7 @@
    * layout or hydration transition paints across the form, it must not eat
    * pointer events needed for authentication. */
   pointer-events: none;
-  grid-column: 1;
-  grid-row: 1;
-  justify-self: stretch;
+  flex: 1 1 0;
   box-sizing: border-box;
   width: 100%;
   max-width: 100%;
@@ -1468,9 +1466,8 @@
   text-align: left;
 }
 .et-auth-shell > .et-auth-panel {
-  grid-column: 2;
-  grid-row: 1;
-  inline-size: 100%;
+  flex: 0 0 min(34rem, 100%);
+  inline-size: auto;
   max-inline-size: 100%;
   min-inline-size: 0;
   position: relative;
@@ -1648,9 +1645,12 @@
 }
 .et-auth-mobile-brand { display: none; }
 @media (max-width: 767px) {
-  .et-auth-shell { grid-template-columns: minmax(0, 1fr); }
+  .et-auth-shell { flex-direction: column; }
   .et-auth-shell > .et-auth-context { display: none; }
-  .et-auth-shell > .et-auth-panel { grid-column: 1; }
+  .et-auth-shell > .et-auth-panel {
+    flex: 1 0 auto;
+    inline-size: 100%;
+  }
   .et-auth-panel {
     min-block-size: 100dvh;
     padding: 19px 16px 28px;
