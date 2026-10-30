@@ -128,6 +128,16 @@ The real `LoginPage` now loads the same Aurora theme adapter as the authenticate
 
 A browser regression captures desktop and mobile Persian sign-in screenshots, checks the actual CSS and mobile brand, and ensures the form remains accessible without horizontal overflow. Exact-head browser/compile evidence and human visual review are required before sign-off.
 
+### Current acceptance ledger — login geometry and role workflows
+
+The first full browser run with Aurora on the login route (head `a695fac`) found a **blocking hit-test regression**: the desktop brand aside intercepted pointer events over the submit button, causing 40 role/auth journeys to time out, despite the login screenshot smoke case passing. Do not cite that run as successful. The cause was inherited SSR Persian direction affecting the desktop login grid; the fix anchors the two columns in a physical left-to-right grid while each panel retains correct localized text direction. Desktop LTR and RTL hit-tests now assert that the button receives actual pointer events (not merely that it looks visible). The real login flow remains unchanged.
+
+The teacher and student assignment pages now use explicitly labeled, single-pressed-choice filters with minimum 44px targets; role-specific cards are restyled using the canonical data and existing actions. Parent academic guidance now has consistent fields, a bounded accessible conversation log, responsive prompt suggestions and consent states while retaining the existing ephemeral child-scoped server request.
+
+Regression coverage added: teacher and student filter semantics, student 390px overflow and screenshot, parent child-picker/consent and screenshot. These are **implemented, not verified** until exact-head CI succeeds; the latest head supersedes previous green CI.
+
+Outstanding to consider complete: inspect actual login desktop screenshot and hit testing after the fix, inspect role/task screenshots at 390/820/1440 across EN/FA and dark, audit the remaining CRUD and submission edges, reduce unnecessary legacy CSS without changing canonical tokens, and obtain reviewer approval.
+
 ### Phase 1 implementation ledger
 
 - [x] Repository, role routes, product capability matrix entry points, and current design-system owners identified.
