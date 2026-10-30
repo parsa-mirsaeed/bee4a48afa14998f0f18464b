@@ -1284,6 +1284,103 @@
   .et-manager-classes__remove-choices > button { flex: 1 1 120px; }
 }
 
+/* Admin personalization: governance-heavy forms stay usable inside cards
+ * at all viewport sizes, rather than inheriting viewport-only sm/xl columns. */
+.et-admin-personalization {
+  min-inline-size: 0;
+}
+.et-admin-personalization .et-admin-policy-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
+  gap: 18px;
+}
+.et-admin-personalization .et-admin-policy-card {
+  min-inline-size: 0;
+  padding: clamp(17px, 2.1vw, 24px);
+  border: 1px solid var(--et-color-border);
+  border-radius: 20px;
+  background: var(--et-color-surface);
+  box-shadow: var(--et-shadow-1);
+}
+.et-admin-personalization .et-admin-policy-card dl.grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.et-admin-personalization .et-admin-policy-card dl.grid > div {
+  min-inline-size: 0;
+}
+.et-admin-personalization .et-admin-policy-fields {
+  min-inline-size: 0;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 195px), 1fr));
+  gap: 15px;
+}
+.et-admin-personalization .et-admin-policy-fields label {
+  min-inline-size: 0;
+  color: var(--et-color-text);
+  line-height: 1.6;
+}
+.et-admin-personalization .et-admin-policy-fields > label:last-child {
+  grid-column: 1 / -1;
+}
+.et-admin-personalization :is(select, textarea) {
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  min-block-size: 44px;
+  border: 1px solid var(--et-color-border-strong);
+  border-radius: 12px;
+  color: var(--et-color-text);
+  background: var(--et-color-surface);
+}
+.et-admin-personalization textarea {
+  min-block-size: 128px;
+  resize: vertical;
+  line-height: 1.7;
+}
+.et-admin-personalization :is(select, textarea):focus-visible {
+  outline: 3px solid var(--et-color-focus);
+  outline-offset: 2px;
+}
+.et-admin-personalization :is(select, textarea):disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+.et-admin-personalization :is(button) {
+  min-block-size: 44px;
+}
+.et-admin-regeneration-confirm {
+  min-inline-size: 0;
+  border: 1px solid color-mix(in srgb, var(--et-color-primary) 25%, var(--et-color-border));
+  border-radius: 14px;
+  color: var(--et-color-text);
+  background: var(--et-color-surface-subtle);
+}
+.et-admin-regeneration-confirm:focus-visible {
+  outline: 3px solid var(--et-color-focus);
+  outline-offset: 3px;
+}
+.et-admin-regeneration-confirm > p {
+  color: var(--et-color-text);
+  line-height: 1.75;
+}
+.et-admin-regeneration-confirm button {
+  min-inline-size: 80px;
+  border-radius: 10px;
+}
+@media (max-width: 767px) {
+  .et-admin-personalization .et-admin-policy-grid { gap: 13px; }
+  .et-admin-personalization .et-admin-policy-card { padding: 17px; }
+  .et-admin-personalization .et-admin-policy-card dl.grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .et-admin-personalization *,
+  .et-admin-personalization *::before,
+  .et-admin-personalization *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
+
 /* RTL reverses document flow via logical properties, not a second UI. */
 [dir="rtl"] .et-topbar,
 [dir="rtl"] .et-sidebar,
