@@ -81,9 +81,10 @@ pub fn ParentOverviewSection(on_navigate: EventHandler<String>) -> Element {
                 },
                 Some(Ok(items)) => {
                     let total_classes: i64 = items.iter().map(|child| child.enrolled_classes).sum();
-                    let current_child = selected_child()
+                    let selected_id = selected_child();
+                    let current_child = selected_id
                         .as_ref()
-                        .and_then(|id| items.iter().find(|child| child.id == *id))
+                        .and_then(|id| items.iter().find(|child| child.id.as_str() == id.as_str()))
                         .unwrap_or(&items[0]);
                     let active_id = current_child.id.clone();
                     let selected_name = current_child.name.clone();
@@ -106,8 +107,8 @@ pub fn ParentOverviewSection(on_navigate: EventHandler<String>) -> Element {
                         section { class: "et-play-family", "aria-label": locale.t("play.parent.title"),
                             div { class: "et-play-family__intro",
                                 div {
-                                    h3 { class: "et-section-title", "{locale.t("play.parent.title")}" }
-                                    p { class: "et-play-family__hint", "{locale.t("play.parent.intro")}" }
+                                    h3 { class: "et-section-title", "{locale.t(\"play.parent.title\")}" }
+                                    p { class: "et-play-family__hint", "{locale.t(\"play.parent.intro\")}" }
                                 }
                                 span { class: "material-icons-outlined et-play-family__icon", "aria-hidden": "true", "family_restroom" }
                             }
@@ -115,7 +116,7 @@ pub fn ParentOverviewSection(on_navigate: EventHandler<String>) -> Element {
                                 for child in items.iter() {
                                     {
                                         let child_id = child.id.clone();
-                                        let active = child.id == active_id;
+                                        let active = child.id.as_str() == active_id.as_str();
                                         rsx! {
                                             button {
                                                 key: "{child.id}",
@@ -142,7 +143,7 @@ pub fn ParentOverviewSection(on_navigate: EventHandler<String>) -> Element {
                                     class: "et-play-family__action",
                                     r#type: "button",
                                     onclick: move |_| on_navigate.call("children".to_string()),
-                                    "{locale.t("parent.dashboard.view_details")}"
+                                    "{locale.t(\"parent.dashboard.view_details\")}"
                                     span { class: "material-icons-outlined", "aria-hidden": "true", "arrow_forward" }
                                 }
                             }

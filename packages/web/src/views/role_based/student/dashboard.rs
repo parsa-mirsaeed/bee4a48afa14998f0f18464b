@@ -249,9 +249,9 @@ fn StudentQuestTracker(
             div { class: "et-play-quest__copy",
                 span { class: "et-play-quest__eyebrow",
                     span { class: "material-icons-outlined", "aria-hidden": "true", "auto_awesome" }
-                    "{locale.t("play.student.journey_title")}"
+                    "{locale.t(\"play.student.journey_title\")}"
                 }
-                h3 { class: "et-play-quest__title", "{locale.t("play.student.journey_intro")}" }
+                h3 { class: "et-play-quest__title", "{locale.t(\"play.student.journey_intro\")}" }
                 p { class: "et-play-quest__caption",
                     "{completed} / {total} · {locale.t("play.student.submitted")}"
                 }
@@ -269,7 +269,7 @@ fn StudentQuestTracker(
                     class: "et-play-quest__action",
                     r#type: "button",
                     onclick: move |_| on_navigate.call(()),
-                    "{locale.t("play.student.open_tasks")}"
+                    "{locale.t(\"play.student.open_tasks\")}"
                     span { class: "material-icons-outlined", "aria-hidden": "true", "arrow_forward" }
                 }
             }

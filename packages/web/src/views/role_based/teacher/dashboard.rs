@@ -176,8 +176,8 @@ pub fn TeacherOverviewSection(on_navigate: EventHandler<String>) -> Element {
                             section { class: "et-play-report", "aria-label": locale.t("play.teacher.title"),
                                 div { class: "et-play-report__header",
                                     div {
-                                        h4 { class: "et-play-report__title", "{locale.t("play.teacher.title")}" }
-                                        p { class: "et-play-report__hint", "{locale.t("play.teacher.description")}" }
+                                        h4 { class: "et-play-report__title", "{locale.t(\"play.teacher.title\")}" }
+                                        p { class: "et-play-report__hint", "{locale.t(\"play.teacher.description\")}" }
                                     }
                                     if expected > 0 {
                                         strong { class: "et-play-report__total", "{submitted} / {expected}" }
@@ -203,18 +203,18 @@ pub fn TeacherOverviewSection(on_navigate: EventHandler<String>) -> Element {
                                         r#type: "button",
                                         "aria-pressed": if !show_incomplete() { "true" } else { "false" },
                                         onclick: move |_| show_incomplete.set(false),
-                                        "{locale.t("play.teacher.all")}"
+                                        "{locale.t(\"play.teacher.all\")}"
                                     }
                                     button {
                                         class: if show_incomplete() { "et-play-report__filter et-play-report__filter--active" } else { "et-play-report__filter" },
                                         r#type: "button",
                                         "aria-pressed": if show_incomplete() { "true" } else { "false" },
                                         onclick: move |_| show_incomplete.set(true),
-                                        "{locale.t("play.teacher.incomplete")}"
+                                        "{locale.t(\"play.teacher.incomplete\")}"
                                     }
                                 }
                                 if visible.is_empty() {
-                                    p { class: "et-play-report__empty", "{locale.t("play.teacher.no_incomplete")}" }
+                                    p { class: "et-play-report__empty", "{locale.t(\"play.teacher.no_incomplete\")}" }
                                 } else {
                                     div { class: "et-panel",
                                         for assignment in visible {

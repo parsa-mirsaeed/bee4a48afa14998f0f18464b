@@ -607,12 +607,12 @@ test('student learning journey reflects real assignment state and opens tasks @s
   const journey = page.locator('.et-play-quest');
   await expect(journey).toBeVisible();
   const bar = journey.getByRole('progressbar', { name: 'Assignment submission progress' });
-  await expect(bar).toHaveAttribute('aria-valuenow', /^\\d+$/);
+  await expect(bar).toHaveAttribute('aria-valuenow', /^\d+$/);
   const progress = Number(await bar.getAttribute('aria-valuenow'));
   expect(progress).toBeGreaterThanOrEqual(0);
   expect(progress).toBeLessThanOrEqual(100);
   await journey.getByRole('button', { name: 'Explore assignments' }).click();
-  await expect(page).toHaveURL(/\\/dashboard\\/assignments$/);
+  await expect(page).toHaveURL(/\/dashboard\/assignments$/);
 });
 
 test('parent child selector updates a real scoped learning snapshot @smoke @aurora @parent', async ({ page }) => {
@@ -624,7 +624,7 @@ test('parent child selector updates a real scoped learning snapshot @smoke @auro
   await expect(student).toHaveAttribute('aria-pressed', 'true');
   await expect(family.locator('.et-play-family__detail')).toContainText('E2E Student A');
   await family.getByRole('button', { name: 'View details' }).click();
-  await expect(page).toHaveURL(/\\/dashboard\\/children$/);
+  await expect(page).toHaveURL(/\/dashboard\/children$/);
 });
 
 test('teacher published-submission report filters without invented metrics @smoke @aurora @teacher', async ({ page }) => {
