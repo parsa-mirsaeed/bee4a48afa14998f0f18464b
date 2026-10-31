@@ -28,7 +28,7 @@ typography:
   latin:
     fontFamily: "Poppins, Inter, system-ui, sans-serif"
   persian:
-    fontFamily: "Yekan Bakh, YekanBakh, Vazirmatn, sans-serif"
+    fontFamily: "Vazirmatn, sans-serif"
   technical:
     fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace"
 rounded:
@@ -71,7 +71,7 @@ A modern learning command centre: an ink-blue navigation spine supporting a lumi
 
 **Anti-references:** generic all-white dashboards; repeated frosted-glass cards; fake metric-heavy dashboards; animated startup sequences that delay access.
 
-**Locale:** English (Poppins) and Persian (locally available Yekan Bakh, otherwise Vazirmatn); use logical inline/block CSS, RTL document direction, visible labels, and existing locale bindings. No assumptions about a school market beyond these product locales.
+**Locale:** English (Poppins) and Persian (Vazirmatn); use logical inline/block CSS, RTL document direction, visible labels, and existing locale bindings. No assumptions about a school market beyond these product locales.
 
 **Ownership:** existing Dioxus components in `packages/web/src/ui` are canonical behavior owners. For the first migration slice, `packages/web/assets/experience-2026.css` is the last-loaded presentation token adapter; `packages/web/assets/design-system.css` is the established primitives layer; `dashboard-remake.css` provides temporary legacy adapters. This document mirrors the accepted values rather than generating CSS. Consolidate tokens into the canonical layer in a later explicit migration, rather than changing the three sources independently.
 
@@ -85,9 +85,7 @@ Token map: `colors.primary` → `--et-color-primary` → `--et-accent` legacy al
 
 ## Typography
 
-**Font delivery:** Yekan Bakh is a commercial font. The locale CSS currently prefers an installed Yekan Bakh family only; without licensed webfont assets it falls back to bundled Vazirmatn. Do not claim a universal font switch or include unlicensed font binaries/CDNs. Add properly licensed WOFF2 files and verify Persian RTL/mobile/desktop screenshots before considering the typeface rollout complete.
-
-Poppins for English UI, locally installed Yekan Bakh preferred with self-hosted Vazirmatn fallback for Persian UI, monospace for technical identifiers as supported by existing i18n conventions. Page title 19px in shell; overview title scales from 30px to 44px; section heading 17–20px; list text 13–14px. Persian headings disable artificially compressed letter spacing. Preserve native scripts, wrapping, and reading order.
+Poppins for English UI, Vazirmatn for Persian UI, monospace for technical identifiers as supported by existing i18n conventions. Page title 19px in shell; overview title scales from 30px to 44px; section heading 17–20px; list text 13–14px. Persian headings disable artificially compressed letter spacing. Preserve native scripts, wrapping, and reading order.
 
 ## Layout
 
