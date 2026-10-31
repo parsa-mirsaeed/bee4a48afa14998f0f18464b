@@ -245,8 +245,14 @@ fn TeacherAssignmentOverviewRow(assignment: TeacherAssignmentInfo) -> Element {
     let status_label = assignment_presentation_label(&assignment, locale.current());
     let due_date = format_product_date_text(&assignment.due_date, locale.current());
     let progress_percent = if assignment.progress_state.is_some() && assignment.total_count > 0 {
-        Some(assignment.submitted_count.max(0).min(assignment.total_count) * 100
-            / assignment.total_count)
+        Some(
+            assignment
+                .submitted_count
+                .max(0)
+                .min(assignment.total_count)
+                * 100
+                / assignment.total_count,
+        )
     } else {
         None
     };
