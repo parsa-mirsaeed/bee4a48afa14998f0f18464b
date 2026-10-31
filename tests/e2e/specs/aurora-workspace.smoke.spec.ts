@@ -601,3 +601,39 @@ test('teacher create assignment fields are explicitly labeled, required, and key
     await expect(control).toBeFocused();
   }
 });
+
+test('student learning journey reflects real assignment state and opens tasks @smoke @aurora @student', async ({ page }) => {
+  await signIn(page, 'e2e-student-a@example.test');
+  const journey = page.locator('.et-play-quest');
+  await expect(journey).toBeVisible();
+  const bar = journey.getByRole('progressbar', { name: 'Assignment submission progress' });
+  await expect(bar).toHaveAttribute('aria-valuenow', /^\\d+$/);
+  const progress = Number(await bar.getAttribute('aria-valuenow'));
+  expect(progress).toBeGreaterThanOrEqual(0);
+  expect(progress).toBeLessThanOrEqual(100);
+  await journey.getByRole('button', { name: 'Explore assignments' }).click();
+  await expect(page).toHaveURL(/\\/dashboard\\/assignments$/);
+});
+
+test('parent child selector updates a real scoped learning snapshot @smoke @aurora @parent', async ({ page }) => {
+  await signIn(page, 'e2e-parent-a@example.test');
+  const family = page.locator('.et-play-family');
+  await expect(family).toBeVisible();
+  const student = family.getByRole('button', { name: 'E2E Student A' });
+  await student.click();
+  await expect(student).toHaveAttribute('aria-pressed', 'true');
+  await expect(family.locator('.et-play-family__detail')).toContainText('E2E Student A');
+  await family.getByRole('button', { name: 'View details' }).click();
+  await expect(page).toHaveURL(/\\/dashboard\\/children$/);
+});
+
+test('teacher published-submission report filters without invented metrics @smoke @aurora @teacher', async ({ page }) => {
+  await signIn(page, 'e2e-teacher-a@example.test');
+  const report = page.locator('.et-play-report');
+  await expect(report).toBeVisible();
+  const pending = report.getByRole('button', { name: 'Not fully submitted' });
+  await pending.click();
+  await expect(pending).toHaveAttribute('aria-pressed', 'true');
+  await report.getByRole('button', { name: 'All assignments' }).click();
+  await expect(pending).toHaveAttribute('aria-pressed', 'false');
+});

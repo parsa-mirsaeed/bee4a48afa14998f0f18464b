@@ -74,6 +74,7 @@ pub fn TeacherOverviewSection(on_navigate: EventHandler<String>) -> Element {
     let locale = use_locale();
     let stats = use_resource(move || async move { get_teacher_dashboard_stats().await });
     let assignments = use_resource(move || async move { get_teacher_assignments().await });
+    let mut show_incomplete = use_signal(|| false);
 
     rsx! {
         div { class: "et-page-stack",
@@ -152,12 +153,77 @@ pub fn TeacherOverviewSection(on_navigate: EventHandler<String>) -> Element {
                     None => rsx! { div { class: "et-state-panel", "{locale.t(\"common.loading\")}" } },
                     Some(Err(_)) => rsx! { div { class: "et-state-panel et-state-panel--error", "{locale.t(\"errors.generic_description\")}" } },
                     Some(Ok(items)) if items.is_empty() => rsx! { div { class: "et-state-panel", "{locale.t(\"teachers.dashboard.no_assignments_created\")}" } },
-                    Some(Ok(items)) => rsx! {
-                        div { class: "et-panel",
-                            for assignment in items.iter().take(5) {
-                                TeacherAssignmentOverviewRow {
-                                    key: "{assignment.id}",
-                                    assignment: assignment.clone(),
+                    Some(Ok(items)) => {
+                        // Aggregate only published assignments with a real student-facing
+                        // progress state; drafts do not imply submissions are expected.
+                        let published = items.iter().filter(|item| item.progress_state.is_some());
+                        let expected: i64 = published.clone().map(|item| item.total_count.max(0)).sum();
+                        let submitted: i64 = published.map(|item| {
+                            item.submitted_count.max(0).min(item.total_count.max(0))
+                        }).sum();
+                        let percent = if expected > 0 { submitted * 100 / expected } else { 0 };
+                        let incomplete = |item: &TeacherAssignmentInfo| {
+                            item.progress_state.is_some()
+                                && item.total_count > 0
+                                && item.submitted_count < item.total_count
+                        };
+                        let visible = items.iter()
+                            .filter(|item| !show_incomplete() || incomplete(item))
+                            .take(5)
+                            .cloned()
+                            .collect::<Vec<_>>();
+                        rsx! {
+                            section { class: "et-play-report", "aria-label": locale.t("play.teacher.title"),
+                                div { class: "et-play-report__header",
+                                    div {
+                                        h4 { class: "et-play-report__title", "{locale.t("play.teacher.title")}" }
+                                        p { class: "et-play-report__hint", "{locale.t("play.teacher.description")}" }
+                                    }
+                                    if expected > 0 {
+                                        strong { class: "et-play-report__total", "{submitted} / {expected}" }
+                                    }
+                                }
+                                if expected > 0 {
+                                    div {
+                                        class: "et-play-report__bar",
+                                        role: "progressbar",
+                                        "aria-label": locale.t("play.teacher.progress"),
+                                        "aria-valuemin": "0",
+                                        "aria-valuemax": "100",
+                                        "aria-valuenow": "{percent}",
+                                        div { class: "et-play-report__fill", style: "width: {percent}%;" }
+                                    }
+                                }
+                                div {
+                                    class: "et-play-report__filters",
+                                    role: "group",
+                                    "aria-label": locale.t("play.teacher.filters"),
+                                    button {
+                                        class: if !show_incomplete() { "et-play-report__filter et-play-report__filter--active" } else { "et-play-report__filter" },
+                                        r#type: "button",
+                                        "aria-pressed": if !show_incomplete() { "true" } else { "false" },
+                                        onclick: move |_| show_incomplete.set(false),
+                                        "{locale.t("play.teacher.all")}"
+                                    }
+                                    button {
+                                        class: if show_incomplete() { "et-play-report__filter et-play-report__filter--active" } else { "et-play-report__filter" },
+                                        r#type: "button",
+                                        "aria-pressed": if show_incomplete() { "true" } else { "false" },
+                                        onclick: move |_| show_incomplete.set(true),
+                                        "{locale.t("play.teacher.incomplete")}"
+                                    }
+                                }
+                                if visible.is_empty() {
+                                    p { class: "et-play-report__empty", "{locale.t("play.teacher.no_incomplete")}" }
+                                } else {
+                                    div { class: "et-panel",
+                                        for assignment in visible {
+                                            TeacherAssignmentOverviewRow {
+                                                key: "{assignment.id}",
+                                                assignment,
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -178,12 +244,29 @@ fn TeacherAssignmentOverviewRow(assignment: TeacherAssignmentInfo) -> Element {
     );
     let status_label = assignment_presentation_label(&assignment, locale.current());
     let due_date = format_product_date_text(&assignment.due_date, locale.current());
+    let progress_percent = if assignment.progress_state.is_some() && assignment.total_count > 0 {
+        Some(assignment.submitted_count.max(0).min(assignment.total_count) * 100
+            / assignment.total_count)
+    } else {
+        None
+    };
 
     rsx! {
         div { class: "et-list-row",
             div { class: "et-list-primary",
                 h4 { class: "et-list-title", "{assignment.title}" }
                 p { class: "et-list-meta", "{metadata}" }
+                if let Some(percent) = progress_percent {
+                    div {
+                        class: "et-play-report__bar et-play-report__bar--small",
+                        role: "progressbar",
+                        "aria-label": locale.t("play.teacher.progress"),
+                        "aria-valuemin": "0",
+                        "aria-valuemax": "100",
+                        "aria-valuenow": "{percent}",
+                        div { class: "et-play-report__fill", style: "width: {percent}%;" }
+                    }
+                }
             }
             div { class: "et-list-aside",
                 p { "{status_label}" }

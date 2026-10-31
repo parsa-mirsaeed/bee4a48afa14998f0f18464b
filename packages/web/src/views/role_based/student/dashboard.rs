@@ -100,6 +100,15 @@ pub fn StudentOverviewSection(on_navigate: EventHandler<String>) -> Element {
                                 )
                             })
                             .count();
+                        let completed_count = items
+                            .iter()
+                            .filter(|item| matches!(
+                                item.presentation_state,
+                                StudentAssignmentPresentationState::Submitted
+                                    | StudentAssignmentPresentationState::Graded
+                            ))
+                            .count();
+                        let total_count = items.len();
                         let upcoming = items
                             .iter()
                             .filter(|item| {
@@ -109,6 +118,12 @@ pub fn StudentOverviewSection(on_navigate: EventHandler<String>) -> Element {
                             .take(5)
                             .collect::<Vec<_>>();
                         rsx! {
+                            StudentQuestTracker {
+                                total: total_count,
+                                completed: completed_count,
+                                pending: pending_count,
+                                on_navigate: move |_| on_navigate.call("assignments".to_string()),
+                            }
                             div { class: "et-student-progress",
                                 div { class: "et-student-progress__focus",
                                     div { class: "et-student-progress__icon",
@@ -208,6 +223,59 @@ pub fn StudentOverviewSection(on_navigate: EventHandler<String>) -> Element {
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+/// A playful view of real persisted submission states; no points or badges
+/// are granted by this presentation-only component.
+#[component]
+fn StudentQuestTracker(
+    total: usize,
+    completed: usize,
+    pending: usize,
+    on_navigate: EventHandler,
+) -> Element {
+    let locale = use_locale();
+    let percent = if total == 0 {
+        0
+    } else {
+        completed.saturating_mul(100) / total
+    };
+
+    rsx! {
+        section { class: "et-play-quest", "aria-label": locale.t("play.student.journey_title"),
+            div { class: "et-play-quest__copy",
+                span { class: "et-play-quest__eyebrow",
+                    span { class: "material-icons-outlined", "aria-hidden": "true", "auto_awesome" }
+                    "{locale.t("play.student.journey_title")}"
+                }
+                h3 { class: "et-play-quest__title", "{locale.t("play.student.journey_intro")}" }
+                p { class: "et-play-quest__caption",
+                    "{completed} / {total} · {locale.t("play.student.submitted")}"
+                }
+                div {
+                    class: "et-play-quest__track",
+                    role: "progressbar",
+                    "aria-label": locale.t("play.student.progress"),
+                    "aria-valuemin": "0",
+                    "aria-valuemax": "100",
+                    "aria-valuenow": "{percent}",
+                    div { class: "et-play-quest__fill", style: "width: {percent}%;" }
+                }
+                p { class: "et-play-quest__pending", "{pending} · {locale.t("play.student.pending")}" }
+                button {
+                    class: "et-play-quest__action",
+                    r#type: "button",
+                    onclick: move |_| on_navigate.call(()),
+                    "{locale.t("play.student.open_tasks")}"
+                    span { class: "material-icons-outlined", "aria-hidden": "true", "arrow_forward" }
+                }
+            }
+            div { class: "et-play-quest__art", "aria-hidden": "true",
+                span { class: "material-icons-outlined et-play-quest__star", "stars" }
+                span { class: "material-icons-outlined et-play-quest__orbit", "rocket_launch" }
             }
         }
     }
