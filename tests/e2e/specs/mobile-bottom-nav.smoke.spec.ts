@@ -79,20 +79,19 @@ test('parent shortcuts are scoped, while unavailable reports never appear @smoke
   await expect(bar.getByRole('button', { name: 'Children' })).toHaveAttribute('aria-current', 'page');
 });
 
-test('manager and admin use authorized mobile destinations @smoke @navigation @manager @admin', async ({ page }) => {
+test('school manager uses only authorized shortcuts @smoke @navigation @manager', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await signIn(page, 'e2e-manager-a@example.test');
-  let bar = mobileNav(page);
+  const bar = mobileNav(page);
   await expect(bar.getByRole('button')).toHaveCount(4);
   await bar.getByRole('button', { name: 'User Management' }).click();
   await expect(page).toHaveURL(/\/dashboard\/users$/);
+});
 
-  await page.goto('/login');
-  await page.locator('input[type="email"]').fill('e2e-admin@example.test');
-  await page.locator('input[type="password"]').fill('e2e-password');
-  await page.getByRole('button', { name: /sign in|ورود/i }).click();
-  await expect(page).toHaveURL(/\/dashboard$/);
-  bar = mobileNav(page);
+test('platform admin retains role-specific home and no manager shortcuts @smoke @navigation @admin', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await signIn(page, 'e2e-admin@example.test');
+  const bar = mobileNav(page);
   await expect(bar.getByRole('button')).toHaveCount(3);
   await expect(bar.locator('[aria-current="page"]')).toHaveCount(1);
   await expect(bar.getByRole('button', { name: 'User Management' })).toHaveCount(0);
@@ -107,8 +106,8 @@ test('mobile bottom navigation fits 320 to 430px, hides at tablet boundary @smok
     await expect(bar).toBeVisible();
     const bounds = await bar.boundingBox();
     expect(bounds).not.toBeNull();
-    expect(bounds!.left).toBeGreaterThanOrEqual(0);
-    expect(bounds!.right).toBeLessThanOrEqual(width + 1);
+    expect(bounds!.x).toBeGreaterThanOrEqual(0);
+    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width + 1);
     for (const item of await bar.getByRole('button').all()) {
       const box = await item.boundingBox();
       expect(box).not.toBeNull();
