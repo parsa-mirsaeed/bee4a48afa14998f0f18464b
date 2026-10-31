@@ -179,7 +179,6 @@ pub fn TeacherOverviewSection(on_navigate: EventHandler<String>) -> Element {
                                         h4 { class: "et-play-report__title", "{locale.t(\"play.teacher.title\")}" }
                                         p { class: "et-play-report__hint", "{locale.t(\"play.teacher.description\")}" }
                                         p { class: "et-play-report__hint et-play-report__scope", "{locale.t(\"play.teacher.scope\")}" }
-                                        p { class: "et-play-report__hint et-play-report__scope", "{locale.t(\"play.teacher.scope\")}" }
                                     }
                                     if expected > 0 {
                                         strong { class: "et-play-report__total", "{submitted} / {expected}" }
