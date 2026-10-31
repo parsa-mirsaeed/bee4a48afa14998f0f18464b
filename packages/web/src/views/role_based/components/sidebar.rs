@@ -22,6 +22,11 @@ pub fn Sidebar(
     } else {
         "Portal"
     };
+    let navigation_heading = if locale.current() == Locale::Fa {
+        "بخش‌های سامانه"
+    } else {
+        "Explore"
+    };
     let sidebar_class = if mobile_open {
         "et-sidebar et-sidebar--mobile-open"
     } else {
@@ -73,16 +78,25 @@ pub fn Sidebar(
                     }
                 }
 
-                button {
-                    class: "et-sidebar-mobile-close",
-                    r#type: "button",
-                    "aria-label": locale.t("navigation.close"),
-                    onclick: move |_| on_close_mobile.call(()),
-                    span { class: "material-icons-outlined", "aria-hidden": "true", "close" }
+                if mobile_open {
+                    button {
+                        class: "et-sidebar-mobile-close",
+                        r#type: "button",
+                        "aria-label": locale.t("navigation.close"),
+                        onmounted: move |element| async move {
+                            // The button only mounts after the drawer opens.
+                            // Focus the mounted element as in the shared Dialog,
+                            // including when reduced-motion skips CSS transitions.
+                            let _ = element.data().set_focus(true).await;
+                        },
+                        onclick: move |_| on_close_mobile.call(()),
+                        span { class: "material-icons-outlined", "aria-hidden": "true", "close" }
+                    }
                 }
             }
 
             div { class: "et-sidebar-nav",
+                p { class: "et-sidebar-nav-heading", "{navigation_heading}" }
                 SidebarNav {
                     label: locale.t("navigation.primary"),
                     items: ui_items,

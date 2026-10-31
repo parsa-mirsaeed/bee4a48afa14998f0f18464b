@@ -18,7 +18,7 @@ pub fn ParentAcademicChatSection() -> Element {
     let mut error = use_signal(|| false);
 
     rsx! {
-        div { class: "et-page-stack",
+        div { class: "et-page-stack et-parent-chat",
             header { class: "et-overview-intro",
                 h2 { class: "et-overview-title", "{locale.t(\"parent.ai.title\")}" }
                 p { class: "et-overview-copy", "{locale.t(\"parent.ai.intro\")}" }
@@ -40,7 +40,7 @@ pub fn ParentAcademicChatSection() -> Element {
                     p { role: "status", "{locale.t(\"parent.dashboard.empty_description\")}" }
                 },
                 Some(Ok(items)) => rsx! {
-                    section { class: "et-panel space-y-4",
+                    section { class: "et-panel et-parent-chat__workspace space-y-4",
                         label { class: "block text-sm font-semibold",
                             "{locale.t(\"parent.ai.select_child\")}"
                             select {
@@ -64,9 +64,9 @@ pub fn ParentAcademicChatSection() -> Element {
                             }
                         }
                         if selected_child().is_some() {
-                            div { class: "space-y-3", role: "log", "aria-label": locale.t("parent.ai.history"),
+                            div { class: "et-parent-chat__history space-y-3", role: "log", "aria-label": locale.t("parent.ai.history"),
                                 for (i, (asked, answered, time)) in messages().iter().enumerate() {
-                                    article { key: "{i}", class: "rounded-lg border border-gray-200 p-3 dark:border-gray-700",
+                                    article { key: "{i}", class: "et-parent-chat__message rounded-lg border border-gray-200 p-3 dark:border-gray-700",
                                         p { class: "font-medium whitespace-pre-wrap break-words", "{asked}" }
                                         p { class: "mt-2 whitespace-pre-wrap break-words", "{answered}" }
                                         p { class: "mt-2 text-xs text-gray-500", dir: "ltr", "{time}" }
@@ -74,9 +74,9 @@ pub fn ParentAcademicChatSection() -> Element {
                                 }
                             }
                             if messages().is_empty() {
-                                p { class: "text-sm text-gray-500", "{locale.t(\"parent.ai.empty\")}" }
+                                p { class: "et-parent-chat__empty text-sm text-gray-500", role: "status", "{locale.t(\"parent.ai.empty\")}" }
                             }
-                            div { class: "flex flex-wrap gap-2",
+                            div { class: "et-parent-chat__suggestions flex flex-wrap gap-2",
                                 button {
                                     r#type: "button",
                                     class: "rounded-lg border px-3 py-2 text-sm",

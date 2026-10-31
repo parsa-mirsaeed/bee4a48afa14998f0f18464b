@@ -125,6 +125,8 @@ fn ScopeRetryButton(
     school_id: Option<String>,
     teacher_user_id: Option<String>,
     assignment_id: Option<String>,
+    // A recent job owns its own confirmation even when scopes match.
+    confirmation_owner: Option<String>,
     on_retried: EventHandler<u64>,
 ) -> Element {
     let locale = use_locale().current();
@@ -175,10 +177,23 @@ fn ScopeRetryButton(
                 teacher_user_id: teacher_user_id.clone(),
                 assignment_id: assignment_id.clone(),
                 job_id: None,
+                confirmation_owner,
                 on_retried: move |count| on_retried.call(count),
             }
         }
     }
+}
+
+fn regeneration_confirmation_key(
+    school_id: &Option<String>,
+    teacher_user_id: &Option<String>,
+    assignment_id: &Option<String>,
+    job_id: &Option<String>,
+    confirmation_owner: &Option<String>,
+) -> String {
+    // The owner affects only which card renders a dialog; retry requests keep
+    // their existing school/teacher/assignment scope semantics.
+    format!("{school_id:?}:{teacher_user_id:?}:{assignment_id:?}:{job_id:?}:{confirmation_owner:?}")
 }
 
 /// Deliberately a second action: original retries keep historical AI policy,
@@ -190,10 +205,22 @@ fn CurrentPolicyRetryButton(
     teacher_user_id: Option<String>,
     assignment_id: Option<String>,
     job_id: Option<String>,
+    confirmation_owner: Option<String>,
     on_retried: EventHandler<u64>,
 ) -> Element {
     let locale = use_locale().current();
-    let mut confirm_open = use_signal(|| false);
+    // A background overview refresh can remount a policy card after Save.
+    // Keep the requested confirmation in the stable section scope so it cannot
+    // silently disappear when the card refreshes between click and response.
+    let mut active_confirmation = use_context::<Signal<Option<String>>>();
+    let scope_key = regeneration_confirmation_key(
+        &school_id,
+        &teacher_user_id,
+        &assignment_id,
+        &job_id,
+        &confirmation_owner,
+    );
+    let scope_for_open = scope_key.clone();
     let mut busy = use_signal(|| false);
     let mut error = use_signal(|| false);
 
@@ -208,12 +235,22 @@ fn CurrentPolicyRetryButton(
                 r#type: "button",
                 class: "rounded-lg border border-blue-400 px-3 py-2 text-sm font-semibold text-blue-800 disabled:opacity-50 dark:text-blue-300",
                 disabled: busy(),
-                onclick: move |_| confirm_open.set(true),
+                onclick: move |_| active_confirmation.set(Some(scope_for_open.clone())),
                 {t("platform_admin.personalization.regenerate_current", locale)}
             }
-            if confirm_open() {
-                div { class: "mt-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-gray-900 dark:bg-gray-900 dark:text-gray-100",
+            if active_confirmation().as_deref() == Some(scope_key.as_str()) {
+                div { class: "et-admin-regeneration-confirm mt-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-gray-900 dark:bg-gray-900 dark:text-gray-100",
                     role: "alertdialog",
+                    tabindex: "-1",
+                    onmounted: move |element| async move {
+                        let _ = element.data().set_focus(true).await;
+                    },
+                    onkeydown: move |event| {
+                        if event.key() == Key::Escape && !busy() {
+                            event.stop_propagation();
+                            active_confirmation.set(None);
+                        }
+                    },
                     "aria-label": t("platform_admin.personalization.regenerate_confirm_label", locale),
                     p { {t("platform_admin.personalization.regenerate_confirm", locale)} }
                     div { class: "mt-3 flex flex-wrap gap-2",
@@ -221,7 +258,7 @@ fn CurrentPolicyRetryButton(
                             r#type: "button",
                             class: "rounded border px-3 py-2",
                             disabled: busy(),
-                            onclick: move |_| confirm_open.set(false),
+                            onclick: move |_| active_confirmation.set(None),
                             {t("platform_admin.personalization.cancel", locale)}
                         }
                         button {
@@ -248,7 +285,7 @@ fn CurrentPolicyRetryButton(
                                     };
                                     match result {
                                         Ok(count) => {
-                                            confirm_open.set(false);
+                                            active_confirmation.set(None);
                                             on_retried.call(count);
                                         }
                                         Err(_) => error.set(true),
@@ -277,6 +314,10 @@ fn CurrentPolicyRetryButton(
 #[component]
 pub fn PlatformPersonalizationSection() -> Element {
     let locale = use_locale().current();
+    // Persistent across overview/resource refreshes and keyed policy card mounts.
+    // The same scope can only have one pending new-execution confirmation.
+    let active_confirmation = use_signal(|| None::<String>);
+    use_context_provider(|| active_confirmation);
     let mut selected_school = use_signal(|| None::<(String, String)>);
     // Explicit refresh generation makes the school-selection fetch deterministic.
     // Relying only on implicit resource dependency tracking can leave the resource
@@ -301,7 +342,7 @@ pub fn PlatformPersonalizationSection() -> Element {
             title: t("platform_admin.personalization.title", locale),
             description: Some(t("platform_admin.personalization.description", locale)),
             children: rsx! {
-                div { class: "space-y-6",
+                div { class: "et-admin-personalization space-y-6",
                     div { class: "flex justify-end",
                         button {
                             r#type: "button",
@@ -363,7 +404,7 @@ pub fn PlatformPersonalizationSection() -> Element {
                                 h2 { class: "text-lg font-semibold text-gray-900 dark:text-white",
                                     {t("platform_admin.personalization.schools", locale)}
                                 }
-                                div { class: "grid grid-cols-1 gap-4 xl:grid-cols-2",
+                                div { class: "et-admin-policy-grid grid grid-cols-1 gap-4 xl:grid-cols-2",
                                     for policy in data.schools.iter() {
                                         SchoolPolicyCard {
                                             key: "{policy.school_id}-{policy.policy_version}",
@@ -424,7 +465,7 @@ pub fn PlatformPersonalizationSection() -> Element {
                                             }
                                         },
                                         Some(Ok(items)) => rsx! {
-                                            div { class: "grid grid-cols-1 gap-4 xl:grid-cols-2",
+                                            div { class: "et-admin-policy-grid grid grid-cols-1 gap-4 xl:grid-cols-2",
                                                 for item in items.iter() {
                                                     TeacherPolicyCard {
                                                         key: "{item.teacher_id}-{item.override_version}-{item.effective_version}-{item.effective_enabled}-{item.effective_paused}-{item.effective_llm_profile_id}-{item.effective_delivery_policy}",
@@ -549,7 +590,7 @@ fn SchoolPolicyCard(
     let mut error = use_signal(|| false);
 
     rsx! {
-        article { class: "et-ui-card p-5",
+        article { class: "et-ui-card et-admin-policy-card p-5",
             div { class: "flex flex-wrap items-start justify-between gap-3",
                 div {
                     h3 { class: "font-semibold text-gray-900 dark:text-white", "{policy.school_name}" }
@@ -575,7 +616,7 @@ fn SchoolPolicyCard(
                 }
             }
 
-            div { class: "mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2",
+            div { class: "et-admin-policy-fields mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2",
                 label { class: "flex items-center gap-2 text-sm",
                     input {
                         r#type: "checkbox",
@@ -707,7 +748,7 @@ fn TeacherPolicyCard(
     let mut error = use_signal(|| false);
 
     rsx! {
-        article { class: "et-ui-card p-5",
+        article { class: "et-ui-card et-admin-policy-card p-5",
             h3 { class: "font-semibold text-gray-900 dark:text-white", "{policy.teacher_name}" }
             p { class: "mt-1 text-xs text-gray-500",
                 {format!(
@@ -742,7 +783,7 @@ fn TeacherPolicyCard(
             }
 
             if mode() == "override" {
-                div { class: "mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2",
+                div { class: "et-admin-policy-fields mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2",
                     label { class: "flex items-center gap-2 text-sm",
                         input {
                             r#type: "checkbox",
@@ -926,6 +967,7 @@ fn PersonalizationJobCard(
                     school_id: Some(job.school_id.clone()),
                     teacher_user_id: Some(job.teacher_user_id.clone()),
                     assignment_id: Some(job.assignment_id.clone()),
+                    confirmation_owner: Some(job.job_id.clone()),
                     on_retried: move |_| on_retried.call(()),
                 }
             }
@@ -998,6 +1040,7 @@ fn PersonalizationJobCard(
                     teacher_user_id: None,
                     assignment_id: None,
                     job_id: Some(regeneration_job_id.clone()),
+                    confirmation_owner: None,
                     on_retried: move |_| on_retried.call(()),
                 }
             }
@@ -1017,5 +1060,47 @@ fn CompactField(label: String, value: String) -> Element {
             dt { class: "text-xs font-medium text-gray-500", "{label}" }
             dd { class: "mt-1 break-words font-medium text-gray-900 dark:text-white", dir: "auto", "{value}" }
         }
+    }
+}
+
+#[cfg(test)]
+mod regeneration_confirmation_tests {
+    use super::regeneration_confirmation_key;
+
+    #[test]
+    fn recent_jobs_for_same_assignment_use_distinct_confirmation_owners() {
+        let school = Some("school-a".to_string());
+        let teacher = Some("teacher-a".to_string());
+        let assignment = Some("assignment-a".to_string());
+        let no_job = None;
+        let a = regeneration_confirmation_key(
+            &school,
+            &teacher,
+            &assignment,
+            &no_job,
+            &Some("job-1".to_string()),
+        );
+        let b = regeneration_confirmation_key(
+            &school,
+            &teacher,
+            &assignment,
+            &no_job,
+            &Some("job-2".to_string()),
+        );
+        assert_ne!(
+            a, b,
+            "only the clicked job card should own the confirmation"
+        );
+        assert_eq!(
+            a,
+            regeneration_confirmation_key(
+                &school,
+                &teacher,
+                &assignment,
+                &no_job,
+                &Some("job-1".to_string()),
+            ),
+            "refresh must preserve the selected owner"
+        );
     }
 }

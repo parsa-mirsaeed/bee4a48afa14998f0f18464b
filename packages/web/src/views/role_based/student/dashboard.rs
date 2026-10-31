@@ -109,12 +109,24 @@ pub fn StudentOverviewSection(on_navigate: EventHandler<String>) -> Element {
                             .take(5)
                             .collect::<Vec<_>>();
                         rsx! {
-                            div { class: "et-panel grid grid-cols-1 md:grid-cols-2",
-                                div { class: "et-stat",
-                                    p { class: "et-stat-label", "{locale.t(\"dashboard.pending_tasks\")}" }
-                                    p { class: "et-stat-value", "{pending_count}" }
+                            div { class: "et-student-progress",
+                                div { class: "et-student-progress__focus",
+                                    div { class: "et-student-progress__icon",
+                                        span { class: "material-icons-outlined", "aria-hidden": "true", "assignment_turned_in" }
+                                    }
+                                    div { class: "et-student-progress__copy",
+                                        p { class: "et-stat-label", "{locale.t(\"dashboard.pending_tasks\")}" }
+                                        p { class: "et-stat-value", "{pending_count}" }
+                                    }
+                                    button {
+                                        class: "et-student-progress__action",
+                                        r#type: "button",
+                                        onclick: move |_| on_navigate.call("assignments".to_string()),
+                                        "aria-label": locale.t("student.dashboard.view_all"),
+                                        span { class: "material-icons-outlined", "aria-hidden": "true", "arrow_forward" }
+                                    }
                                 }
-                                div { class: "et-stat",
+                                div { class: "et-student-progress__secondary",
                                     p { class: "et-stat-label", "{locale.t(\"dashboard.enrolled_classes\")}" }
                                     p { class: "et-stat-value", "{enrolled_class_count}" }
                                 }

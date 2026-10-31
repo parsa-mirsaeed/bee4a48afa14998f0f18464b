@@ -81,7 +81,7 @@ pub fn ParentOverviewSection(on_navigate: EventHandler<String>) -> Element {
                 Some(Ok(items)) => {
                     let total_classes: i64 = items.iter().map(|child| child.enrolled_classes).sum();
                     rsx! {
-                        div { class: "et-panel grid grid-cols-1 md:grid-cols-2",
+                        div { class: "et-stat-grid et-stat-grid--two",
                             div { class: "et-stat",
                                 p { class: "et-stat-label", "{locale.t(\"parent.dashboard.stats.children\")}" }
                                 p { class: "et-stat-value", "{items.len()}" }
@@ -91,16 +91,20 @@ pub fn ParentOverviewSection(on_navigate: EventHandler<String>) -> Element {
                                 p { class: "et-stat-value", "{total_classes}" }
                             }
                         }
-                        section { class: "et-panel space-y-2",
-                            h3 { class: "font-semibold", "{locale.t(\"parent.ai.title\")}" }
-                            p { class: "text-sm text-gray-600 dark:text-gray-300",
-                                "{locale.t(\"parent.ai.intro\")}"
+                        section { class: "et-feature-panel",
+                            div { class: "et-feature-panel__icon",
+                                span { class: "material-icons-outlined", "aria-hidden": "true", "auto_awesome" }
+                            }
+                            div { class: "et-feature-panel__body",
+                                h3 { class: "et-feature-panel__title", "{locale.t(\"parent.ai.title\")}" }
+                                p { class: "et-feature-panel__description", "{locale.t(\"parent.ai.intro\")}" }
                             }
                             button {
                                 r#type: "button",
-                                class: "et-inline-action",
+                                class: "et-feature-panel__action",
                                 onclick: move |_| on_navigate.call("ai-chat".to_string()),
-                                "{locale.t(\"parent.ai.open\")}"
+                                span { "{locale.t(\"parent.ai.open\")}" }
+                                span { class: "material-icons-outlined", "aria-hidden": "true", "arrow_forward" }
                             }
                         }
                         section { class: "et-section",

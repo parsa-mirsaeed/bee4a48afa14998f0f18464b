@@ -6,6 +6,7 @@ use crate::ui::AppShell;
 use dioxus::prelude::*;
 
 const DASHBOARD_TABLET_CSS: Asset = asset!("/assets/dashboard-tablet.css");
+const EXPERIENCE_2026_CSS: Asset = asset!("/assets/experience-2026.css");
 
 /// Shared responsive product shell for every authenticated role.
 ///
@@ -18,12 +19,6 @@ pub fn DashboardLayout(user: User, active_section: String, children: Element) ->
     let mut mobile_nav_open = use_signal(|| false);
     let navigation_items = RoutingService::get_navigation_items(&user, &locale);
 
-    use_effect(move || {
-        if mobile_nav_open() {
-            focus_selector(".et-sidebar-mobile-close");
-        }
-    });
-
     let page_title = navigation_items
         .iter()
         .find(|item| item.id == active_section)
@@ -32,6 +27,7 @@ pub fn DashboardLayout(user: User, active_section: String, children: Element) ->
 
     rsx! {
         document::Stylesheet { href: DASHBOARD_TABLET_CSS }
+        document::Stylesheet { href: EXPERIENCE_2026_CSS }
         AppShell {
             div { class: "et-dashboard-shell",
                 if mobile_nav_open() {
@@ -61,7 +57,10 @@ pub fn DashboardLayout(user: User, active_section: String, children: Element) ->
                     Header {
                         user,
                         page_title,
-                        on_open_navigation: move |_| mobile_nav_open.set(true),
+                        on_open_navigation: move |_| {
+                            mobile_nav_open.set(true);
+                            focus_open_mobile_drawer_after_render(12);
+                        },
                     }
 
                     main {
@@ -74,6 +73,58 @@ pub fn DashboardLayout(user: User, active_section: String, children: Element) ->
             }
         }
     }
+}
+
+/// Opening the compact drawer is a state transition, not a DOM mount event.
+/// On slow hydration or reduced-motion pages its close button can mount while
+/// the aside is still hidden; focusing that invisible node silently fails.
+/// Re-try in bounded animation frames, and stop as soon as focus succeeds.
+fn focus_open_mobile_drawer_after_render(frames_left: u8) {
+    #[cfg(target_arch = "wasm32")]
+    {
+        use wasm_bindgen::{closure::Closure, JsCast};
+
+        let callback = Closure::once_into_js(move |_: f64| {
+            let Some(document) = web_sys::window().and_then(|window| window.document()) else {
+                return;
+            };
+
+            let Ok(sidebar) = document.query_selector(".et-sidebar--mobile-open") else {
+                return;
+            };
+            // The user may have already dismissed navigation. Never refocus
+            // a hidden drawer after Escape or navigation.
+            if let Some(sidebar) = sidebar {
+                if let Ok(Some(button)) = sidebar.query_selector(".et-sidebar-mobile-close") {
+                    if let Ok(button) = button.dyn_into::<web_sys::HtmlElement>() {
+                        let _ = button.focus();
+                        let focused = document
+                            .active_element()
+                            .and_then(|element| element.get_attribute("class"))
+                            .is_some_and(|value| {
+                                value
+                                    .split_whitespace()
+                                    .any(|class| class == "et-sidebar-mobile-close")
+                            });
+                        if focused {
+                            return;
+                        }
+                    }
+                }
+            }
+
+            if frames_left > 0 {
+                focus_open_mobile_drawer_after_render(frames_left - 1);
+            }
+        });
+
+        if let Some(window) = web_sys::window() {
+            let _ = window.request_animation_frame(callback.unchecked_ref());
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    let _ = frames_left;
 }
 
 fn focus_selector(selector: &str) {
