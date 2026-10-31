@@ -634,9 +634,19 @@ test('teacher published-submission report filters without invented metrics @smok
   await signIn(page, 'e2e-teacher-a@example.test');
   const report = page.locator('.et-play-report');
   await expect(report).toBeVisible();
+  // The teacher dashboard endpoint truncates to 10 assignments; do not
+  // imply that an aggregate or an empty filter covers all assignments.
+  await expect(report.locator('.et-play-report__scope')).toContainText('up to 10 loaded assignments');
   const pending = report.getByRole('button', { name: 'Not fully submitted' });
   await pending.click();
   await expect(pending).toHaveAttribute('aria-pressed', 'true');
-  await report.getByRole('button', { name: 'All assignments' }).click();
+  const empty = report.locator('.et-play-report__empty');
+  if (await empty.isVisible()) {
+    await expect(empty).toContainText('among the loaded subset');
+  }
+  await report.getByRole('button', { name: 'All loaded assignments' }).click();
   await expect(pending).toHaveAttribute('aria-pressed', 'false');
+  await page.locator('.et-sidebar .language-switcher-toggle').click();
+  await expect.poll(() => page.evaluate(() => document.documentElement.dir)).toBe('rtl');
+  await expect(report.locator('.et-play-report__scope')).toContainText('حداکثر ۱۰ تکلیف بارگذاری‌شده');
 });

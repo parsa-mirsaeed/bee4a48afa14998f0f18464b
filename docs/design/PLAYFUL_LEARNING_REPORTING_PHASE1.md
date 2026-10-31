@@ -14,7 +14,10 @@ API/database, persistence, grades, submission workflows or release capabilities.
 - **Teachers:** an interactive submission overview using persisted submitted
   and expected counts for published assignments; draft assignments excluded
   from aggregation. A filter isolates published work with incomplete submission
-  counts. These counts are not attainment scores or grades.
+  counts. The teacher endpoint returns at most 10 assignments; the report,
+  counts, filters and empty state are explicitly scoped to that loaded subset,
+  not the complete assignment history. These counts are not attainment scores
+  or grades.
 
 This is a **shared, age-inclusive v1**. Grade detection and individual
 age-band modes are intentionally not inferred from account metadata. Before
