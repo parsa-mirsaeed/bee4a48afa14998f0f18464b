@@ -11,12 +11,8 @@ fn primary_mobile_items(user: &User, available: &[NavigationItem]) -> Vec<Naviga
         SystemRole::Student => &["overview", "classes", "assignments", "grades"],
         SystemRole::Teacher => &["overview", "classes", "assignments", "submissions"],
         SystemRole::Parent => &["overview", "children", "ai-chat", "reports"],
-        SystemRole::SchoolManager => {
-            &["overview", "users", "classes", "knowledge-submissions"]
-        }
-        SystemRole::PlatformAdmin => {
-            &["knowledge-assets", "knowledge-audit", "personalization"]
-        }
+        SystemRole::SchoolManager => &["overview", "users", "classes", "knowledge-submissions"],
+        SystemRole::PlatformAdmin => &["knowledge-assets", "knowledge-audit", "personalization"],
     };
 
     preferred
@@ -25,8 +21,7 @@ fn primary_mobile_items(user: &User, available: &[NavigationItem]) -> Vec<Naviga
             available
                 .iter()
                 .find(|item| {
-                    item.id == *id
-                        && RoutingService::can_access_dashboard_section(user, &item.id)
+                    item.id == *id && RoutingService::can_access_dashboard_section(user, &item.id)
                 })
                 .cloned()
         })
@@ -115,19 +110,30 @@ mod tests {
     #[test]
     fn student_primary_destinations_are_authorized_and_ordered() {
         let all = items(&[
-            "users", "grades", "overview", "schedule", "assignments", "classes",
+            "users",
+            "grades",
+            "overview",
+            "schedule",
+            "assignments",
+            "classes",
         ]);
         let selected = primary_mobile_items(&user(SystemRole::Student), &all);
         let ids: Vec<_> = selected.iter().map(|item| item.id.as_str()).collect();
         assert_eq!(ids, ["overview", "classes", "assignments", "grades"]);
-        assert!(selected.iter().all(|item| item.route.starts_with("/dashboard")));
+        assert!(selected
+            .iter()
+            .all(|item| item.route.starts_with("/dashboard")));
     }
 
     #[test]
     fn teacher_keeps_secondary_sections_in_the_canonical_drawer() {
         let all = items(&[
-            "students", "assignments", "knowledge-assets", "classes",
-            "overview", "submissions",
+            "students",
+            "assignments",
+            "knowledge-assets",
+            "classes",
+            "overview",
+            "submissions",
         ]);
         let selected = primary_mobile_items(&user(SystemRole::Teacher), &all);
         let ids: Vec<_> = selected.iter().map(|item| item.id.as_str()).collect();
@@ -145,17 +151,28 @@ mod tests {
     #[test]
     fn manager_and_platform_admin_use_their_own_role_routes() {
         let all = items(&[
-            "overview", "users", "classes", "knowledge-submissions",
-            "knowledge-assets", "knowledge-audit", "personalization",
+            "overview",
+            "users",
+            "classes",
+            "knowledge-submissions",
+            "knowledge-assets",
+            "knowledge-audit",
+            "personalization",
         ]);
         let manager = primary_mobile_items(&user(SystemRole::SchoolManager), &all);
         assert_eq!(
-            manager.iter().map(|item| item.id.as_str()).collect::<Vec<_>>(),
+            manager
+                .iter()
+                .map(|item| item.id.as_str())
+                .collect::<Vec<_>>(),
             ["overview", "users", "classes", "knowledge-submissions"]
         );
         let admin = primary_mobile_items(&user(SystemRole::PlatformAdmin), &all);
         assert_eq!(
-            admin.iter().map(|item| item.id.as_str()).collect::<Vec<_>>(),
+            admin
+                .iter()
+                .map(|item| item.id.as_str())
+                .collect::<Vec<_>>(),
             ["knowledge-assets", "knowledge-audit", "personalization"]
         );
     }
