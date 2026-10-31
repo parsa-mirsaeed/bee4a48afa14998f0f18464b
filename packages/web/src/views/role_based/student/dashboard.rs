@@ -253,7 +253,7 @@ fn StudentQuestTracker(
                 }
                 h3 { class: "et-play-quest__title", "{locale.t(\"play.student.journey_intro\")}" }
                 p { class: "et-play-quest__caption",
-                    "{completed} / {total} · {locale.t("play.student.submitted")}"
+                    "{completed} / {total} · {locale.t(\"play.student.submitted\")}"
                 }
                 div {
                     class: "et-play-quest__track",
@@ -264,7 +264,7 @@ fn StudentQuestTracker(
                     "aria-valuenow": "{percent}",
                     div { class: "et-play-quest__fill", style: "width: {percent}%;" }
                 }
-                p { class: "et-play-quest__pending", "{pending} · {locale.t("play.student.pending")}" }
+                p { class: "et-play-quest__pending", "{pending} · {locale.t(\"play.student.pending\")}" }
                 button {
                     class: "et-play-quest__action",
                     r#type: "button",
