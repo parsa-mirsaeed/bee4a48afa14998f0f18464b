@@ -55,6 +55,8 @@ pub(crate) fn supplemental_translation(key: &'static str, locale: Locale) -> Opt
         (Locale::En, "common.go_back") => Some("Go back"),
         (Locale::Fa, "common.go_back") => Some("بازگشت"),
 
+        (Locale::En, "navigation.mobile_primary") => Some("Mobile navigation"),
+        (Locale::Fa, "navigation.mobile_primary") => Some("ناوبری موبایل"),
         (Locale::En, "navigation.close") => Some("Close navigation"),
         (Locale::Fa, "navigation.close") => Some("بستن ناوبری"),
         (Locale::En, "navigation.open") => Some("Open navigation"),
