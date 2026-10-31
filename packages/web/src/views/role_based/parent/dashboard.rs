@@ -123,8 +123,9 @@ pub fn ParentOverviewSection(on_navigate: EventHandler<String>) -> Element {
                                                 class: if active { "et-play-family__tab et-play-family__tab--active" } else { "et-play-family__tab" },
                                                 r#type: "button",
                                                 "aria-pressed": if active { "true" } else { "false" },
+                                                "aria-label": child.name.clone(),
                                                 onclick: move |_| selected_child.set(Some(child_id.clone())),
-                                                "{child.name}"
+                                                "👤 {child.name}"
                                             }
                                         }
                                     }
@@ -132,12 +133,12 @@ pub fn ParentOverviewSection(on_navigate: EventHandler<String>) -> Element {
                             }
                             div { class: "et-play-family__detail", "aria-live": "polite",
                                 div {
-                                    h4 { class: "et-play-family__name", "{selected_name}" }
-                                    p { class: "et-play-family__hint", "{selected_grade}" }
+                                    h4 { class: "et-play-family__name", "✨ {selected_name}" }
+                                    p { class: "et-play-family__hint", "🎓 {selected_grade}" }
                                 }
                                 div { class: "et-play-family__count",
                                     span { class: "material-icons-outlined", "aria-hidden": "true", "menu_book" }
-                                    "{selected_classes}"
+                                    "📚 {selected_classes}"
                                 }
                                 button {
                                     class: "et-play-family__action",
