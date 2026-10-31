@@ -146,14 +146,12 @@
     text-align: left;
 }
 
-/* Prefer licensed Yekan Bakh when installed locally. Until the project receives
- * licensed webfont assets, keep the self-hosted Vazirmatn fallback for visitors.
- * Do not source the commercial font from unlicensed third-party CDNs. */
+/* Farsi font - Vazirmatn with weight hierarchy */
 [lang="fa"],
 [dir="rtl"],
 [lang="fa"] body,
 [dir="rtl"] body {
-    font-family: 'Yekan Bakh', 'YekanBakh', 'Vazirmatn', 'Poppins', system-ui, sans-serif;
+    font-family: 'Vazirmatn', 'Poppins', system-ui, sans-serif;
 }
 
 /* Vazirmatn weight classes for Farsi UI */
