@@ -619,7 +619,10 @@ test('parent child selector updates a real scoped learning snapshot @smoke @auro
   await signIn(page, 'e2e-parent-a@example.test');
   const family = page.locator('.et-play-family');
   await expect(family).toBeVisible();
-  const student = family.getByRole('button', { name: 'E2E Student A' });
+  // Keep the legacy parent overview's one exact visible child label. The
+  // selector and snapshot can still show the child's name with distinct copy.
+  await expect(page.getByText('E2E Student A', { exact: true })).toHaveCount(1);
+  const student = family.getByRole('button', { name: 'E2E Student A', exact: true });
   await student.click();
   await expect(student).toHaveAttribute('aria-pressed', 'true');
   await expect(family.locator('.et-play-family__detail')).toContainText('E2E Student A');
