@@ -601,3 +601,52 @@ test('teacher create assignment fields are explicitly labeled, required, and key
     await expect(control).toBeFocused();
   }
 });
+
+test('student learning journey reflects real assignment state and opens tasks @smoke @aurora @student', async ({ page }) => {
+  await signIn(page, 'e2e-student-a@example.test');
+  const journey = page.locator('.et-play-quest');
+  await expect(journey).toBeVisible();
+  const bar = journey.getByRole('progressbar', { name: 'Assignment submission progress' });
+  await expect(bar).toHaveAttribute('aria-valuenow', /^\d+$/);
+  const progress = Number(await bar.getAttribute('aria-valuenow'));
+  expect(progress).toBeGreaterThanOrEqual(0);
+  expect(progress).toBeLessThanOrEqual(100);
+  await journey.getByRole('button', { name: 'Explore assignments' }).click();
+  await expect(page).toHaveURL(/\/dashboard\/assignments$/);
+});
+
+test('parent child selector updates a real scoped learning snapshot @smoke @aurora @parent', async ({ page }) => {
+  await signIn(page, 'e2e-parent-a@example.test');
+  const family = page.locator('.et-play-family');
+  await expect(family).toBeVisible();
+  // Keep the legacy parent overview's one exact visible child label. The
+  // selector and snapshot can still show the child's name with distinct copy.
+  await expect(page.getByText('E2E Student A', { exact: true })).toHaveCount(1);
+  const student = family.getByRole('button', { name: 'E2E Student A', exact: true });
+  await student.click();
+  await expect(student).toHaveAttribute('aria-pressed', 'true');
+  await expect(family.locator('.et-play-family__detail')).toContainText('E2E Student A');
+  await family.getByRole('button', { name: 'View details' }).click();
+  await expect(page).toHaveURL(/\/dashboard\/children$/);
+});
+
+test('teacher published-submission report filters without invented metrics @smoke @aurora @teacher', async ({ page }) => {
+  await signIn(page, 'e2e-teacher-a@example.test');
+  const report = page.locator('.et-play-report');
+  await expect(report).toBeVisible();
+  // The teacher dashboard endpoint truncates to 10 assignments; do not
+  // imply that an aggregate or an empty filter covers all assignments.
+  await expect(report.locator('.et-play-report__scope')).toContainText('up to 10 loaded assignments');
+  const pending = report.getByRole('button', { name: 'Not fully submitted' });
+  await pending.click();
+  await expect(pending).toHaveAttribute('aria-pressed', 'true');
+  const empty = report.locator('.et-play-report__empty');
+  if (await empty.isVisible()) {
+    await expect(empty).toContainText('among the loaded subset');
+  }
+  await report.getByRole('button', { name: 'All loaded assignments' }).click();
+  await expect(pending).toHaveAttribute('aria-pressed', 'false');
+  await page.locator('.et-sidebar .language-switcher-toggle').click();
+  await expect.poll(() => page.evaluate(() => document.documentElement.dir)).toBe('rtl');
+  await expect(report.locator('.et-play-report__scope')).toContainText('حداکثر ۱۰ تکلیف بارگذاری‌شده');
+});

@@ -56,6 +56,7 @@ pub fn ParentDashboard(section: String) -> Element {
 pub fn ParentOverviewSection(on_navigate: EventHandler<String>) -> Element {
     let locale = use_locale();
     let mut children = use_resource(move || async move { get_parent_children_scoped().await });
+    let mut selected_child = use_signal(|| None::<String>);
 
     rsx! {
         div { class: "et-page-stack",
@@ -80,6 +81,18 @@ pub fn ParentOverviewSection(on_navigate: EventHandler<String>) -> Element {
                 },
                 Some(Ok(items)) => {
                     let total_classes: i64 = items.iter().map(|child| child.enrolled_classes).sum();
+                    let selected_id = selected_child();
+                    let current_child = selected_id
+                        .as_ref()
+                        .and_then(|id| items.iter().find(|child| child.id.as_str() == id.as_str()))
+                        .unwrap_or(&items[0]);
+                    let active_id = current_child.id.clone();
+                    let selected_name = current_child.name.clone();
+                    let selected_grade = current_child.grade_level.clone()
+                        .unwrap_or_else(|| locale.t("parent.child.grade_not_recorded"));
+                    let selected_classes = format_parent_class_count(
+                        current_child.enrolled_classes, locale.current()
+                    );
                     rsx! {
                         div { class: "et-stat-grid et-stat-grid--two",
                             div { class: "et-stat",
@@ -89,6 +102,51 @@ pub fn ParentOverviewSection(on_navigate: EventHandler<String>) -> Element {
                             div { class: "et-stat",
                                 p { class: "et-stat-label", "{locale.t(\"parent.dashboard.stats.enrolled_classes\")}" }
                                 p { class: "et-stat-value", "{total_classes}" }
+                            }
+                        }
+                        section { class: "et-play-family", "aria-label": locale.t("play.parent.title"),
+                            div { class: "et-play-family__intro",
+                                div {
+                                    h3 { class: "et-section-title", "{locale.t(\"play.parent.title\")}" }
+                                    p { class: "et-play-family__hint", "{locale.t(\"play.parent.intro\")}" }
+                                }
+                                span { class: "material-icons-outlined et-play-family__icon", "aria-hidden": "true", "family_restroom" }
+                            }
+                            div { class: "et-play-family__tabs", role: "group", "aria-label": locale.t("play.parent.choose_child"),
+                                for child in items.iter() {
+                                    {
+                                        let child_id = child.id.clone();
+                                        let active = child.id.as_str() == active_id.as_str();
+                                        rsx! {
+                                            button {
+                                                key: "{child.id}",
+                                                class: if active { "et-play-family__tab et-play-family__tab--active" } else { "et-play-family__tab" },
+                                                r#type: "button",
+                                                "aria-pressed": if active { "true" } else { "false" },
+                                                "aria-label": child.name.clone(),
+                                                onclick: move |_| selected_child.set(Some(child_id.clone())),
+                                                "👤 {child.name}"
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            div { class: "et-play-family__detail", "aria-live": "polite",
+                                div {
+                                    h4 { class: "et-play-family__name", "✨ {selected_name}" }
+                                    p { class: "et-play-family__hint", "🎓 {selected_grade}" }
+                                }
+                                div { class: "et-play-family__count",
+                                    span { class: "material-icons-outlined", "aria-hidden": "true", "menu_book" }
+                                    "📚 {selected_classes}"
+                                }
+                                button {
+                                    class: "et-play-family__action",
+                                    r#type: "button",
+                                    onclick: move |_| on_navigate.call("children".to_string()),
+                                    "{locale.t(\"parent.dashboard.view_details\")}"
+                                    span { class: "material-icons-outlined", "aria-hidden": "true", "arrow_forward" }
+                                }
                             }
                         }
                         section { class: "et-feature-panel",
@@ -113,7 +171,7 @@ pub fn ParentOverviewSection(on_navigate: EventHandler<String>) -> Element {
                                 button { class: "et-inline-action", onclick: move |_| on_navigate.call("children".to_string()), "{locale.t(\"parent.dashboard.view_details\")}" }
                             }
                             div { class: "et-panel",
-                                for child in items {
+                                for child in items.iter() {
                                     {
                                         let class_count = format_parent_class_count(
                                             child.enrolled_classes,

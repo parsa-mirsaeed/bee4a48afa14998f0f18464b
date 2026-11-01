@@ -1,4 +1,4 @@
-use super::{Header, Sidebar};
+use super::{Header, MobileBottomNavigation, Sidebar};
 use crate::application::routing_service::RoutingService;
 use crate::domain::User;
 use crate::i18n::use_locale;
@@ -7,6 +7,7 @@ use dioxus::prelude::*;
 
 const DASHBOARD_TABLET_CSS: Asset = asset!("/assets/dashboard-tablet.css");
 const EXPERIENCE_2026_CSS: Asset = asset!("/assets/experience-2026.css");
+const MOBILE_BOTTOM_NAV_CSS: Asset = asset!("/assets/mobile-bottom-nav.css");
 
 /// Shared responsive product shell for every authenticated role.
 ///
@@ -28,6 +29,7 @@ pub fn DashboardLayout(user: User, active_section: String, children: Element) ->
     rsx! {
         document::Stylesheet { href: DASHBOARD_TABLET_CSS }
         document::Stylesheet { href: EXPERIENCE_2026_CSS }
+        document::Stylesheet { href: MOBILE_BOTTOM_NAV_CSS }
         AppShell {
             div { class: "et-dashboard-shell",
                 if mobile_nav_open() {
@@ -44,7 +46,7 @@ pub fn DashboardLayout(user: User, active_section: String, children: Element) ->
 
                 Sidebar {
                     user: user.clone(),
-                    navigation_items,
+                    navigation_items: navigation_items.clone(),
                     active_section: active_section.clone(),
                     mobile_open: mobile_nav_open(),
                     on_close_mobile: move |_| {
@@ -55,7 +57,7 @@ pub fn DashboardLayout(user: User, active_section: String, children: Element) ->
 
                 div { class: "et-dashboard-main",
                     Header {
-                        user,
+                        user: user.clone(),
                         page_title,
                         on_open_navigation: move |_| {
                             mobile_nav_open.set(true);
@@ -68,6 +70,14 @@ pub fn DashboardLayout(user: User, active_section: String, children: Element) ->
                         id: "dashboard-main-content",
                         tabindex: "-1",
                         div { class: "et-dashboard-content-inner", {children} }
+                    }
+                }
+
+                if !mobile_nav_open() {
+                    MobileBottomNavigation {
+                        user,
+                        navigation_items,
+                        active_section,
                     }
                 }
             }

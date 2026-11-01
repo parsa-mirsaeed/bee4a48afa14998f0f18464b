@@ -147,7 +147,7 @@ pub fn Sidebar(
     }
 }
 
-fn focus_main_content_after_navigation() {
+pub(super) fn focus_main_content_after_navigation() {
     #[cfg(target_arch = "wasm32")]
     {
         use wasm_bindgen::{closure::Closure, JsCast};
