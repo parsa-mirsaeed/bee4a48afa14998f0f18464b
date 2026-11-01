@@ -164,23 +164,7 @@ impl SubmissionRepository {
         teacher_id: TeacherId,
         request: GradeSubmissionRequest,
     ) -> RepositoryResult<Submission> {
-        // Validate grade scale is valid (only 20 or 100 allowed)
-        if request.grade_scale != 20 && request.grade_scale != 100 {
-            return Err(RepositoryError::Validation(
-                "Grade scale must be 20 (Farsi) or 100 (English)".to_string(),
-            ));
-        }
-
-        // Validate grade is within bounds for the given scale
-        if !request.grade.is_finite()
-            || request.grade < 0.0
-            || request.grade > request.grade_scale as f64
-        {
-            return Err(RepositoryError::Validation(format!(
-                "Grade must be between 0 and {}",
-                request.grade_scale
-            )));
-        }
+        validate_grade_request(&request)?;
 
         let mut tx = self.base.pool().begin().await?;
 
@@ -571,5 +555,90 @@ impl SubmissionRepository {
         .await?;
 
         Ok(row.is_some())
+    }
+}
+
+/// Validate before acquiring a database transaction, including non-finite values.
+fn validate_grade_request(request: &GradeSubmissionRequest) -> RepositoryResult<()> {
+    if request.grade_scale != 20 && request.grade_scale != 100 {
+        return Err(RepositoryError::Validation(
+            "Grade scale must be 20 (Farsi) or 100 (English)".to_string(),
+        ));
+    }
+
+    if !request.grade.is_finite()
+        || request.grade < 0.0
+        || request.grade > request.grade_scale as f64
+    {
+        return Err(RepositoryError::Validation(format!(
+            "Grade must be between 0 and {}",
+            request.grade_scale
+        )));
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_non_finite_grades_for_both_supported_scales() {
+        for scale in [20, 100] {
+            for grade in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+                let request = GradeSubmissionRequest {
+                    grade,
+                    grade_scale: scale,
+                    feedback: None,
+                    grading_rubric: None,
+                };
+                assert!(
+                    matches!(validate_grade_request(&request), Err(RepositoryError::Validation(_))),
+                    "expected validation error for grade {grade:?} on scale {scale}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn accepts_bounds_and_rejects_out_of_range_grades() {
+        for scale in [20, 100] {
+            for grade in [0.0, scale as f64] {
+                let request = GradeSubmissionRequest {
+                    grade,
+                    grade_scale: scale,
+                    feedback: None,
+                    grading_rubric: None,
+                };
+                assert!(validate_grade_request(&request).is_ok());
+            }
+            for grade in [-1.0, scale as f64 + 1.0] {
+                let request = GradeSubmissionRequest {
+                    grade,
+                    grade_scale: scale,
+                    feedback: None,
+                    grading_rubric: None,
+                };
+                assert!(matches!(
+                    validate_grade_request(&request),
+                    Err(RepositoryError::Validation(_))
+                ));
+            }
+        }
+    }
+
+    #[test]
+    fn rejects_unsupported_grade_scales() {
+        let request = GradeSubmissionRequest {
+            grade: 10.0,
+            grade_scale: 10,
+            feedback: None,
+            grading_rubric: None,
+        };
+        assert!(matches!(
+            validate_grade_request(&request),
+            Err(RepositoryError::Validation(_))
+        ));
     }
 }
