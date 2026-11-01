@@ -172,7 +172,10 @@ impl SubmissionRepository {
         }
 
         // Validate grade is within bounds for the given scale
-        if !request.grade.is_finite() || request.grade < 0.0 || request.grade > request.grade_scale as f64 {
+        if !request.grade.is_finite()
+            || request.grade < 0.0
+            || request.grade > request.grade_scale as f64
+        {
             return Err(RepositoryError::Validation(format!(
                 "Grade must be between 0 and {}",
                 request.grade_scale
