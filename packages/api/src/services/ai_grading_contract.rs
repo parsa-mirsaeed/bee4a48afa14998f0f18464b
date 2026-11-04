@@ -367,3 +367,147 @@ mod rubric_binding_tests {
         }
     }
 }
+
+/// Maximum accepted model response size, including JSON syntax.
+pub const MAX_GRADING_RESPONSE_BYTES: usize = 32_768;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SuggestionParseError {
+    Empty,
+    TooLarge,
+    InvalidJson,
+    InvalidSuggestion(SuggestionValidationError),
+}
+
+/// Parse a raw gateway response as one strict JSON object. No Markdown fences,
+/// trailing prose, partial JSON extraction, or fallback grade are permitted.
+/// Call only after the caller has independently authorized the school/teacher
+/// and loaded the immutable revision and authoritative rubric from storage.
+pub fn parse_grading_suggestion(
+    raw: &str,
+    current_revision: Uuid,
+    rubric: &[ExpectedCriterion],
+) -> Result<GradingSuggestion, SuggestionParseError> {
+    if raw.trim().is_empty() {
+        return Err(SuggestionParseError::Empty);
+    }
+    if raw.len() > MAX_GRADING_RESPONSE_BYTES {
+        return Err(SuggestionParseError::TooLarge);
+    }
+    // Deserialize directly: an intermediate Value would silently collapse
+    // duplicate JSON keys before the strict struct decoder could reject them.
+    let suggestion: GradingSuggestion =
+        serde_json::from_str(raw).map_err(|_| SuggestionParseError::InvalidJson)?;
+    suggestion
+        .validate_against_rubric(current_revision, rubric)
+        .map_err(SuggestionParseError::InvalidSuggestion)?;
+    Ok(suggestion)
+}
+
+#[cfg(test)]
+mod untrusted_response_tests {
+    use super::*;
+
+    fn valid_response() -> (String, Uuid, Vec<ExpectedCriterion>) {
+        let revision = Uuid::new_v4();
+        let rubric = vec![ExpectedCriterion {
+            criterion_id: "accuracy".into(),
+            possible_points: 20.0,
+        }];
+        let suggestion = GradingSuggestion {
+            contract_version: GRADING_CONTRACT_VERSION,
+            submission_revision: revision,
+            grade_scale: 20,
+            suggested_grade: 18.0,
+            confidence: 0.8,
+            feedback: "Clear answer".into(),
+            criteria: vec![CriterionScore {
+                criterion_id: "accuracy".into(),
+                awarded_points: 18.0,
+                possible_points: 20.0,
+                evidence: "Correct result".into(),
+            }],
+        };
+        (
+            serde_json::to_string(&suggestion).unwrap(),
+            revision,
+            rubric,
+        )
+    }
+
+    #[test]
+    fn parses_valid_authoritative_suggestion() {
+        let (raw, revision, rubric) = valid_response();
+        let parsed = parse_grading_suggestion(&raw, revision, &rubric).unwrap();
+        assert_eq!(parsed.suggested_grade, 18.0);
+    }
+
+    #[test]
+    fn rejects_fenced_prose_and_non_objects() {
+        let (raw, revision, rubric) = valid_response();
+        for response in [
+            format!("\x60\x60\x60json\\n{raw}\\n\x60\x60\x60"),
+            format!("{raw}\\nHere is your grade"),
+            "[]".to_string(),
+            "null".to_string(),
+            String::new(),
+        ] {
+            assert!(parse_grading_suggestion(&response, revision, &rubric).is_err());
+        }
+    }
+
+    #[test]
+    fn rejects_oversize_responses_before_parsing() {
+        let (_, revision, rubric) = valid_response();
+        let raw = "x".repeat(MAX_GRADING_RESPONSE_BYTES + 1);
+        assert_eq!(
+            parse_grading_suggestion(&raw, revision, &rubric),
+            Err(SuggestionParseError::TooLarge)
+        );
+    }
+
+    #[test]
+    fn rejects_stale_and_model_modified_rubrics() {
+        let (raw, revision, rubric) = valid_response();
+        assert_eq!(
+            parse_grading_suggestion(&raw, Uuid::new_v4(), &rubric),
+            Err(SuggestionParseError::InvalidSuggestion(
+                SuggestionValidationError::StaleSubmission
+            ))
+        );
+        let mut altered = rubric;
+        altered[0].criterion_id = "invented".into();
+        assert_eq!(
+            parse_grading_suggestion(&raw, revision, &altered),
+            Err(SuggestionParseError::InvalidSuggestion(
+                SuggestionValidationError::InvalidCriteria
+            ))
+        );
+    }
+
+    #[test]
+    fn rejects_duplicate_json_fields() {
+        let (raw, revision, rubric) = valid_response();
+        let duplicated = raw.replacen(
+            "\"contract_version\":1,",
+            "\"contract_version\":1,\"contract_version\":1,",
+            1,
+        );
+        assert_ne!(duplicated, raw);
+        assert_eq!(
+            parse_grading_suggestion(&duplicated, revision, &rubric),
+            Err(SuggestionParseError::InvalidJson)
+        );
+    }
+
+    #[test]
+    fn rejects_extra_fields_in_untrusted_json() {
+        let (raw, revision, rubric) = valid_response();
+        let mut value: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        value["automatically_publish"] = serde_json::json!(true);
+        assert_eq!(
+            parse_grading_suggestion(&value.to_string(), revision, &rubric),
+            Err(SuggestionParseError::InvalidJson)
+        );
+    }
+}
