@@ -594,7 +594,10 @@ mod tests {
                     grading_rubric: None,
                 };
                 assert!(
-                    matches!(validate_grade_request(&request), Err(RepositoryError::Validation(_))),
+                    matches!(
+                        validate_grade_request(&request),
+                        Err(RepositoryError::Validation(_))
+                    ),
                     "expected validation error for grade {grade:?} on scale {scale}"
                 );
             }
