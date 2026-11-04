@@ -665,9 +665,7 @@ impl ExternalLlmClient {
         rubric: &[crate::services::ai_grading_contract::ExpectedCriterion],
         grade_scale: i16,
     ) -> Result<crate::services::ai_grading_contract::GradingSuggestion, LlmError> {
-        use crate::services::ai_grading_contract::{
-            parse_grading_suggestion, MAX_CRITERIA,
-        };
+        use crate::services::ai_grading_contract::{parse_grading_suggestion, MAX_CRITERIA};
         if school_id.is_nil() || submission_revision.is_nil() {
             return Err(LlmError::MissingSchoolId);
         }
@@ -693,12 +691,16 @@ impl ExternalLlmClient {
                 || !criterion.possible_points.is_finite()
                 || criterion.possible_points <= 0.0
             {
-                return Err(LlmError::InvalidResponse("Invalid grading rubric".to_string()));
+                return Err(LlmError::InvalidResponse(
+                    "Invalid grading rubric".to_string(),
+                ));
             }
             possible += criterion.possible_points;
         }
         if (possible - f64::from(grade_scale)).abs() > 0.000001 {
-            return Err(LlmError::InvalidResponse("Invalid grading rubric".to_string()));
+            return Err(LlmError::InvalidResponse(
+                "Invalid grading rubric".to_string(),
+            ));
         }
         let context = json!({
             "submission_revision": submission_revision,
@@ -723,7 +725,9 @@ impl ExternalLlmClient {
                 content: prompt,
             },
         ];
-        let (raw, _) = self.chat_completion_for_school(school_id, messages, true).await?;
+        let (raw, _) = self
+            .chat_completion_for_school(school_id, messages, true)
+            .await?;
         parse_grading_suggestion(&raw, submission_revision, rubric)
             .map_err(|_| LlmError::InvalidResponse("Invalid grading suggestion".to_string()))
     }
