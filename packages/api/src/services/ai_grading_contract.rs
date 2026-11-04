@@ -368,7 +368,6 @@ mod rubric_binding_tests {
     }
 }
 
-
 /// Maximum accepted model response size, including JSON syntax.
 pub const MAX_GRADING_RESPONSE_BYTES: usize = 32_768;
 
@@ -432,7 +431,11 @@ mod untrusted_response_tests {
                 evidence: "Correct result".into(),
             }],
         };
-        (serde_json::to_string(&suggestion).unwrap(), revision, rubric)
+        (
+            serde_json::to_string(&suggestion).unwrap(),
+            revision,
+            rubric,
+        )
     }
 
     #[test]
