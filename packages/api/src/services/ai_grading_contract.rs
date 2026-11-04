@@ -55,9 +55,7 @@ impl GradingSuggestion {
             return Err(Error::InvalidScale);
         }
         let scale = f64::from(self.grade_scale);
-        if !self.suggested_grade.is_finite()
-            || !(0.0..=scale).contains(&self.suggested_grade)
-        {
+        if !self.suggested_grade.is_finite() || !(0.0..=scale).contains(&self.suggested_grade) {
             return Err(Error::InvalidScore);
         }
         if !self.confidence.is_finite() || !(0.0..=1.0).contains(&self.confidence) {
@@ -142,9 +140,15 @@ mod tests {
     #[test]
     fn rejects_stale_and_nil_revisions() {
         let mut s = valid();
-        assert_eq!(s.validate(Uuid::new_v4()), Err(SuggestionValidationError::StaleSubmission));
+        assert_eq!(
+            s.validate(Uuid::new_v4()),
+            Err(SuggestionValidationError::StaleSubmission)
+        );
         s.submission_revision = Uuid::nil();
-        assert_eq!(s.validate(Uuid::nil()), Err(SuggestionValidationError::StaleSubmission));
+        assert_eq!(
+            s.validate(Uuid::nil()),
+            Err(SuggestionValidationError::StaleSubmission)
+        );
     }
 
     #[test]
@@ -152,13 +156,22 @@ mod tests {
         for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
             let mut s = valid();
             s.suggested_grade = value;
-            assert_eq!(s.validate(s.submission_revision), Err(SuggestionValidationError::InvalidScore));
+            assert_eq!(
+                s.validate(s.submission_revision),
+                Err(SuggestionValidationError::InvalidScore)
+            );
             let mut s = valid();
             s.confidence = value;
-            assert_eq!(s.validate(s.submission_revision), Err(SuggestionValidationError::InvalidConfidence));
+            assert_eq!(
+                s.validate(s.submission_revision),
+                Err(SuggestionValidationError::InvalidConfidence)
+            );
             let mut s = valid();
             s.criteria[0].awarded_points = value;
-            assert_eq!(s.validate(s.submission_revision), Err(SuggestionValidationError::InvalidCriteria));
+            assert_eq!(
+                s.validate(s.submission_revision),
+                Err(SuggestionValidationError::InvalidCriteria)
+            );
         }
     }
 
@@ -166,23 +179,38 @@ mod tests {
     fn rejects_inconsistent_rubric_and_duplicate_criteria() {
         let mut s = valid();
         s.criteria[0].awarded_points = 8.0;
-        assert_eq!(s.validate(s.submission_revision), Err(SuggestionValidationError::InvalidCriteria));
+        assert_eq!(
+            s.validate(s.submission_revision),
+            Err(SuggestionValidationError::InvalidCriteria)
+        );
         let mut s = valid();
         s.criteria[1].criterion_id = "reasoning".into();
-        assert_eq!(s.validate(s.submission_revision), Err(SuggestionValidationError::InvalidCriteria));
+        assert_eq!(
+            s.validate(s.submission_revision),
+            Err(SuggestionValidationError::InvalidCriteria)
+        );
     }
 
     #[test]
     fn rejects_unsupported_versions_scales_and_empty_evidence() {
         let mut s = valid();
         s.contract_version = 2;
-        assert_eq!(s.validate(s.submission_revision), Err(SuggestionValidationError::UnsupportedVersion));
+        assert_eq!(
+            s.validate(s.submission_revision),
+            Err(SuggestionValidationError::UnsupportedVersion)
+        );
         let mut s = valid();
         s.grade_scale = 10;
-        assert_eq!(s.validate(s.submission_revision), Err(SuggestionValidationError::InvalidScale));
+        assert_eq!(
+            s.validate(s.submission_revision),
+            Err(SuggestionValidationError::InvalidScale)
+        );
         let mut s = valid();
         s.criteria[0].evidence.clear();
-        assert_eq!(s.validate(s.submission_revision), Err(SuggestionValidationError::InvalidText));
+        assert_eq!(
+            s.validate(s.submission_revision),
+            Err(SuggestionValidationError::InvalidText)
+        );
     }
 
     #[test]
