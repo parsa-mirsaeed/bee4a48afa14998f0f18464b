@@ -21,8 +21,8 @@ CREATE TABLE public.ai_grading_suggestions (
     reviewed_at TIMESTAMPTZ,
     reviewed_by UUID REFERENCES public.teachers(id) ON DELETE RESTRICT,
     CHECK (submission_revision <> '00000000-0000-0000-0000-000000000000'::uuid),
-    CHECK (isfinite(suggested_grade) AND suggested_grade >= 0 AND suggested_grade <= grade_scale),
-    CHECK (isfinite(confidence) AND confidence >= 0 AND confidence <= 1),
+    CHECK (suggested_grade >= 0 AND suggested_grade <= grade_scale),
+    CHECK (confidence >= 0 AND confidence <= 1),
     CHECK (
         (status = 'pending_review' AND reviewed_at IS NULL AND reviewed_by IS NULL)
         OR (status <> 'pending_review' AND reviewed_at IS NOT NULL AND reviewed_by IS NOT NULL)
