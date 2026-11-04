@@ -222,7 +222,6 @@ mod tests {
     }
 }
 
-
 /// Teacher-authored criterion identity and weight; never inferred from model output.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -316,7 +315,10 @@ mod rubric_binding_tests {
     #[test]
     fn accepts_exact_teacher_rubric() {
         let s = suggestion();
-        assert_eq!(s.validate_against_rubric(s.submission_revision, &rubric()), Ok(()));
+        assert_eq!(
+            s.validate_against_rubric(s.submission_revision, &rubric()),
+            Ok(())
+        );
     }
 
     #[test]
