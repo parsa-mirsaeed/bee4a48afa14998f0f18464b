@@ -1103,6 +1103,94 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn grading_gateway_roundtrip_enforces_school_scope_and_revision() {
+        use crate::services::ai_grading_contract::ExpectedCriterion;
+        use axum::{extract::Json, http::HeaderMap, routing::post, Router};
+        let school = Uuid::new_v4();
+        let revision = Uuid::new_v4();
+        let app = Router::new().route(
+            "/v1/chat/completions",
+            post(
+                move |headers: HeaderMap, Json(body): Json<Value>| async move {
+                    assert_eq!(
+                        headers
+                            .get("x-edutalent-school-id")
+                            .expect("school header")
+                            .to_str()
+                            .expect("valid header"),
+                        school.to_string()
+                    );
+                    assert_eq!(body["response_format"]["type"], "json_object");
+                    assert!(body["messages"][0]["content"]
+                        .as_str()
+                        .expect("system")
+                        .contains("untrusted DATA"));
+                    let payload: Value = serde_json::from_str(
+                        body["messages"][1]["content"].as_str().expect("payload"),
+                    )
+                    .expect("JSON input");
+                    assert_eq!(payload["submission_revision"], revision.to_string());
+                    assert_eq!(payload["rubric"][0]["criterion_id"], "accuracy");
+                    assert_eq!(payload["rubric"][0]["possible_points"], 20.0);
+                    assert_eq!(payload["submission_text"], "Student solution");
+                    let suggestion = json!({
+                        "contract_version": 1,
+                        "submission_revision": revision,
+                        "grade_scale": 20,
+                        "suggested_grade": 18.0,
+                        "confidence": 0.85,
+                        "feedback": "Good work",
+                        "criteria": [{
+                            "criterion_id": "accuracy",
+                            "awarded_points": 18.0,
+                            "possible_points": 20.0,
+                            "evidence": "Correct calculation"
+                        }]
+                    });
+                    Json(json!({
+                        "model": "deepseek-chat",
+                        "choices": [{
+                            "index": 0,
+                            "message": {
+                                "role": "assistant",
+                                "content": suggestion.to_string()
+                            }
+                        }]
+                    }))
+                },
+            ),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("fake gateway listener");
+        let port = listener.local_addr().expect("listener address").port();
+        let handle = tokio::spawn(async move {
+            axum::serve(listener, app)
+                .await
+                .expect("fake gateway serve");
+        });
+        let mut llm = client();
+        llm.test_chat_url = Some(format!("http://127.0.0.1:{port}/v1/chat/completions"));
+        let result = llm
+            .suggest_assignment_grade_for_school(
+                school,
+                revision,
+                "Calculate the answer",
+                "Student solution",
+                &[ExpectedCriterion {
+                    criterion_id: "accuracy".to_string(),
+                    possible_points: 20.0,
+                }],
+                20,
+            )
+            .await
+            .expect("validated grading suggestion");
+        assert_eq!(result.suggested_grade, 18.0);
+        assert_eq!(result.submission_revision, revision);
+        handle.abort();
+    }
+
+    #[tokio::test]
     async fn grading_gateway_rejects_invalid_inputs_without_network() {
         use crate::services::ai_grading_contract::ExpectedCriterion;
         let gateway = client();
