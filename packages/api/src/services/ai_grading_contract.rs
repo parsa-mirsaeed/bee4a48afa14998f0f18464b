@@ -221,3 +221,149 @@ mod tests {
         assert!(serde_json::from_value::<GradingSuggestion>(value).is_err());
     }
 }
+
+/// Teacher-authored criterion identity and weight; never inferred from model output.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ExpectedCriterion {
+    pub criterion_id: String,
+    pub possible_points: f64,
+}
+
+impl GradingSuggestion {
+    /// Validate model output against the *authoritative* teacher rubric, not
+    /// against the model's self-reported possible points.
+    pub fn validate_against_rubric(
+        &self,
+        current_revision: Uuid,
+        expected: &[ExpectedCriterion],
+    ) -> Result<(), SuggestionValidationError> {
+        use SuggestionValidationError as Error;
+        self.validate(current_revision)?;
+        if expected.is_empty() || expected.len() != self.criteria.len() {
+            return Err(Error::InvalidCriteria);
+        }
+        let mut seen = std::collections::HashSet::new();
+        let mut total = 0.0;
+        for item in expected {
+            if item.criterion_id.trim().is_empty()
+                || !seen.insert(item.criterion_id.as_str())
+                || !item.possible_points.is_finite()
+                || item.possible_points <= 0.0
+            {
+                return Err(Error::InvalidCriteria);
+            }
+            let scored = self
+                .criteria
+                .iter()
+                .find(|scored| scored.criterion_id == item.criterion_id)
+                .ok_or(Error::InvalidCriteria)?;
+            if (scored.possible_points - item.possible_points).abs() > 0.000001 {
+                return Err(Error::InvalidCriteria);
+            }
+            total += item.possible_points;
+        }
+        if !total.is_finite() || (total - f64::from(self.grade_scale)).abs() > 0.000001 {
+            return Err(Error::InvalidCriteria);
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod rubric_binding_tests {
+    use super::*;
+
+    fn suggestion() -> GradingSuggestion {
+        GradingSuggestion {
+            contract_version: GRADING_CONTRACT_VERSION,
+            submission_revision: Uuid::new_v4(),
+            grade_scale: 20,
+            suggested_grade: 18.0,
+            confidence: 0.9,
+            feedback: "Evidence-based feedback".into(),
+            criteria: vec![
+                CriterionScore {
+                    criterion_id: "logic".into(),
+                    awarded_points: 9.0,
+                    possible_points: 10.0,
+                    evidence: "Logical steps".into(),
+                },
+                CriterionScore {
+                    criterion_id: "answer".into(),
+                    awarded_points: 9.0,
+                    possible_points: 10.0,
+                    evidence: "Correct result".into(),
+                },
+            ],
+        }
+    }
+
+    fn rubric() -> Vec<ExpectedCriterion> {
+        vec![
+            ExpectedCriterion {
+                criterion_id: "logic".into(),
+                possible_points: 10.0,
+            },
+            ExpectedCriterion {
+                criterion_id: "answer".into(),
+                possible_points: 10.0,
+            },
+        ]
+    }
+
+    #[test]
+    fn accepts_exact_teacher_rubric() {
+        let s = suggestion();
+        assert_eq!(
+            s.validate_against_rubric(s.submission_revision, &rubric()),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn rejects_model_reweighted_rubric_even_when_total_matches() {
+        let mut s = suggestion();
+        s.criteria[0].possible_points = 11.0;
+        s.criteria[1].possible_points = 9.0;
+        assert_eq!(s.validate(s.submission_revision), Ok(()));
+        assert_eq!(
+            s.validate_against_rubric(s.submission_revision, &rubric()),
+            Err(SuggestionValidationError::InvalidCriteria)
+        );
+    }
+
+    #[test]
+    fn rejects_missing_duplicate_and_unexpected_criteria() {
+        let s = suggestion();
+        let mut expected = rubric();
+        expected[1].criterion_id = "unknown".into();
+        assert_eq!(
+            s.validate_against_rubric(s.submission_revision, &expected),
+            Err(SuggestionValidationError::InvalidCriteria)
+        );
+        let mut expected = rubric();
+        expected[1].criterion_id = "logic".into();
+        assert_eq!(
+            s.validate_against_rubric(s.submission_revision, &expected),
+            Err(SuggestionValidationError::InvalidCriteria)
+        );
+        assert_eq!(
+            s.validate_against_rubric(s.submission_revision, &rubric()[..1]),
+            Err(SuggestionValidationError::InvalidCriteria)
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_authoritative_weights() {
+        let s = suggestion();
+        for weight in [f64::NAN, f64::INFINITY, -1.0, 0.0] {
+            let mut expected = rubric();
+            expected[0].possible_points = weight;
+            assert_eq!(
+                s.validate_against_rubric(s.submission_revision, &expected),
+                Err(SuggestionValidationError::InvalidCriteria)
+            );
+        }
+    }
+}
