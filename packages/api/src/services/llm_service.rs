@@ -1098,6 +1098,56 @@ mod tests {
         ));
     }
 
+    #[tokio::test]
+    async fn grading_gateway_rejects_invalid_inputs_without_network() {
+        use crate::services::ai_grading_contract::ExpectedCriterion;
+        let gateway = client();
+        let rubric = vec![ExpectedCriterion {
+            criterion_id: "accuracy".to_string(),
+            possible_points: 20.0,
+        }];
+        let revision = Uuid::new_v4();
+        assert!(matches!(
+            gateway
+                .suggest_assignment_grade_for_school(
+                    Uuid::nil(),
+                    revision,
+                    "Solve the task",
+                    "Correct solution",
+                    &rubric,
+                    20,
+                )
+                .await,
+            Err(LlmError::MissingSchoolId)
+        ));
+        assert!(matches!(
+            gateway
+                .suggest_assignment_grade_for_school(
+                    Uuid::new_v4(),
+                    revision,
+                    "Solve the task",
+                    "Correct solution",
+                    &rubric,
+                    100,
+                )
+                .await,
+            Err(LlmError::InvalidResponse(_))
+        ));
+        assert!(matches!(
+            gateway
+                .suggest_assignment_grade_for_school(
+                    Uuid::new_v4(),
+                    revision,
+                    "Solve the task",
+                    "",
+                    &rubric,
+                    20,
+                )
+                .await,
+            Err(LlmError::InvalidResponse(_))
+        ));
+    }
+
     #[test]
     fn system_prompt_is_non_empty() {
         assert!(!client().build_system_prompt().is_empty());
