@@ -322,8 +322,9 @@ mod rubric_binding_tests {
     #[test]
     fn rejects_model_reweighted_rubric_even_when_total_matches() {
         let mut s = suggestion();
-        s.criteria[0].possible_points = 12.0;
-        s.criteria[1].possible_points = 8.0;
+        s.criteria[0].possible_points = 11.0;
+        s.criteria[1].possible_points = 9.0;
+        assert_eq!(s.validate(s.submission_revision), Ok(()));
         assert_eq!(
             s.validate_against_rubric(s.submission_revision, &rubric()),
             Err(SuggestionValidationError::InvalidCriteria)
