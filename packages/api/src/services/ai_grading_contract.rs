@@ -394,13 +394,10 @@ pub fn parse_grading_suggestion(
     if raw.len() > MAX_GRADING_RESPONSE_BYTES {
         return Err(SuggestionParseError::TooLarge);
     }
-    let value: serde_json::Value =
-        serde_json::from_str(raw).map_err(|_| SuggestionParseError::InvalidJson)?;
-    if !value.is_object() {
-        return Err(SuggestionParseError::InvalidJson);
-    }
+    // Deserialize directly: an intermediate Value would silently collapse
+    // duplicate JSON keys before the strict struct decoder could reject them.
     let suggestion: GradingSuggestion =
-        serde_json::from_value(value).map_err(|_| SuggestionParseError::InvalidJson)?;
+        serde_json::from_str(raw).map_err(|_| SuggestionParseError::InvalidJson)?;
     suggestion
         .validate_against_rubric(current_revision, rubric)
         .map_err(SuggestionParseError::InvalidSuggestion)?;
@@ -485,6 +482,21 @@ mod untrusted_response_tests {
             Err(SuggestionParseError::InvalidSuggestion(
                 SuggestionValidationError::InvalidCriteria
             ))
+        );
+    }
+
+    #[test]
+    fn rejects_duplicate_json_fields() {
+        let (raw, revision, rubric) = valid_response();
+        let duplicated = raw.replacen(
+            "\"contract_version\":1,",
+            "\"contract_version\":1,\"contract_version\":1,",
+            1,
+        );
+        assert_ne!(duplicated, raw);
+        assert_eq!(
+            parse_grading_suggestion(&duplicated, revision, &rubric),
+            Err(SuggestionParseError::InvalidJson)
         );
     }
 
