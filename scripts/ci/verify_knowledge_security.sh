@@ -481,3 +481,40 @@ BEGIN
     END LOOP;
 END $$;
 SQL
+
+# Verify the production revision trigger is installed and fails closed for an
+# unknown submission, without creating or modifying production student records.
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+BEGIN;
+CREATE TEMP TABLE ai_revision_fixture
+    (LIKE public.ai_grading_suggestions INCLUDING DEFAULTS INCLUDING CONSTRAINTS);
+CREATE TRIGGER ai_revision_fixture_guard
+    BEFORE INSERT OR UPDATE ON ai_revision_fixture
+    FOR EACH ROW EXECUTE FUNCTION edutalent_internal.guard_ai_grading_suggestion_revision();
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_trigger
+        WHERE tgrelid = 'public.ai_grading_suggestions'::regclass
+          AND tgname = 'ai_grading_suggestion_revision_guard'
+          AND tgenabled <> 'D'
+    ) THEN
+        RAISE EXCEPTION 'Production AI grading revision guard missing or disabled';
+    END IF;
+
+    BEGIN
+        INSERT INTO ai_revision_fixture
+            (submission_id, submission_revision, school_id, rubric_fingerprint,
+             contract_version, grade_scale, suggested_grade, confidence,
+             feedback, criteria)
+        VALUES
+            (gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), repeat('d', 64),
+             1, 100, 75, 0.7, 'stale revision fixture', '[{}]'::jsonb);
+        RAISE EXCEPTION 'Expected rejection of unknown submission revision';
+    EXCEPTION
+        WHEN check_violation THEN NULL;
+    END;
+END $$;
+ROLLBACK;
+SQL
