@@ -349,7 +349,7 @@ CREATE TRIGGER ai_review_fixture_terminal
     BEFORE UPDATE ON ai_review_fixture
     FOR EACH ROW EXECUTE FUNCTION edutalent_internal.guard_ai_grading_suggestion_review();
 
-DO $
+DO $$
 DECLARE
     accepted_id uuid;
     rejected_id uuid;
@@ -441,6 +441,6 @@ BEGIN
             WHEN check_violation THEN NULL;
         END;
     END LOOP;
-END $;
+END $$;
 ROLLBACK;
 SQL
