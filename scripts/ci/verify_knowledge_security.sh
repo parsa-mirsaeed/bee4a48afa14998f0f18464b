@@ -444,3 +444,40 @@ BEGIN
 END $$;
 ROLLBACK;
 SQL
+
+# Fail closed if a later migration accidentally exposes unreviewed AI grading
+# evidence through Data API roles or introduces a permissive RLS policy.
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+DO $$
+DECLARE
+    runtime_role text;
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'public' AND c.relname = 'ai_grading_suggestions'
+          AND c.relrowsecurity AND c.relforcerowsecurity
+    ) THEN
+        RAISE EXCEPTION 'AI grading suggestions must retain FORCE RLS';
+    END IF;
+
+    IF EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname = 'public' AND tablename = 'ai_grading_suggestions'
+    ) THEN
+        RAISE EXCEPTION 'AI grading suggestions must remain policy-free until audited API authorization';
+    END IF;
+
+    FOREACH runtime_role IN ARRAY ARRAY['anon', 'authenticated'] LOOP
+        IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = runtime_role)
+           AND (
+               has_table_privilege(runtime_role, 'public.ai_grading_suggestions', 'SELECT')
+               OR has_table_privilege(runtime_role, 'public.ai_grading_suggestions', 'INSERT')
+               OR has_table_privilege(runtime_role, 'public.ai_grading_suggestions', 'UPDATE')
+               OR has_table_privilege(runtime_role, 'public.ai_grading_suggestions', 'DELETE')
+           ) THEN
+            RAISE EXCEPTION 'AI grading suggestion privileges leaked to %', runtime_role;
+        END IF;
+    END LOOP;
+END $$;
+SQL
