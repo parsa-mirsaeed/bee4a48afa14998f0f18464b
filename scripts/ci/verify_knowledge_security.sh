@@ -335,3 +335,6 @@ SQL
 bash scripts/ci/verify_transaction_scoped_rls.sh
 bash scripts/ci/verify_class_enrollment_rls.sh
 bash scripts/ci/verify_knowledge_asset_editing.sh
+
+# Exercise terminal AI grading review transitions on every database security run.
+bash scripts/ci/verify_ai_grading_review_terminal.sh
