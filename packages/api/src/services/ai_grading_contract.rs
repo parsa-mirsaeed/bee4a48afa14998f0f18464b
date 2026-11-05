@@ -219,13 +219,19 @@ mod tests {
 
     #[test]
     fn rejects_control_characters_in_teacher_facing_text() {
-        for control in ['\u0000', '\u001b', '\u007f'] {
+        for control in ['\u{0000}', '\u{001b}', '\u{007f}'] {
             let mut s = valid();
             s.feedback.push(control);
-            assert_eq!(s.validate(s.submission_revision), Err(SuggestionValidationError::InvalidText));
+            assert_eq!(
+                s.validate(s.submission_revision),
+                Err(SuggestionValidationError::InvalidText)
+            );
             let mut s = valid();
             s.criteria[0].evidence.push(control);
-            assert_eq!(s.validate(s.submission_revision), Err(SuggestionValidationError::InvalidText));
+            assert_eq!(
+                s.validate(s.submission_revision),
+                Err(SuggestionValidationError::InvalidText)
+            );
         }
         let mut s = valid();
         s.feedback.push('\n');
