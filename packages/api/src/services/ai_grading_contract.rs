@@ -63,7 +63,10 @@ impl GradingSuggestion {
         }
         if self.feedback.trim().is_empty()
             || self.feedback.chars().count() > MAX_FEEDBACK_CHARS
-            || self.feedback.chars().any(|c| c.is_control() && !matches!(c, '\n' | '\t'))
+            || self
+                .feedback
+                .chars()
+                .any(|c| c.is_control() && !matches!(c, '\n' | '\t'))
         {
             return Err(Error::InvalidText);
         }
@@ -87,7 +90,10 @@ impl GradingSuggestion {
             }
             if criterion.evidence.trim().is_empty()
                 || criterion.evidence.chars().count() > MAX_EVIDENCE_CHARS
-                || criterion.evidence.chars().any(|c| c.is_control() && !matches!(c, '\n' | '\t'))
+                || criterion
+                    .evidence
+                    .chars()
+                    .any(|c| c.is_control() && !matches!(c, '\n' | '\t'))
             {
                 return Err(Error::InvalidText);
             }
