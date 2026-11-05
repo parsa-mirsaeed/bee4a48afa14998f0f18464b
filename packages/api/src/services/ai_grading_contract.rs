@@ -61,7 +61,10 @@ impl GradingSuggestion {
         if !self.confidence.is_finite() || !(0.0..=1.0).contains(&self.confidence) {
             return Err(Error::InvalidConfidence);
         }
-        if self.feedback.trim().is_empty() || self.feedback.chars().count() > MAX_FEEDBACK_CHARS {
+        if self.feedback.trim().is_empty()
+            || self.feedback.chars().count() > MAX_FEEDBACK_CHARS
+            || self.feedback.chars().any(|c| c.is_control() && !matches!(c, '\n' | '\t'))
+        {
             return Err(Error::InvalidText);
         }
         if self.criteria.is_empty() || self.criteria.len() > MAX_CRITERIA {
@@ -84,6 +87,7 @@ impl GradingSuggestion {
             }
             if criterion.evidence.trim().is_empty()
                 || criterion.evidence.chars().count() > MAX_EVIDENCE_CHARS
+                || criterion.evidence.chars().any(|c| c.is_control() && !matches!(c, '\n' | '\t'))
             {
                 return Err(Error::InvalidText);
             }
@@ -211,6 +215,22 @@ mod tests {
             s.validate(s.submission_revision),
             Err(SuggestionValidationError::InvalidText)
         );
+    }
+
+    #[test]
+    fn rejects_control_characters_in_teacher_facing_text() {
+        for control in ['\u0000', '\u001b', '\u007f'] {
+            let mut s = valid();
+            s.feedback.push(control);
+            assert_eq!(s.validate(s.submission_revision), Err(SuggestionValidationError::InvalidText));
+            let mut s = valid();
+            s.criteria[0].evidence.push(control);
+            assert_eq!(s.validate(s.submission_revision), Err(SuggestionValidationError::InvalidText));
+        }
+        let mut s = valid();
+        s.feedback.push('\n');
+        s.criteria[0].evidence.push('\t');
+        assert_eq!(s.validate(s.submission_revision), Ok(()));
     }
 
     #[test]
