@@ -8,6 +8,15 @@ pub const MAX_CRITERIA: usize = 20;
 pub const MAX_FEEDBACK_CHARS: usize = 4_000;
 pub const MAX_EVIDENCE_CHARS: usize = 1_000;
 
+// Unicode bidirectional formatting controls can visually reorder a teacher's
+// rubric identifier or model feedback without being Rust control characters.
+fn unsafe_bidi_format(c: char) -> bool {
+    matches!(
+        c,
+        '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}'
+    )
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct CriterionScore {
@@ -66,7 +75,7 @@ impl GradingSuggestion {
             || self
                 .feedback
                 .chars()
-                .any(|c| c.is_control() && !matches!(c, '\n' | '\t'))
+                .any(|c| (c.is_control() && !matches!(c, '\n' | '\t')) || unsafe_bidi_format(c))
         {
             return Err(Error::InvalidText);
         }
@@ -79,7 +88,7 @@ impl GradingSuggestion {
         for criterion in &self.criteria {
             if criterion.criterion_id.trim().is_empty()
                 || criterion.criterion_id.len() > 100
-                || criterion.criterion_id.chars().any(char::is_control)
+                || criterion.criterion_id.chars().any(|c| c.is_control() || unsafe_bidi_format(c))
                 || !ids.insert(criterion.criterion_id.as_str())
                 || !criterion.awarded_points.is_finite()
                 || !criterion.possible_points.is_finite()
@@ -94,7 +103,7 @@ impl GradingSuggestion {
                 || criterion
                     .evidence
                     .chars()
-                    .any(|c| c.is_control() && !matches!(c, '\n' | '\t'))
+                    .any(|c| (c.is_control() && !matches!(c, '\n' | '\t')) || unsafe_bidi_format(c))
             {
                 return Err(Error::InvalidText);
             }
@@ -257,6 +266,30 @@ mod tests {
     }
 
     #[test]
+    fn rejects_bidi_spoofing_in_model_text_and_identifiers() {
+        for mark in ['\u{202e}', '\u{2066}', '\u{200f}', '\u{061c}'] {
+            let mut s = valid();
+            s.feedback.push(mark);
+            assert_eq!(
+                s.validate(s.submission_revision),
+                Err(SuggestionValidationError::InvalidText)
+            );
+            let mut s = valid();
+            s.criteria[0].evidence.push(mark);
+            assert_eq!(
+                s.validate(s.submission_revision),
+                Err(SuggestionValidationError::InvalidText)
+            );
+            let mut s = valid();
+            s.criteria[0].criterion_id.push(mark);
+            assert_eq!(
+                s.validate(s.submission_revision),
+                Err(SuggestionValidationError::InvalidCriteria)
+            );
+        }
+    }
+
+    #[test]
     fn rejects_unexpected_model_fields() {
         let s = valid();
         let mut value = serde_json::to_value(&s).expect("serialize");
@@ -291,7 +324,7 @@ impl GradingSuggestion {
         for item in expected {
             if item.criterion_id.trim().is_empty()
                 || item.criterion_id.len() > 100
-                || item.criterion_id.chars().any(char::is_control)
+                || item.criterion_id.chars().any(|c| c.is_control() || unsafe_bidi_format(c))
                 || !seen.insert(item.criterion_id.as_str())
                 || !item.possible_points.is_finite()
                 || item.possible_points <= 0.0
@@ -410,6 +443,17 @@ mod rubric_binding_tests {
                 Err(SuggestionValidationError::InvalidCriteria)
             );
         }
+    }
+
+    #[test]
+    fn rejects_bidi_spoofing_in_authoritative_rubric_ids() {
+        let s = suggestion();
+        let mut expected = rubric();
+        expected[0].criterion_id.push('\u{202e}');
+        assert_eq!(
+            s.validate_against_rubric(s.submission_revision, &expected),
+            Err(SuggestionValidationError::InvalidCriteria)
+        );
     }
 
     #[test]
