@@ -583,8 +583,8 @@ mod untrusted_response_tests {
     fn rejects_fenced_prose_and_non_objects() {
         let (raw, revision, rubric) = valid_response();
         for response in [
-            format!("\x60\x60\x60json\n{raw}\n\x60\x60\x60"),
-            format!("{raw}\nHere is your grade"),
+            format!("\x60\x60\x60json\\n{raw}\\n\x60\x60\x60"),
+            format!("{raw}\\nHere is your grade"),
             "[]".to_string(),
             "null".to_string(),
             String::new(),
