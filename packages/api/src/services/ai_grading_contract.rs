@@ -402,7 +402,7 @@ mod rubric_binding_tests {
     #[test]
     fn rejects_invalid_authoritative_criterion_identifiers() {
         let s = suggestion();
-        for id in ["logic\\u{001b}[31m".to_string(), "x".repeat(101)] {
+        for id in ["logic\u{001b}[31m".to_string(), "x".repeat(101)] {
             let mut expected = rubric();
             expected[0].criterion_id = id;
             assert_eq!(
