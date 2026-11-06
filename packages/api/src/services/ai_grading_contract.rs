@@ -10,6 +10,21 @@ pub const MAX_EVIDENCE_CHARS: usize = 1_000;
 
 // Unicode bidirectional formatting controls can visually reorder a teacher's
 // rubric identifier or model feedback without being Rust control characters.
+// Default-ignorable characters can make distinct rubric keys look identical.
+// Reject these in identifiers; ordinary Persian/Arabic letters remain valid.
+fn invisible_identifier_format(c: char) -> bool {
+    matches!(
+        c,
+        '\u{00ad}'
+            | '\u{034f}'
+            | '\u{180e}'
+            | '\u{200b}'..='\u{200d}'
+            | '\u{2060}'
+            | '\u{fe0e}'..='\u{fe0f}'
+            | '\u{feff}'
+    )
+}
+
 fn unsafe_bidi_format(c: char) -> bool {
     matches!(
         c,
@@ -96,7 +111,7 @@ impl GradingSuggestion {
                 || criterion
                     .criterion_id
                     .chars()
-                    .any(|c| c.is_control() || unsafe_bidi_format(c))
+                    .any(|c| c.is_control() || unsafe_bidi_format(c) || invisible_identifier_format(c))
                 || !ids.insert(criterion.criterion_id.as_str())
                 || !criterion.awarded_points.is_finite()
                 || !criterion.possible_points.is_finite()
@@ -286,6 +301,18 @@ mod tests {
     }
 
     #[test]
+    fn rejects_invisible_criterion_identifiers() {
+        for mark in ['\u{200b}', '\u{200c}', '\u{200d}', '\u{2060}', '\u{feff}'] {
+            let mut s = valid();
+            s.criteria[0].criterion_id.push(mark);
+            assert_eq!(
+                s.validate(s.submission_revision),
+                Err(SuggestionValidationError::InvalidCriteria)
+            );
+        }
+    }
+
+    #[test]
     fn rejects_control_characters_in_criterion_identifiers() {
         let mut s = valid();
         s.criteria[0].criterion_id = "reasoning\u{001b}[31m".into();
@@ -358,7 +385,7 @@ impl GradingSuggestion {
                 || item
                     .criterion_id
                     .chars()
-                    .any(|c| c.is_control() || unsafe_bidi_format(c))
+                    .any(|c| c.is_control() || unsafe_bidi_format(c) || invisible_identifier_format(c))
                 || !seen.insert(item.criterion_id.as_str())
                 || !item.possible_points.is_finite()
                 || item.possible_points <= 0.0
@@ -496,6 +523,19 @@ mod rubric_binding_tests {
         for id in ["logic\u{001b}[31m".to_string(), "x".repeat(101)] {
             let mut expected = rubric();
             expected[0].criterion_id = id;
+            assert_eq!(
+                s.validate_against_rubric(s.submission_revision, &expected),
+                Err(SuggestionValidationError::InvalidCriteria)
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_invisible_authoritative_rubric_ids() {
+        let s = suggestion();
+        for mark in ['\u{200b}', '\u{200c}', '\u{200d}', '\u{2060}', '\u{feff}'] {
+            let mut expected = rubric();
+            expected[0].criterion_id.push(mark);
             assert_eq!(
                 s.validate_against_rubric(s.submission_revision, &expected),
                 Err(SuggestionValidationError::InvalidCriteria)
