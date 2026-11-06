@@ -264,7 +264,7 @@ mod tests {
 
     #[test]
     fn rejects_whitespace_padded_criterion_identifiers() {
-        for id in [" reasoning", "reasoning ", "\\treasoning", "reasoning\\n"] {
+        for id in [" reasoning", "reasoning ", "\treasoning", "reasoning\n"] {
             let mut s = valid();
             s.criteria[0].criterion_id = id.into();
             assert_eq!(
@@ -457,7 +457,7 @@ mod rubric_binding_tests {
     #[test]
     fn rejects_whitespace_padded_authoritative_rubric_ids() {
         let s = suggestion();
-        for id in [" logic", "logic ", "\\tlogic"] {
+        for id in [" logic", "logic ", "\tlogic"] {
             let mut expected = rubric();
             expected[0].criterion_id = id.into();
             assert_eq!(
@@ -583,8 +583,8 @@ mod untrusted_response_tests {
     fn rejects_fenced_prose_and_non_objects() {
         let (raw, revision, rubric) = valid_response();
         for response in [
-            format!("\x60\x60\x60json\\n{raw}\\n\x60\x60\x60"),
-            format!("{raw}\\nHere is your grade"),
+            format!("\x60\x60\x60json\n{raw}\n\x60\x60\x60"),
+            format!("{raw}\nHere is your grade"),
             "[]".to_string(),
             "null".to_string(),
             String::new(),
