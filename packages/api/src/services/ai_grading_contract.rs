@@ -79,6 +79,7 @@ impl GradingSuggestion {
         for criterion in &self.criteria {
             if criterion.criterion_id.trim().is_empty()
                 || criterion.criterion_id.len() > 100
+                || criterion.criterion_id.chars().any(char::is_control)
                 || !ids.insert(criterion.criterion_id.as_str())
                 || !criterion.awarded_points.is_finite()
                 || !criterion.possible_points.is_finite()
@@ -246,6 +247,16 @@ mod tests {
     }
 
     #[test]
+    fn rejects_control_characters_in_criterion_identifiers() {
+        let mut s = valid();
+        s.criteria[0].criterion_id = "reasoning\u{001b}[31m".into();
+        assert_eq!(
+            s.validate(s.submission_revision),
+            Err(SuggestionValidationError::InvalidCriteria)
+        );
+    }
+
+    #[test]
     fn rejects_unexpected_model_fields() {
         let s = valid();
         let mut value = serde_json::to_value(&s).expect("serialize");
@@ -279,6 +290,8 @@ impl GradingSuggestion {
         let mut total = 0.0;
         for item in expected {
             if item.criterion_id.trim().is_empty()
+                || item.criterion_id.len() > 100
+                || item.criterion_id.chars().any(char::is_control)
                 || !seen.insert(item.criterion_id.as_str())
                 || !item.possible_points.is_finite()
                 || item.possible_points <= 0.0
@@ -384,6 +397,19 @@ mod rubric_binding_tests {
             s.validate_against_rubric(s.submission_revision, &rubric()[..1]),
             Err(SuggestionValidationError::InvalidCriteria)
         );
+    }
+
+    #[test]
+    fn rejects_invalid_authoritative_criterion_identifiers() {
+        let s = suggestion();
+        for id in ["logic\u{001b}[31m".to_string(), "x".repeat(101)] {
+            let mut expected = rubric();
+            expected[0].criterion_id = id;
+            assert_eq!(
+                s.validate_against_rubric(s.submission_revision, &expected),
+                Err(SuggestionValidationError::InvalidCriteria)
+            );
+        }
     }
 
     #[test]
