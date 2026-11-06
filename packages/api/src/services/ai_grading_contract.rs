@@ -90,7 +90,7 @@ impl GradingSuggestion {
         let mut awarded = 0.0;
         let mut possible = 0.0;
         for criterion in &self.criteria {
-            if criterion.criterion_id.trim().is_empty()
+            if criterion.criterion_id.trim() != criterion.criterion_id
                 || criterion.criterion_id.len() > 100
                 || criterion
                     .criterion_id
@@ -263,6 +263,18 @@ mod tests {
     }
 
     #[test]
+    fn rejects_whitespace_padded_criterion_identifiers() {
+        for id in [" reasoning", "reasoning ", "\\treasoning", "reasoning\\n"] {
+            let mut s = valid();
+            s.criteria[0].criterion_id = id.into();
+            assert_eq!(
+                s.validate(s.submission_revision),
+                Err(SuggestionValidationError::InvalidCriteria)
+            );
+        }
+    }
+
+    #[test]
     fn rejects_control_characters_in_criterion_identifiers() {
         let mut s = valid();
         s.criteria[0].criterion_id = "reasoning\u{001b}[31m".into();
@@ -329,7 +341,7 @@ impl GradingSuggestion {
         let mut seen = std::collections::HashSet::new();
         let mut total = 0.0;
         for item in expected {
-            if item.criterion_id.trim().is_empty()
+            if item.criterion_id.trim() != item.criterion_id
                 || item.criterion_id.len() > 100
                 || item
                     .criterion_id
@@ -440,6 +452,19 @@ mod rubric_binding_tests {
             s.validate_against_rubric(s.submission_revision, &rubric()[..1]),
             Err(SuggestionValidationError::InvalidCriteria)
         );
+    }
+
+    #[test]
+    fn rejects_whitespace_padded_authoritative_rubric_ids() {
+        let s = suggestion();
+        for id in [" logic", "logic ", "\\tlogic"] {
+            let mut expected = rubric();
+            expected[0].criterion_id = id.into();
+            assert_eq!(
+                s.validate_against_rubric(s.submission_revision, &expected),
+                Err(SuggestionValidationError::InvalidCriteria)
+            );
+        }
     }
 
     #[test]
