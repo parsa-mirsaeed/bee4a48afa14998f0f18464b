@@ -468,8 +468,7 @@ mod rubric_binding_tests {
 
     #[test]
     fn rejects_empty_authoritative_rubric_ids() {
-        let mut s = suggestion();
-        s.criteria[0].criterion_id.clear();
+        let s = suggestion();
         let mut expected = rubric();
         expected[0].criterion_id.clear();
         assert_eq!(
