@@ -673,8 +673,7 @@ BEGIN
         'public.claim_next_ai_grading_job(uuid)',
         'public.heartbeat_ai_grading_job(uuid,uuid)',
         'public.record_ai_grading_job_failure(uuid,uuid,text,boolean,integer)',
-        'public.recover_expired_ai_grading_jobs(uuid)',
-        'public.complete_ai_grading_job(uuid,uuid)'
+        'public.recover_expired_ai_grading_jobs(uuid)'
     ] LOOP
         IF to_regprocedure(function_name) IS NULL THEN
             RAISE EXCEPTION 'Missing guarded AI grading worker lifecycle entry point %', function_name;
