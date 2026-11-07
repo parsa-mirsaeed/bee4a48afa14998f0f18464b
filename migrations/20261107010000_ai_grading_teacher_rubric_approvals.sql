@@ -172,6 +172,18 @@ BEGIN
         RAISE EXCEPTION 'New rubric approvals cannot start revoked'
             USING ERRCODE = '23514';
     END IF;
+    IF EXISTS (
+        SELECT 1 FROM public.custom_assignments ca
+        WHERE ca.id = NEW.custom_assignment_id AND ca.graded_at IS NOT NULL
+    ) OR EXISTS (
+        SELECT 1 FROM public.submissions s
+        WHERE s.custom_assignment_id = NEW.custom_assignment_id
+          AND (s.grade IS NOT NULL OR s.graded_by IS NOT NULL
+               OR s.grade_scale <> NEW.grade_scale)
+    ) THEN
+        RAISE EXCEPTION 'Cannot approve a graded or scale-mismatched submission'
+            USING ERRCODE = '23514';
+    END IF;
 
     -- Never store structurally malformed or grade-scale-inconsistent criteria.
     -- Strict Unicode identifier checks also run in the shared Rust contract.
