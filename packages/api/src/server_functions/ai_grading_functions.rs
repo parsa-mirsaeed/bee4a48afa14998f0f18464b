@@ -9,11 +9,11 @@ use crate::services::ai_grading_contract::{ExpectedCriterion, GradingSuggestion}
 use dioxus::prelude::*;
 
 #[cfg(feature = "server")]
+use crate::rls_context::AuthorizedPool;
+#[cfg(feature = "server")]
 use crate::services::ai_grading_contract::validate_authoritative_rubric;
 #[cfg(feature = "server")]
 use crate::services::llm_service::ExternalLlmClient;
-#[cfg(feature = "server")]
-use crate::rls_context::AuthorizedPool;
 #[cfg(feature = "server")]
 use sqlx::Row;
 #[cfg(feature = "server")]
@@ -87,8 +87,8 @@ pub async fn preview_teacher_ai_grading(
         if user.role != "Teacher" {
             return Err(ServerFnError::new("grading.forbidden"));
         }
-        let user_id = Uuid::parse_str(&user.id)
-            .map_err(|_| ServerFnError::new("grading.forbidden"))?;
+        let user_id =
+            Uuid::parse_str(&user.id).map_err(|_| ServerFnError::new("grading.forbidden"))?;
         if submission_id.is_nil() {
             return Err(ServerFnError::new("grading.invalid_submission"));
         }
@@ -253,8 +253,8 @@ mod tests {
         submission_id: Uuid,
     ) -> Option<AuthorizedGradingSource> {
         use crate::rls_context::{AuthorizedActor, AuthorizedTx};
-        let actor = AuthorizedActor::new(user_id, "Teacher", Some(school_id))
-            .expect("valid test actor");
+        let actor =
+            AuthorizedActor::new(user_id, "Teacher", Some(school_id)).expect("valid test actor");
         let tx = AuthorizedTx::begin(pool, actor)
             .await
             .expect("begin authorized grading test transaction");
@@ -274,7 +274,9 @@ mod tests {
 
         let url = std::env::var("DATABASE_URL")
             .expect("DATABASE_URL required for grading authorization database proof");
-        let pool = PgPool::connect(&url).await.expect("connect test PostgreSQL");
+        let pool = PgPool::connect(&url)
+            .await
+            .expect("connect test PostgreSQL");
         let suffix = Uuid::new_v4().simple().to_string();
         let school_a = Uuid::new_v4();
         let school_b = Uuid::new_v4();
@@ -313,7 +315,12 @@ mod tests {
 
         for (user_id, name, role, school) in [
             (teacher_a_user, "Teacher A", teacher_role, school_a),
-            (teacher_peer_user, "Same-school peer", teacher_role, school_a),
+            (
+                teacher_peer_user,
+                "Same-school peer",
+                teacher_role,
+                school_a,
+            ),
             (teacher_b_user, "Teacher B", teacher_role, school_b),
             (student_a_user, "Student A", student_role, school_a),
             (student_b_user, "Student B", student_role, school_b),
@@ -374,10 +381,7 @@ mod tests {
             .await
             .expect("subject fixture");
 
-        for (class, school, name) in [
-            (class_a, school_a, "A"),
-            (class_b, school_b, "B"),
-        ] {
+        for (class, school, name) in [(class_a, school_a, "A"), (class_b, school_b, "B")] {
             sqlx::query(
                 "INSERT INTO class_sections \
                  (id, school_id, subject_id, name, term) VALUES ($1, $2, $3, $4, $5)",
@@ -528,5 +532,4 @@ mod tests {
             "unfinalized work must never be sent to the grading gateway"
         );
     }
-
 }
