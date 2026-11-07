@@ -466,8 +466,14 @@ async fn school_and_teacher_authorization_matrix() {
 
     assert!(
         try_store_suggestion(
-            &pool, teacher_peer_user, "Teacher", school_a, submissions[0],
-            changed.submission_revision, rubric_id, &stored_fingerprint
+            &pool,
+            teacher_peer_user,
+            "Teacher",
+            school_a,
+            submissions[0],
+            changed.submission_revision,
+            rubric_id,
+            &stored_fingerprint
         )
         .await
         .is_err(),
@@ -475,8 +481,14 @@ async fn school_and_teacher_authorization_matrix() {
     );
     assert!(
         try_store_suggestion(
-            &pool, teacher_b_user, "Teacher", school_b, submissions[0],
-            changed.submission_revision, rubric_id, &stored_fingerprint
+            &pool,
+            teacher_b_user,
+            "Teacher",
+            school_b,
+            submissions[0],
+            changed.submission_revision,
+            rubric_id,
+            &stored_fingerprint
         )
         .await
         .is_err(),
@@ -484,8 +496,14 @@ async fn school_and_teacher_authorization_matrix() {
     );
     assert!(
         try_store_suggestion(
-            &pool, student_a_user, "Student", school_a, submissions[0],
-            changed.submission_revision, rubric_id, &stored_fingerprint
+            &pool,
+            student_a_user,
+            "Student",
+            school_a,
+            submissions[0],
+            changed.submission_revision,
+            rubric_id,
+            &stored_fingerprint
         )
         .await
         .is_err(),
@@ -493,8 +511,14 @@ async fn school_and_teacher_authorization_matrix() {
     );
     assert!(
         try_store_suggestion(
-            &pool, teacher_a_user, "Teacher", school_a, submissions[0],
-            Uuid::new_v4(), rubric_id, &stored_fingerprint
+            &pool,
+            teacher_a_user,
+            "Teacher",
+            school_a,
+            submissions[0],
+            Uuid::new_v4(),
+            rubric_id,
+            &stored_fingerprint
         )
         .await
         .is_err(),
@@ -502,8 +526,14 @@ async fn school_and_teacher_authorization_matrix() {
     );
     assert!(
         try_store_suggestion(
-            &pool, teacher_a_user, "Teacher", school_a, submissions[0],
-            changed.submission_revision, rubric_id, &"f".repeat(64)
+            &pool,
+            teacher_a_user,
+            "Teacher",
+            school_a,
+            submissions[0],
+            changed.submission_revision,
+            rubric_id,
+            &"f".repeat(64)
         )
         .await
         .is_err(),
@@ -511,24 +541,42 @@ async fn school_and_teacher_authorization_matrix() {
     );
     assert!(
         try_store_suggestion(
-            &pool, teacher_a_user, "Teacher", school_a, submissions[0],
-            changed.submission_revision, Uuid::new_v4(), &stored_fingerprint
+            &pool,
+            teacher_a_user,
+            "Teacher",
+            school_a,
+            submissions[0],
+            changed.submission_revision,
+            Uuid::new_v4(),
+            &stored_fingerprint
         )
         .await
         .is_err(),
         "teacher cannot forge an unknown rubric approval"
     );
     let stored_id = try_store_suggestion(
-        &pool, teacher_a_user, "Teacher", school_a, submissions[0],
-        changed.submission_revision, rubric_id, &stored_fingerprint
+        &pool,
+        teacher_a_user,
+        "Teacher",
+        school_a,
+        submissions[0],
+        changed.submission_revision,
+        rubric_id,
+        &stored_fingerprint,
     )
     .await
     .expect("authorized teacher suggestion may be persisted")
     .expect("inserted pending suggestion");
     assert!(
         try_store_suggestion(
-            &pool, teacher_a_user, "Teacher", school_a, submissions[0],
-            changed.submission_revision, rubric_id, &stored_fingerprint
+            &pool,
+            teacher_a_user,
+            "Teacher",
+            school_a,
+            submissions[0],
+            changed.submission_revision,
+            rubric_id,
+            &stored_fingerprint
         )
         .await
         .expect("idempotent repeat")
@@ -552,26 +600,26 @@ async fn school_and_teacher_authorization_matrix() {
         .await
         .expect("begin denied direct review");
     let scoped = tx.authorized_pool();
-    let changed_rows = tx.scope(
-        async {
-            sqlx::query(
-                "UPDATE ai_grading_suggestions SET status='rejected', \
+    let changed_rows = tx
+        .scope(
+            async {
+                sqlx::query(
+                    "UPDATE ai_grading_suggestions SET status='rejected', \
                  reviewed_by=$2, reviewed_at=NOW() WHERE id=$1",
-            )
-            .bind(stored_id)
-            .bind(teacher_a)
-            .execute(&scoped)
-            .await
-        },
-        |_| false,
-    )
-    .await
-    .expect("finish denied direct review");
+                )
+                .bind(stored_id)
+                .bind(teacher_a)
+                .execute(&scoped)
+                .await
+            },
+            |_| false,
+        )
+        .await
+        .expect("finish denied direct review");
     assert!(
         changed_rows.is_err() || changed_rows.expect("update count").rows_affected() == 0,
         "teacher must not bypass controlled review by raw UPDATE"
     );
-
 
     assert!(
         attempt_approval(
