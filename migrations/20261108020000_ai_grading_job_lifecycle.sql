@@ -210,7 +210,7 @@ DECLARE
     affected INTEGER;
 BEGIN
     PERFORM edutalent_internal.require_ai_grading_worker(p_worker_id);
-    IF p_reason NOT IN (
+    IF p_reason IS NULL OR p_reason NOT IN (
         'authorization_revoked', 'stale_submission',
         'rubric_revoked', 'attachment_unsupported', 'already_graded'
     ) THEN
