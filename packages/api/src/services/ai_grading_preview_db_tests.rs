@@ -862,26 +862,27 @@ async fn school_and_teacher_authorization_matrix() {
 
     // A new finalized revision with a submitted PDF must cancel old queued
     // work without creating a new text-only grading job.
-    let before: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM public.ai_grading_jobs WHERE submission_id=$1",
-    )
-    .bind(submissions[0])
-    .fetch_one(&pool)
-    .await
-    .expect("queue count before resubmission");
+    let before: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM public.ai_grading_jobs WHERE submission_id=$1")
+            .bind(submissions[0])
+            .fetch_one(&pool)
+            .await
+            .expect("queue count before resubmission");
     sqlx::query("UPDATE public.submissions SET revision=gen_random_uuid() WHERE id=$1")
         .bind(submissions[0])
         .execute(&pool)
         .await
         .expect("resubmit attached work");
-    let after: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM public.ai_grading_jobs WHERE submission_id=$1",
-    )
-    .bind(submissions[0])
-    .fetch_one(&pool)
-    .await
-    .expect("queue count after attached resubmission");
-    assert_eq!(before, after, "attachments must never queue incomplete AI grading");
+    let after: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM public.ai_grading_jobs WHERE submission_id=$1")
+            .bind(submissions[0])
+            .fetch_one(&pool)
+            .await
+            .expect("queue count after attached resubmission");
+    assert_eq!(
+        before, after,
+        "attachments must never queue incomplete AI grading"
+    );
     let status: String = sqlx::query_scalar(
         "SELECT status FROM public.ai_grading_jobs \
          WHERE submission_id=$1 AND rubric_approval_id=$2",
