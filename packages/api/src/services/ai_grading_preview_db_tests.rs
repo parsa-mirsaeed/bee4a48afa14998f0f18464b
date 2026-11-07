@@ -427,29 +427,27 @@ async fn school_and_teacher_authorization_matrix() {
     .expect("queue created on late teacher approval");
     assert_eq!(queued_at_approval, 1);
 
-    // A student must not enumerate the internal queue, even for their own work.
-    {
-        use crate::rls_context::{AuthorizedActor, AuthorizedTx};
-        let actor = AuthorizedActor::new(student_a_user, "Student", Some(school_a))
-            .expect("valid student actor");
-        let tx = AuthorizedTx::begin(&pool, actor)
-            .await
-            .expect("student queue isolation transaction");
-        let scoped = tx.authorized_pool();
-        let visible: i64 = tx
-            .scope(
-                sqlx::query_scalar(
-                    "SELECT count(*) FROM public.ai_grading_jobs WHERE submission_id=$1",
-                )
-                .bind(submissions[0])
-                .fetch_one(&scoped),
-                |result| result.is_ok(),
-            )
-            .await
-            .expect("finish queue RLS transaction")
-            .expect("queue read under RLS");
-        assert_eq!(visible, 0, "student cannot read private AI work queue");
-    }
+    // The test fixture uses a privileged PostgreSQL owner connection (which
+    // bypasses RLS even when the transaction context says "Student"). Test
+    // structure here and test the real NOBYPASSRLS runtime role in the CI
+    // transaction-scoped RLS verification, not via a false actor simulation.
+    let row = sqlx::query(
+        "SELECT relrowsecurity, relforcerowsecurity FROM pg_class \
+         WHERE oid = 'public.ai_grading_jobs'::regclass",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("grading queue RLS metadata");
+    assert!(row.get::<bool, _>("relrowsecurity"));
+    assert!(row.get::<bool, _>("relforcerowsecurity"));
+    let policy_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM pg_policies \
+         WHERE schemaname = 'public' AND tablename = 'ai_grading_jobs'",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("grading queue policy inventory");
+    assert_eq!(policy_count, 0, "no direct actor policy for queue rows");
 
     // Persisted model suggestions must be denied without the exact currently
     // approved rubric, submission revision and active assigned teacher.
