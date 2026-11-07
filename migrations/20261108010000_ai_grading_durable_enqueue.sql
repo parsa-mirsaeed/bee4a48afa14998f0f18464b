@@ -91,8 +91,20 @@ CREATE OR REPLACE FUNCTION edutalent_internal.enqueue_ai_grading_if_eligible(
 RETURNS VOID
 LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, public
-AS $$
+AS $
 BEGIN
+    -- Take the lock in its own SQL statement. This avoids ambiguity between
+    -- SELECT row-locking syntax and INSERT ... ON CONFLICT, and serializes
+    -- enqueue with revocation across separate transactions.
+    PERFORM 1
+    FROM public.ai_grading_rubric_approvals approval
+    JOIN public.submissions s
+      ON s.custom_assignment_id = approval.custom_assignment_id
+    WHERE s.id = p_submission_id
+      AND (p_approval_id IS NULL OR approval.id = p_approval_id)
+      AND approval.revoked_at IS NULL
+    FOR SHARE OF approval;
+
     INSERT INTO public.ai_grading_jobs (
         school_id, submission_id, submission_revision, rubric_approval_id,
         status, available_at
@@ -161,11 +173,6 @@ BEGIN
             AND suggestion.submission_revision = s.revision
             AND suggestion.rubric_approval_id = approval.id
       )
-    -- Hold an approval row-share lock through the surrounding submission
-    -- transaction. Concurrent revocation waits: either it commits first
-    -- (and enqueue sees revoked_at), or it waits for enqueue to commit and
-    -- then cancels the newly visible job. FK key-share is insufficient.
-    FOR SHARE OF approval
     ON CONFLICT (submission_id, submission_revision, rubric_approval_id)
        DO NOTHING;
 END;
