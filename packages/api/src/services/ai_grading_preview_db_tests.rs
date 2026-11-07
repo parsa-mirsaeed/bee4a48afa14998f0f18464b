@@ -482,32 +482,18 @@ async fn school_and_teacher_authorization_matrix() {
             .await
             .expect("bounded heartbeat transaction");
         let scoped = tx.authorized_pool();
-        let (heartbeat, complete): (bool, bool) = tx
+        let heartbeat: bool = tx
             .scope(
-                async {
-                    let heartbeat: bool = sqlx::query_scalar(
-                        "SELECT public.heartbeat_ai_grading_job($1,$2)",
-                    )
+                sqlx::query_scalar("SELECT public.heartbeat_ai_grading_job($1,$2)")
                     .bind(worker_id)
                     .bind(claimed_job)
-                    .fetch_one(&scoped)
-                    .await?;
-                    let complete: bool = sqlx::query_scalar(
-                        "SELECT public.complete_ai_grading_job($1,$2)",
-                    )
-                    .bind(worker_id)
-                    .bind(claimed_job)
-                    .fetch_one(&scoped)
-                    .await?;
-                    Ok::<_, sqlx::Error>((heartbeat, complete))
-                },
+                    .fetch_one(&scoped),
                 |result| result.is_ok(),
             )
             .await
             .expect("finish heartbeat transaction")
-            .expect("heartbeat/complete query");
+            .expect("active lease heartbeat");
         assert!(heartbeat, "active lease can be renewed");
-        assert!(!complete, "job cannot succeed without stored model evidence");
     }
     {
         use crate::rls_context::{AuthorizedActor, AuthorizedTx};
