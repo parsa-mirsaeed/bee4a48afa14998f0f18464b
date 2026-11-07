@@ -793,6 +793,91 @@ async fn school_and_teacher_authorization_matrix() {
         "revoked rubric evidence must remain immutable beside replacement evidence"
     );
 
+    // Two independent connections: finalization holds the approved rubric
+    // SHARE lock while enqueuing. A simultaneous teacher revocation cannot
+    // overtake the uncommitted queue row and leave stale work runnable.
+    let mut finalization_tx = pool
+        .begin()
+        .await
+        .expect("begin concurrent finalization");
+    let concurrent_revision: Uuid = sqlx::query_scalar(
+        "UPDATE public.submissions SET revision=gen_random_uuid() \
+         WHERE id=$1 RETURNING revision",
+    )
+    .bind(submissions[0])
+    .fetch_one(&mut *finalization_tx)
+    .await
+    .expect("enqueue in open finalization transaction");
+    let new_queued: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM public.ai_grading_jobs \
+         WHERE submission_id=$1 AND submission_revision=$2 \
+           AND rubric_approval_id=$3 AND status='queued'",
+    )
+    .bind(submissions[0])
+    .bind(concurrent_revision)
+    .bind(replacement_approval)
+    .fetch_one(&mut *finalization_tx)
+    .await
+    .expect("new job visible to finalizing transaction");
+    assert_eq!(new_queued, 1);
+
+    let other_connection = pool.clone();
+    let (ready_sender, ready_receiver) = tokio::sync::oneshot::channel();
+    let mut concurrent_revoke = tokio::spawn(async move {
+        use crate::rls_context::{AuthorizedActor, AuthorizedTx};
+        let actor = AuthorizedActor::new(teacher_a_user, "Teacher", Some(school_a))
+            .expect("concurrent teacher actor");
+        let tx = AuthorizedTx::begin(&other_connection, actor)
+            .await
+            .expect("independent revocation transaction");
+        let scoped = tx.authorized_pool();
+        ready_sender.send(()).expect("signal ready to revoke");
+        let result = tx
+            .scope(
+                sqlx::query(
+                    "UPDATE public.ai_grading_rubric_approvals \
+                     SET revoked_at=NOW() WHERE id=$1 AND revoked_at IS NULL",
+                )
+                .bind(replacement_approval)
+                .execute(&scoped),
+                |result| result.is_ok(),
+            )
+            .await
+            .expect("complete concurrent revocation");
+        result.expect("authorized teacher may revoke")
+            .rows_affected()
+    });
+    ready_receiver.await.expect("revocation transaction started");
+    assert!(
+        tokio::time::timeout(
+            std::time::Duration::from_millis(250),
+            &mut concurrent_revoke
+        )
+        .await
+        .is_err(),
+        "revocation must wait for the uncommitted grading enqueue"
+    );
+    finalization_tx.commit().await.expect("commit submitted revision");
+    assert_eq!(
+        concurrent_revoke.await.expect("join independent revocation"),
+        1,
+        "teacher revocation must eventually succeed"
+    );
+    let cancelled: String = sqlx::query_scalar(
+        "SELECT status FROM public.ai_grading_jobs \
+         WHERE submission_id=$1 AND submission_revision=$2 AND rubric_approval_id=$3",
+    )
+    .bind(submissions[0])
+    .bind(concurrent_revision)
+    .bind(replacement_approval)
+    .fetch_one(&pool)
+    .await
+    .expect("concurrent job remains auditable");
+    assert_eq!(
+        cancelled, "cancelled",
+        "revoked rubric must leave no queued work after both commits"
+    );
+
     // The initial schema requires submissions.submitted_at NOT NULL;
     // custom_assignments.submitted_at is nullable and authoritative here.
     sqlx::query(
