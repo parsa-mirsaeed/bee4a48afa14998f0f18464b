@@ -681,27 +681,10 @@ impl ExternalLlmClient {
                 "Invalid or oversized grading inputs".to_string(),
             ));
         }
-        // Validate the authoritative rubric before sending any student work.
-        let mut ids = std::collections::HashSet::new();
-        let mut possible = 0.0;
-        for criterion in rubric {
-            if criterion.criterion_id.trim().is_empty()
-                || criterion.criterion_id.len() > 100
-                || !ids.insert(criterion.criterion_id.as_str())
-                || !criterion.possible_points.is_finite()
-                || criterion.possible_points <= 0.0
-            {
-                return Err(LlmError::InvalidResponse(
-                    "Invalid grading rubric".to_string(),
-                ));
-            }
-            possible += criterion.possible_points;
-        }
-        if (possible - f64::from(grade_scale)).abs() > 0.000001 {
-            return Err(LlmError::InvalidResponse(
-                "Invalid grading rubric".to_string(),
-            ));
-        }
+        // Reuse the exact authoritative-rubric validator used by the
+        // teacher endpoint and response parser: no bypass before egress.
+        crate::services::ai_grading_contract::validate_authoritative_rubric(rubric, grade_scale)
+            .map_err(|_| LlmError::InvalidResponse("Invalid grading rubric".to_string()))?;
         let context = json!({
             "submission_revision": submission_revision,
             "grade_scale": grade_scale,

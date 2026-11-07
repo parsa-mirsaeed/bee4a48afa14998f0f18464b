@@ -1,4 +1,4 @@
-pub mod ai_grading_contract;
+pub use crate::ai_grading_contract;
 pub mod ai_outage_queue;
 pub mod assignment_personalization_service;
 #[cfg(feature = "server")]
