@@ -370,10 +370,7 @@ pub fn validate_authoritative_rubric(
     grade_scale: i16,
 ) -> Result<(), SuggestionValidationError> {
     use SuggestionValidationError as Error;
-    if !matches!(grade_scale, 20 | 100)
-        || rubric.is_empty()
-        || rubric.len() > MAX_CRITERIA
-    {
+    if !matches!(grade_scale, 20 | 100) || rubric.is_empty() || rubric.len() > MAX_CRITERIA {
         return Err(Error::InvalidCriteria);
     }
     let mut ids = std::collections::HashSet::new();
@@ -382,9 +379,10 @@ pub fn validate_authoritative_rubric(
         if criterion.criterion_id.is_empty()
             || criterion.criterion_id.trim() != criterion.criterion_id
             || criterion.criterion_id.len() > 100
-            || criterion.criterion_id.chars().any(|c| {
-                c.is_control() || unsafe_bidi_format(c) || invisible_identifier_format(c)
-            })
+            || criterion
+                .criterion_id
+                .chars()
+                .any(|c| c.is_control() || unsafe_bidi_format(c) || invisible_identifier_format(c))
             || !ids.insert(criterion.criterion_id.as_str())
             || !criterion.possible_points.is_finite()
             || criterion.possible_points <= 0.0
