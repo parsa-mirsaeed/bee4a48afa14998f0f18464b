@@ -421,8 +421,7 @@ async fn school_and_teacher_authorization_matrix() {
             custom_id,
             teacher_a,
             serde_json::json!([
-                {"criterion_id": "logic", "possible_points": 20.0},
-                {"criterion_id": "logic", "possible_points": 0.0}
+                {"criterion_id": "alternative", "possible_points": 20.0}
             ])
         )
         .await
