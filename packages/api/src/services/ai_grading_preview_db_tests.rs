@@ -295,4 +295,56 @@ async fn school_and_teacher_authorization_matrix() {
             .is_none(),
         "unfinalized work must never be sent to the grading gateway"
     );
+
+    // Restore finalization and attach a verified submitted PDF *alongside*
+    // nonempty text. Only the complete answer may be graded: without OCR,
+    // this mixed submission must fail closed before calling the LLM.
+    sqlx::query(
+        "UPDATE custom_assignments SET submitted_at = NOW() \
+         WHERE id = (SELECT custom_assignment_id FROM submissions WHERE id = $1)",
+    )
+    .bind(submissions[0])
+    .execute(&pool)
+    .await
+    .expect("restore submitted assignment");
+    assert!(
+        source_as(&pool, teacher_a_user, school_a, submissions[0])
+            .await
+            .is_some(),
+        "text-only submission remains eligible before adding an attachment"
+    );
+    sqlx::query(
+        r#"
+        INSERT INTO public.submission_attachments (
+            id, custom_assignment_id, student_id, school_id, submission_id,
+            request_id, filename, media_type, byte_size, sha256,
+            status, verified_at, finalized_at
+        )
+        SELECT $1, s.custom_assignment_id, s.student_id, $2, s.id,
+               $3, 'solution.pdf', 'application/pdf', 12, repeat('a', 64),
+               'submitted', NOW(), NOW()
+        FROM public.submissions s
+        WHERE s.id = $4
+        "#,
+    )
+    .bind(Uuid::new_v4())
+    .bind(school_a)
+    .bind(Uuid::new_v4())
+    .bind(submissions[0])
+    .execute(&pool)
+    .await
+    .expect("insert verified finalized attachment fixture");
+
+    assert!(
+        source_as(&pool, teacher_a_user, school_a, submissions[0])
+            .await
+            .is_none(),
+        "mixed text and submitted attachment must not be preview-graded"
+    );
+    assert!(
+        source_as(&pool, teacher_b_user, school_b, submissions[1])
+            .await
+            .is_some(),
+        "another school's text-only submission remains eligible"
+    );
 }
