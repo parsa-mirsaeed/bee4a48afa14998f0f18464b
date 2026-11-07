@@ -281,13 +281,12 @@ async fn school_and_teacher_authorization_matrix() {
 
     // Explicit teacher approval must be independently protected by RLS and
     // database triggers; the generated personalization rubric is not authority.
-    let custom_id: Uuid = sqlx::query_scalar(
-        "SELECT custom_assignment_id FROM submissions WHERE id = $1",
-    )
-    .bind(submissions[0])
-    .fetch_one(&pool)
-    .await
-    .expect("custom assignment fixture");
+    let custom_id: Uuid =
+        sqlx::query_scalar("SELECT custom_assignment_id FROM submissions WHERE id = $1")
+            .bind(submissions[0])
+            .fetch_one(&pool)
+            .await
+            .expect("custom assignment fixture");
 
     let criteria = serde_json::json!([
         {"criterion_id": "استدلال", "possible_points": 12.0},
@@ -304,8 +303,8 @@ async fn school_and_teacher_authorization_matrix() {
         criteria: serde_json::Value,
     ) -> Result<Option<Uuid>, sqlx::Error> {
         use crate::rls_context::{AuthorizedActor, AuthorizedTx};
-        let actor = AuthorizedActor::new(user_id, role, Some(school_id))
-            .expect("valid rubric test actor");
+        let actor =
+            AuthorizedActor::new(user_id, role, Some(school_id)).expect("valid rubric test actor");
         let tx = AuthorizedTx::begin(pool, actor)
             .await
             .expect("begin rubric test transaction");
