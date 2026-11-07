@@ -167,16 +167,16 @@ pub async fn preview_teacher_ai_grading(
 }
 
 #[cfg(feature = "server")]
-struct AuthorizedGradingSource {
-    school_id: Uuid,
-    submission_revision: Uuid,
-    grade_scale: i16,
-    assignment_instructions: String,
-    submission_text: String,
+pub(super) struct AuthorizedGradingSource {
+    pub(super) school_id: Uuid,
+    pub(super) submission_revision: Uuid,
+    pub(super) grade_scale: i16,
+    pub(super) assignment_instructions: String,
+    pub(super) submission_text: String,
 }
 
 #[cfg(feature = "server")]
-async fn find_authorized_grading_source(
+pub(super) async fn find_authorized_grading_source(
     pool: &AuthorizedPool,
     submission_id: Uuid,
     teacher_user_id: Uuid,
