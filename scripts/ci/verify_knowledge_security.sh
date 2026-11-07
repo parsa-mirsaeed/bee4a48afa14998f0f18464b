@@ -518,3 +518,57 @@ BEGIN
 END $$;
 ROLLBACK;
 SQL
+
+# Guard the teacher-approved rubric authority against accidental Data API
+# exposure, new permissive role policies, or a disabled integrity trigger.
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+DO $$
+DECLARE
+    external_role TEXT;
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'public'
+          AND c.relname = 'ai_grading_rubric_approvals'
+          AND c.relrowsecurity AND c.relforcerowsecurity
+    ) THEN
+        RAISE EXCEPTION 'Teacher rubric authority must retain FORCE RLS';
+    END IF;
+    IF (
+        SELECT COUNT(*) FROM pg_policies
+        WHERE schemaname = 'public'
+          AND tablename = 'ai_grading_rubric_approvals'
+          AND policyname IN (
+              'ai_grading_rubric_teacher_select',
+              'ai_grading_rubric_teacher_insert',
+              'ai_grading_rubric_teacher_revoke'
+          )
+    ) <> 3 OR (
+        SELECT COUNT(*) FROM pg_policies
+        WHERE schemaname = 'public'
+          AND tablename = 'ai_grading_rubric_approvals'
+    ) <> 3 THEN
+        RAISE EXCEPTION 'Teacher rubric authority policies changed unexpectedly';
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_trigger
+        WHERE tgrelid = 'public.ai_grading_rubric_approvals'::regclass
+          AND tgname = 'ai_grading_rubric_approval_guard'
+          AND tgenabled <> 'D'
+    ) THEN
+        RAISE EXCEPTION 'Teacher rubric authority guard missing or disabled';
+    END IF;
+    FOREACH external_role IN ARRAY ARRAY['anon', 'authenticated'] LOOP
+        IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = external_role)
+           AND (
+               has_table_privilege(external_role, 'public.ai_grading_rubric_approvals', 'SELECT')
+               OR has_table_privilege(external_role, 'public.ai_grading_rubric_approvals', 'INSERT')
+               OR has_table_privilege(external_role, 'public.ai_grading_rubric_approvals', 'UPDATE')
+               OR has_table_privilege(external_role, 'public.ai_grading_rubric_approvals', 'DELETE')
+           ) THEN
+            RAISE EXCEPTION 'Teacher rubric authority leaked privileges to %', external_role;
+        END IF;
+    END LOOP;
+END $$;
+SQL
