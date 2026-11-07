@@ -241,13 +241,14 @@ mod tests {
     #[test]
     fn preview_never_publishes_or_persists_an_ai_grade() {
         let implementation = include_str!("ai_grading_functions.rs");
-        let implementation = implementation.split("#[cfg(all(test, feature = \"server\"))]").next().unwrap_or(implementation);
+        let implementation = implementation
+            .split("#[cfg(all(test, feature = \"server\"))]")
+            .next()
+            .unwrap_or(implementation);
         assert!(!implementation.contains("UPDATE public.submissions"));
         assert!(!implementation.contains("INSERT INTO public.ai_grading_suggestions"));
         assert!(!implementation.contains("UPDATE public.ai_grading_suggestions"));
     }
-
-
 }
 
 #[cfg(all(test, feature = "server"))]
