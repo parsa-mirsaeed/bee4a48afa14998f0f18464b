@@ -445,7 +445,7 @@ async fn school_and_teacher_authorization_matrix() {
                         school_id, rubric_fingerprint, contract_version,
                         grade_scale, suggested_grade, confidence, feedback, criteria
                     ) VALUES ($1,$2,$3,$4,$5,1,20,18,0.85,'Detailed teacher review pending',$6)
-                    ON CONFLICT (submission_id, submission_revision) DO NOTHING
+                    ON CONFLICT (submission_id, submission_revision, rubric_approval_id) DO NOTHING
                     RETURNING id
                     "#,
                 )
