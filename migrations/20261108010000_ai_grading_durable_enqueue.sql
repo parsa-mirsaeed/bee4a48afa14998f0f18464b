@@ -91,7 +91,7 @@ CREATE OR REPLACE FUNCTION edutalent_internal.enqueue_ai_grading_if_eligible(
 RETURNS VOID
 LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, public
-AS $
+AS $$
 BEGIN
     -- Take the lock in its own SQL statement. This avoids ambiguity between
     -- SELECT row-locking syntax and INSERT ... ON CONFLICT, and serializes
@@ -176,7 +176,7 @@ BEGIN
     ON CONFLICT (submission_id, submission_revision, rubric_approval_id)
        DO NOTHING;
 END;
-$;
+$$;
 REVOKE ALL ON FUNCTION
     edutalent_internal.enqueue_ai_grading_if_eligible(UUID, UUID) FROM PUBLIC;
 
