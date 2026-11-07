@@ -594,3 +594,52 @@ BEGIN
     END LOOP;
 END $$;
 SQL
+
+# Durable AI grading jobs are a private work queue, never a Data API. Fail
+# if direct role access, RLS policies or the atomic finalization triggers
+# are accidentally introduced/disabled.
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+DO $$
+DECLARE
+    external_role TEXT;
+    required_trigger TEXT;
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname='public' AND c.relname='ai_grading_jobs'
+          AND c.relrowsecurity AND c.relforcerowsecurity
+    ) THEN
+        RAISE EXCEPTION 'Durable AI grading job queue must retain FORCE RLS';
+    END IF;
+    IF EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname='public' AND tablename='ai_grading_jobs'
+    ) THEN
+        RAISE EXCEPTION 'Private AI grading jobs must not expose user RLS policies';
+    END IF;
+    FOREACH external_role IN ARRAY ARRAY['anon', 'authenticated'] LOOP
+        IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname=external_role)
+            AND (
+                has_table_privilege(external_role, 'public.ai_grading_jobs', 'SELECT')
+                OR has_table_privilege(external_role, 'public.ai_grading_jobs', 'INSERT')
+                OR has_table_privilege(external_role, 'public.ai_grading_jobs', 'UPDATE')
+                OR has_table_privilege(external_role, 'public.ai_grading_jobs', 'DELETE')
+            ) THEN
+            RAISE EXCEPTION 'Private AI grading jobs leaked privileges to %', external_role;
+        END IF;
+    END LOOP;
+    FOREACH required_trigger IN ARRAY ARRAY[
+        'submissions_enqueue_ai_grading',
+        'ai_grading_approval_enqueue'
+    ] LOOP
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_trigger
+            WHERE tgname=required_trigger AND NOT tgisinternal
+              AND tgenabled <> 'D'
+        ) THEN
+            RAISE EXCEPTION 'Missing atomic AI grading enqueue trigger %', required_trigger;
+        END IF;
+    END LOOP;
+END $$;
+SQL
