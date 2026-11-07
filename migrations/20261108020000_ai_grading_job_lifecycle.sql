@@ -1,5 +1,6 @@
 -- Bounded durable AI grading queue lifecycle. Pure scheduling; the inference
--- executor, model egress and teacher approval remain separate changes.
+-- executor, evidence-aware completion, model egress and teacher approval remain
+-- separate changes. This layer never reads the teacher-RLS suggestion table.
 -- Never expose job metadata to Student, Parent or a direct application query.
 -- All publicly callable entry points require a transaction-scoped system_job
 -- context, elevated=true, no school and an exact non-nil worker identity.
@@ -75,13 +76,6 @@ AS $$
                 AND attachment.school_id = cs.school_id
                 AND attachment.status <> 'removed'
           )
-          AND NOT EXISTS (
-              SELECT 1
-              FROM public.ai_grading_suggestions suggestion
-              WHERE suggestion.submission_id = job.submission_id
-                AND suggestion.submission_revision = job.submission_revision
-                AND suggestion.rubric_approval_id = job.rubric_approval_id
-          )
     );
 $$;
 REVOKE ALL ON FUNCTION edutalent_internal.ai_grading_job_current(UUID)
@@ -127,19 +121,6 @@ SET search_path = pg_catalog, public
 AS $$
 BEGIN
     PERFORM edutalent_internal.require_ai_grading_worker(p_worker_id);
-
-    -- A crash after saving immutable evidence but before marking job success
-    -- is safe: acknowledge the already-stored result instead of reusing tokens.
-    UPDATE public.ai_grading_jobs job
-    SET status='succeeded', completed_at=NOW(), lease_owner=NULL,
-        lease_until=NULL, last_error_code=NULL
-    WHERE job.status IN ('queued', 'running')
-      AND EXISTS (
-          SELECT 1 FROM public.ai_grading_suggestions suggestion
-          WHERE suggestion.submission_id = job.submission_id
-            AND suggestion.submission_revision = job.submission_revision
-            AND suggestion.rubric_approval_id = job.rubric_approval_id
-      );
 
     -- Enqueue is not authority. Cancel any now-invalid queued request before
     -- claiming, including changed enrollment, teacher, grade or attachments.
@@ -275,12 +256,6 @@ BEGIN
     WITH recovered AS (
         UPDATE public.ai_grading_jobs job
         SET status=CASE
-                WHEN EXISTS (
-                    SELECT 1 FROM public.ai_grading_suggestions suggestion
-                    WHERE suggestion.submission_id=job.submission_id
-                      AND suggestion.submission_revision=job.submission_revision
-                      AND suggestion.rubric_approval_id=job.rubric_approval_id
-                ) THEN 'succeeded'
                 WHEN job.attempt_count < 5
                      AND edutalent_internal.ai_grading_job_current(job.id)
                 THEN 'queued'
@@ -305,41 +280,5 @@ END;
 $$;
 REVOKE ALL ON FUNCTION public.recover_expired_ai_grading_jobs(UUID) FROM PUBLIC;
 
-CREATE OR REPLACE FUNCTION public.complete_ai_grading_job(
-    p_worker_id UUID,
-    p_job_id UUID
-)
-RETURNS BOOLEAN
-LANGUAGE plpgsql SECURITY DEFINER
-SET search_path = pg_catalog, public
-AS $$
-DECLARE
-    affected INTEGER;
-BEGIN
-    PERFORM edutalent_internal.require_ai_grading_worker(p_worker_id);
-    -- The immutable suggestion must already have been inserted by an
-    -- authorized teacher-scoped operation and is not itself a final grade.
-    UPDATE public.ai_grading_jobs job
-    SET status='succeeded', completed_at=NOW(), lease_owner=NULL,
-        lease_until=NULL, last_error_code=NULL
-    WHERE job.id=p_job_id
-      AND job.status='running'
-      AND job.lease_owner=p_worker_id
-      AND job.lease_until > NOW()
-      AND EXISTS (
-          SELECT 1
-          FROM public.ai_grading_suggestions suggestion
-          WHERE suggestion.submission_id=job.submission_id
-            AND suggestion.submission_revision=job.submission_revision
-            AND suggestion.rubric_approval_id=job.rubric_approval_id
-      );
-    GET DIAGNOSTICS affected = ROW_COUNT;
-    RETURN affected = 1;
-END;
-$$;
-REVOKE ALL ON FUNCTION public.complete_ai_grading_job(UUID,UUID) FROM PUBLIC;
-
 COMMENT ON FUNCTION public.claim_next_ai_grading_job(UUID) IS
     'Bounded system_job queue claim. Never grade or publish during claim.';
-COMMENT ON FUNCTION public.complete_ai_grading_job(UUID,UUID) IS
-    'Acknowledge immutable pending-review evidence for an owned valid lease.';
