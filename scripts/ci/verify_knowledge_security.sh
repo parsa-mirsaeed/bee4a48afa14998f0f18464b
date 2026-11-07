@@ -461,11 +461,33 @@ BEGIN
         RAISE EXCEPTION 'AI grading suggestions must retain FORCE RLS';
     END IF;
 
+    IF (
+        SELECT COUNT(*) FROM pg_policies
+        WHERE schemaname = 'public' AND tablename = 'ai_grading_suggestions'
+    ) <> 2 OR (
+        SELECT COUNT(*) FROM pg_policies
+        WHERE schemaname = 'public' AND tablename = 'ai_grading_suggestions'
+          AND policyname IN (
+              'ai_grading_suggestion_teacher_select',
+              'ai_grading_suggestion_teacher_insert'
+          )
+    ) <> 2 THEN
+        RAISE EXCEPTION 'AI grading suggestions must have exactly the two audited teacher policies';
+    END IF;
     IF EXISTS (
         SELECT 1 FROM pg_policies
         WHERE schemaname = 'public' AND tablename = 'ai_grading_suggestions'
+          AND cmd IN ('UPDATE', 'DELETE', 'ALL')
     ) THEN
-        RAISE EXCEPTION 'AI grading suggestions must remain policy-free until audited API authorization';
+        RAISE EXCEPTION 'AI suggestions must not allow direct review/update/delete';
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_trigger
+        WHERE tgrelid = 'public.ai_grading_suggestions'::regclass
+          AND tgname = 'ai_grading_suggestion_authority_guard'
+          AND tgenabled <> 'D'
+    ) THEN
+        RAISE EXCEPTION 'AI grading suggestion authoritative rubric guard missing';
     END IF;
 
     FOREACH runtime_role IN ARRAY ARRAY['anon', 'authenticated'] LOOP
