@@ -3,6 +3,7 @@
 //! functions must never contain or accept an unscoped PgPool.
 
 use super::{find_authorized_grading_source, AuthorizedGradingSource};
+use sqlx::Row;
 use uuid::Uuid;
 
 async fn source_as(
