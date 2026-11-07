@@ -161,10 +161,15 @@ BEGIN
             AND suggestion.submission_revision = s.revision
             AND suggestion.rubric_approval_id = approval.id
       )
+    -- Hold an approval row-share lock through the surrounding submission
+    -- transaction. Concurrent revocation waits: either it commits first
+    -- (and enqueue sees revoked_at), or it waits for enqueue to commit and
+    -- then cancels the newly visible job. FK key-share is insufficient.
+    FOR SHARE OF approval
     ON CONFLICT (submission_id, submission_revision, rubric_approval_id)
        DO NOTHING;
 END;
-$$;
+$;
 REVOKE ALL ON FUNCTION
     edutalent_internal.enqueue_ai_grading_if_eligible(UUID, UUID) FROM PUBLIC;
 
