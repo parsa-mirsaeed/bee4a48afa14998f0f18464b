@@ -279,6 +279,227 @@ async fn school_and_teacher_authorization_matrix() {
         .expect("teacher can load revised submission");
     assert_ne!(own.submission_revision, changed.submission_revision);
 
+    // Explicit teacher approval must be independently protected by RLS and
+    // database triggers; the generated personalization rubric is not authority.
+    let custom_id: Uuid = sqlx::query_scalar(
+        "SELECT custom_assignment_id FROM submissions WHERE id = $1",
+    )
+    .bind(submissions[0])
+    .fetch_one(&pool)
+    .await
+    .expect("custom assignment fixture");
+
+    let criteria = serde_json::json!([
+        {"criterion_id": "استدلال", "possible_points": 12.0},
+        {"criterion_id": "accuracy", "possible_points": 8.0}
+    ]);
+
+    async fn attempt_approval(
+        pool: &sqlx::PgPool,
+        user_id: Uuid,
+        role: &str,
+        school_id: Uuid,
+        custom_id: Uuid,
+        teacher_id: Uuid,
+        criteria: serde_json::Value,
+    ) -> Result<Option<Uuid>, sqlx::Error> {
+        use crate::rls_context::{AuthorizedActor, AuthorizedTx};
+        let actor = AuthorizedActor::new(user_id, role, Some(school_id))
+            .expect("valid rubric test actor");
+        let tx = AuthorizedTx::begin(pool, actor)
+            .await
+            .expect("begin rubric test transaction");
+        let scoped = tx.authorized_pool();
+        tx.scope(
+            sqlx::query_scalar::<_, Uuid>(
+                r#"
+                INSERT INTO public.ai_grading_rubric_approvals
+                    (custom_assignment_id, school_id, teacher_id, grade_scale,
+                     criteria, rubric_fingerprint)
+                VALUES ($1, $2, $3, 20, $4, repeat('0', 64))
+                ON CONFLICT DO NOTHING RETURNING id
+                "#,
+            )
+            .bind(custom_id)
+            .bind(school_id)
+            .bind(teacher_id)
+            .bind(criteria)
+            .fetch_optional(&scoped),
+            |result| result.is_ok(),
+        )
+        .await
+        .expect("finish rubric test transaction")
+    }
+
+    assert!(
+        attempt_approval(
+            &pool,
+            teacher_peer_user,
+            "Teacher",
+            school_a,
+            custom_id,
+            teacher_a,
+            criteria.clone()
+        )
+        .await
+        .is_err(),
+        "same-school unassigned teacher may not approve another teacher's rubric"
+    );
+    assert!(
+        attempt_approval(
+            &pool,
+            teacher_b_user,
+            "Teacher",
+            school_b,
+            custom_id,
+            teacher_a,
+            criteria.clone()
+        )
+        .await
+        .is_err(),
+        "cross-school teacher may not approve a rubric"
+    );
+    assert!(
+        attempt_approval(
+            &pool,
+            student_a_user,
+            "Student",
+            school_a,
+            custom_id,
+            teacher_a,
+            criteria.clone()
+        )
+        .await
+        .is_err(),
+        "students may not authorize grading criteria"
+    );
+
+    let rubric_id = attempt_approval(
+        &pool,
+        teacher_a_user,
+        "Teacher",
+        school_a,
+        custom_id,
+        teacher_a,
+        criteria.clone(),
+    )
+    .await
+    .expect("own teacher approval succeeds")
+    .expect("new approval row");
+    assert!(
+        attempt_approval(
+            &pool,
+            teacher_a_user,
+            "Teacher",
+            school_a,
+            custom_id,
+            teacher_a,
+            criteria.clone()
+        )
+        .await
+        .expect("idempotent duplicate uses ON CONFLICT DO NOTHING")
+        .is_none(),
+        "one active approval per personalized assignment"
+    );
+
+    let stored_fingerprint: String = sqlx::query_scalar(
+        "SELECT rubric_fingerprint FROM ai_grading_rubric_approvals WHERE id=$1",
+    )
+    .bind(rubric_id)
+    .fetch_one(&pool)
+    .await
+    .expect("fingerprint exists");
+    assert_eq!(stored_fingerprint.len(), 64);
+    assert_ne!(stored_fingerprint, "0".repeat(64));
+
+    assert!(
+        attempt_approval(
+            &pool,
+            teacher_a_user,
+            "Teacher",
+            school_a,
+            custom_id,
+            teacher_a,
+            serde_json::json!([
+                {"criterion_id": "logic", "possible_points": 20.0},
+                {"criterion_id": "logic", "possible_points": 0.0}
+            ])
+        )
+        .await
+        .expect("active approval blocks any replacement")
+        .is_none(),
+        "an active approval cannot silently be replaced"
+    );
+
+    // A direct mutation of approved evidence is forbidden even for an owner.
+    async fn update_approval_as(
+        pool: &sqlx::PgPool,
+        user_id: Uuid,
+        school_id: Uuid,
+        approval_id: Uuid,
+        change_evidence: bool,
+    ) -> Result<u64, sqlx::Error> {
+        use crate::rls_context::{AuthorizedActor, AuthorizedTx};
+        let actor = AuthorizedActor::new(user_id, "Teacher", Some(school_id))
+            .expect("valid approval actor");
+        let tx = AuthorizedTx::begin(pool, actor)
+            .await
+            .expect("begin approval update");
+        let scoped = tx.authorized_pool();
+        let sql = if change_evidence {
+            "UPDATE public.ai_grading_rubric_approvals \
+             SET grade_scale = 100, revoked_at = NOW() WHERE id = $1"
+        } else {
+            "UPDATE public.ai_grading_rubric_approvals \
+             SET revoked_at = NOW() WHERE id = $1 AND revoked_at IS NULL"
+        };
+        tx.scope(
+            async {
+                sqlx::query(sql)
+                    .bind(approval_id)
+                    .execute(&scoped)
+                    .await
+                    .map(|changed| changed.rows_affected())
+            },
+            |result| result.is_ok(),
+        )
+        .await
+        .expect("finish rubric update transaction")
+    }
+    assert!(
+        update_approval_as(&pool, teacher_a_user, school_a, rubric_id, true)
+            .await
+            .is_err(),
+        "approved rubric evidence cannot be altered during revocation"
+    );
+    assert_eq!(
+        update_approval_as(&pool, teacher_a_user, school_a, rubric_id, false)
+            .await
+            .expect("teacher may explicitly revoke"),
+        1
+    );
+    assert_eq!(
+        update_approval_as(&pool, teacher_a_user, school_a, rubric_id, false)
+            .await
+            .expect("revocation is terminal"),
+        0
+    );
+    assert!(
+        attempt_approval(
+            &pool,
+            teacher_a_user,
+            "Teacher",
+            school_a,
+            custom_id,
+            teacher_a,
+            criteria
+        )
+        .await
+        .expect("new approval after revocation")
+        .is_some(),
+        "revoked authority must require a fresh explicit approval"
+    );
+
     // The initial schema requires submissions.submitted_at NOT NULL;
     // custom_assignments.submitted_at is nullable and authoritative here.
     sqlx::query(
