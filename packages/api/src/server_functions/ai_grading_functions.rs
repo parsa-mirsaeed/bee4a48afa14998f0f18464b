@@ -67,6 +67,18 @@ const AUTHORIZED_GRADING_SOURCE: &str = r#"
       AND ca.graded_at IS NULL
       AND s.grade IS NULL
       AND s.graded_by IS NULL
+      -- Until OCR is supported, grading text alone is incomplete whenever
+      -- a finalized original exists. The teacher-read RLS policy is scoped
+      -- to this exact submission and assignment's authorized teacher.
+      AND NOT EXISTS (
+          SELECT 1
+          FROM public.submission_attachments attachment
+          WHERE attachment.submission_id = s.id
+            AND attachment.custom_assignment_id = ca.id
+            AND attachment.student_id = ca.student_id
+            AND attachment.school_id = cs.school_id
+            AND attachment.status = 'submitted'
+      )
     LIMIT 1
 "#;
 
@@ -230,6 +242,10 @@ mod tests {
             "ca.graded_at IS NULL",
             "s.grade IS NULL",
             "s.graded_by IS NULL",
+            "NOT EXISTS (",
+            "FROM public.submission_attachments attachment",
+            "attachment.submission_id = s.id",
+            "attachment.status = 'submitted'",
         ] {
             assert!(
                 AUTHORIZED_GRADING_SOURCE.contains(condition),
