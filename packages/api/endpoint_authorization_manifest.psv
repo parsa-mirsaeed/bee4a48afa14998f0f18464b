@@ -6,6 +6,7 @@ route|/api/auth/logout|Public|-|public|session|write|auth_sensitive|security|han
 route|/api/manager/knowledge-submissions/upload|SchoolManagerOnly|SchoolManager|session_school|school_knowledge_upload|write|large_payload|required|handlers::knowledge_upload|-
 route|/api/admin/knowledge-assets/source|PlatformAdminOnly|PlatformAdmin|platform|knowledge_asset_source|read|large_payload|required|handlers::knowledge_source|-
 server|auth/whoami|SessionOwner|-|session_school|session_user|read|standard|none|auth_functions::whoami|-
+server|ai-grading/preview|TeacherOnly|Teacher|session_school|teacher_submission|write|expensive|required|ai_grading_functions::preview_teacher_ai_grading|-
 server|assignments/get_all|TeacherOnly|Teacher|session_school|teacher_assignments|read|bounded_list|none|assignment_functions::get_all_assignments|-
 server|assignments/get_by_id|TeacherOnly|Teacher|session_school|assignment_owner|read|standard|none|assignment_functions::get_assignment_by_id|-
 server|assignments/create|TeacherOnly|Teacher|session_school|teacher_class|write|bounded_payload|required|assignment_functions::create_assignment|-
