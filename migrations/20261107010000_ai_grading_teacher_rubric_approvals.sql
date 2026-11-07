@@ -165,9 +165,13 @@ BEGIN
             RAISE EXCEPTION 'Teacher rubric approval is immutable; only one revocation is allowed'
                 USING ERRCODE = '23514';
         END IF;
+        -- Revocation time is server-authoritative even for a direct DB caller.
+        NEW.revoked_at := transaction_timestamp();
         RETURN NEW;
     END IF;
 
+    -- Approval time is server-authoritative, never a caller-provided history.
+    NEW.approved_at := transaction_timestamp();
     IF NEW.revoked_at IS NOT NULL THEN
         RAISE EXCEPTION 'New rubric approvals cannot start revoked'
             USING ERRCODE = '23514';
