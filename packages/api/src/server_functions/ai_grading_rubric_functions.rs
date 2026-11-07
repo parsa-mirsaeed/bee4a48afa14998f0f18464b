@@ -27,7 +27,9 @@ pub struct TeacherApprovedGradingRubric {
 }
 
 #[cfg(feature = "server")]
-fn parse_approval(row: sqlx::postgres::PgRow) -> Result<TeacherApprovedGradingRubric, ServerFnError> {
+fn parse_approval(
+    row: sqlx::postgres::PgRow,
+) -> Result<TeacherApprovedGradingRubric, ServerFnError> {
     let criteria = serde_json::from_value(row.get("criteria"))
         .map_err(|_| ServerFnError::new("grading.rubric_corrupt"))?;
     Ok(TeacherApprovedGradingRubric {
@@ -68,8 +70,8 @@ pub async fn approve_teacher_grading_rubric(
         }
         validate_authoritative_rubric(&rubric, grade_scale)
             .map_err(|_| ServerFnError::new("grading.invalid_rubric"))?;
-        let criteria =
-            serde_json::to_value(&rubric).map_err(|_| ServerFnError::new("grading.invalid_rubric"))?;
+        let criteria = serde_json::to_value(&rubric)
+            .map_err(|_| ServerFnError::new("grading.invalid_rubric"))?;
         let row = insert_teacher_grading_rubric(
             &pool,
             custom_assignment_id,
@@ -238,7 +240,10 @@ mod tests {
     #[test]
     fn rubric_writes_never_publish_a_submission_grade() {
         let source = include_str!("ai_grading_rubric_functions.rs");
-        let implementation = source.split("#[cfg(all(test, feature = \"server\"))]").next().unwrap_or(source);
+        let implementation = source
+            .split("#[cfg(all(test, feature = \"server\"))]")
+            .next()
+            .unwrap_or(source);
         assert!(!implementation.contains("UPDATE public.submissions"));
         assert!(!implementation.contains("INSERT INTO public.ai_grading_suggestions"));
         assert!(!implementation.contains("UPDATE public.custom_assignments SET status"));
