@@ -3,6 +3,7 @@
 //! functions must never contain or accept an unscoped PgPool.
 
 use super::{find_authorized_grading_source, AuthorizedGradingSource};
+use sqlx::Row;
 use uuid::Uuid;
 
 async fn source_as(
@@ -411,6 +412,47 @@ async fn school_and_teacher_authorization_matrix() {
     assert_eq!(stored_fingerprint.len(), 64);
     assert_ne!(stored_fingerprint, "0".repeat(64));
 
+    // A teacher approving the rubric after a student already finalized text
+    // must create exactly one durable, private queue job; duplicate requests
+    // cannot fan out duplicate inference.
+    let queued_at_approval: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM public.ai_grading_jobs \
+         WHERE submission_id=$1 AND submission_revision=$2 \
+           AND rubric_approval_id=$3 AND status='queued'",
+    )
+    .bind(submissions[0])
+    .bind(changed.submission_revision)
+    .bind(rubric_id)
+    .fetch_one(&pool)
+    .await
+    .expect("queue created on late teacher approval");
+    assert_eq!(queued_at_approval, 1);
+
+    // The test fixture uses a privileged PostgreSQL owner connection (which
+    // bypasses RLS even when the transaction context says "Student"). Test
+    // structure here and test the real NOBYPASSRLS runtime role in the CI
+    // transaction-scoped RLS verification, not via a false actor simulation.
+    let row = sqlx::query(
+        "SELECT relrowsecurity, relforcerowsecurity FROM pg_class \
+         WHERE oid = 'public.ai_grading_jobs'::regclass",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("grading queue RLS metadata");
+    assert!(row.get::<bool, _>("relrowsecurity"));
+    assert!(row.get::<bool, _>("relforcerowsecurity"));
+    let policy_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM pg_policies \
+         WHERE schemaname = 'public' AND tablename = 'ai_grading_jobs'",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("grading queue policy inventory");
+    assert_eq!(
+        policy_count, 3,
+        "only owner-scoped policies may see or mutate queue rows"
+    );
+
     // Persisted model suggestions must be denied without the exact currently
     // approved rubric, submission revision and active assigned teacher.
     async fn try_store_suggestion(
@@ -686,6 +728,17 @@ async fn school_and_teacher_authorization_matrix() {
             .expect("teacher may explicitly revoke"),
         1
     );
+    let cancelled_after_revoke: String = sqlx::query_scalar(
+        "SELECT status FROM public.ai_grading_jobs \
+         WHERE submission_id=$1 AND submission_revision=$2 AND rubric_approval_id=$3",
+    )
+    .bind(submissions[0])
+    .bind(changed.submission_revision)
+    .bind(rubric_id)
+    .fetch_one(&pool)
+    .await
+    .expect("revoked rubric job still auditable");
+    assert_eq!(cancelled_after_revoke, "cancelled");
     assert_eq!(
         update_approval_as(&pool, teacher_a_user, school_a, rubric_id, false)
             .await
@@ -704,6 +757,17 @@ async fn school_and_teacher_authorization_matrix() {
     .await
     .expect("new approval after revocation")
     .expect("revoked authority requires an explicit replacement approval");
+    let replacement_job_status: String = sqlx::query_scalar(
+        "SELECT status FROM public.ai_grading_jobs \
+         WHERE submission_id=$1 AND submission_revision=$2 AND rubric_approval_id=$3",
+    )
+    .bind(submissions[0])
+    .bind(changed.submission_revision)
+    .bind(replacement_approval)
+    .fetch_one(&pool)
+    .await
+    .expect("new approved rubric automatically enqueues new work");
+    assert_eq!(replacement_job_status, "queued");
     let replacement_fingerprint: String = sqlx::query_scalar(
         "SELECT rubric_fingerprint FROM ai_grading_rubric_approvals WHERE id=$1",
     )
@@ -727,6 +791,96 @@ async fn school_and_teacher_authorization_matrix() {
     assert_ne!(
         replacement_suggestion, stored_id,
         "revoked rubric evidence must remain immutable beside replacement evidence"
+    );
+
+    // Two independent connections: finalization holds the approved rubric
+    // SHARE lock while enqueuing. A simultaneous teacher revocation cannot
+    // overtake the uncommitted queue row and leave stale work runnable.
+    let mut finalization_tx = pool.begin().await.expect("begin concurrent finalization");
+    let concurrent_revision: Uuid = sqlx::query_scalar(
+        "UPDATE public.submissions SET revision=gen_random_uuid() \
+         WHERE id=$1 RETURNING revision",
+    )
+    .bind(submissions[0])
+    .fetch_one(&mut *finalization_tx)
+    .await
+    .expect("enqueue in open finalization transaction");
+    let new_queued: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM public.ai_grading_jobs \
+         WHERE submission_id=$1 AND submission_revision=$2 \
+           AND rubric_approval_id=$3 AND status='queued'",
+    )
+    .bind(submissions[0])
+    .bind(concurrent_revision)
+    .bind(replacement_approval)
+    .fetch_one(&mut *finalization_tx)
+    .await
+    .expect("new job visible to finalizing transaction");
+    assert_eq!(new_queued, 1);
+
+    let other_connection = pool.clone();
+    let (ready_sender, ready_receiver) = tokio::sync::oneshot::channel();
+    let mut concurrent_revoke = tokio::spawn(async move {
+        use crate::rls_context::{AuthorizedActor, AuthorizedTx};
+        let actor = AuthorizedActor::new(teacher_a_user, "Teacher", Some(school_a))
+            .expect("concurrent teacher actor");
+        let tx = AuthorizedTx::begin(&other_connection, actor)
+            .await
+            .expect("independent revocation transaction");
+        let scoped = tx.authorized_pool();
+        ready_sender.send(()).expect("signal ready to revoke");
+        let result = tx
+            .scope(
+                sqlx::query(
+                    "UPDATE public.ai_grading_rubric_approvals \
+                     SET revoked_at=NOW() WHERE id=$1 AND revoked_at IS NULL",
+                )
+                .bind(replacement_approval)
+                .execute(&scoped),
+                |result| result.is_ok(),
+            )
+            .await
+            .expect("complete concurrent revocation");
+        result
+            .expect("authorized teacher may revoke")
+            .rows_affected()
+    });
+    ready_receiver
+        .await
+        .expect("revocation transaction started");
+    assert!(
+        tokio::time::timeout(
+            std::time::Duration::from_millis(250),
+            &mut concurrent_revoke
+        )
+        .await
+        .is_err(),
+        "revocation must wait for the uncommitted grading enqueue"
+    );
+    finalization_tx
+        .commit()
+        .await
+        .expect("commit submitted revision");
+    assert_eq!(
+        concurrent_revoke
+            .await
+            .expect("join independent revocation"),
+        1,
+        "teacher revocation must eventually succeed"
+    );
+    let cancelled: String = sqlx::query_scalar(
+        "SELECT status FROM public.ai_grading_jobs \
+         WHERE submission_id=$1 AND submission_revision=$2 AND rubric_approval_id=$3",
+    )
+    .bind(submissions[0])
+    .bind(concurrent_revision)
+    .bind(replacement_approval)
+    .fetch_one(&pool)
+    .await
+    .expect("concurrent job remains auditable");
+    assert_eq!(
+        cancelled, "cancelled",
+        "revoked rubric must leave no queued work after both commits"
     );
 
     // The initial schema requires submissions.submitted_at NOT NULL;
@@ -797,4 +951,38 @@ async fn school_and_teacher_authorization_matrix() {
             .is_some(),
         "another school's text-only submission remains eligible"
     );
+
+    // A new finalized revision with a submitted PDF must cancel old queued
+    // work without creating a new text-only grading job.
+    let before: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM public.ai_grading_jobs WHERE submission_id=$1")
+            .bind(submissions[0])
+            .fetch_one(&pool)
+            .await
+            .expect("queue count before resubmission");
+    sqlx::query("UPDATE public.submissions SET revision=gen_random_uuid() WHERE id=$1")
+        .bind(submissions[0])
+        .execute(&pool)
+        .await
+        .expect("resubmit attached work");
+    let after: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM public.ai_grading_jobs WHERE submission_id=$1")
+            .bind(submissions[0])
+            .fetch_one(&pool)
+            .await
+            .expect("queue count after attached resubmission");
+    assert_eq!(
+        before, after,
+        "attachments must never queue incomplete AI grading"
+    );
+    let status: String = sqlx::query_scalar(
+        "SELECT status FROM public.ai_grading_jobs \
+         WHERE submission_id=$1 AND rubric_approval_id=$2",
+    )
+    .bind(submissions[0])
+    .bind(replacement_approval)
+    .fetch_one(&pool)
+    .await
+    .expect("prior revision cancelled");
+    assert_eq!(status, "cancelled");
 }

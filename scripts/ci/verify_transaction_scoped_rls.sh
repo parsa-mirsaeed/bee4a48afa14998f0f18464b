@@ -40,6 +40,15 @@ BEGIN
         RAISE EXCEPTION 'Unexpected runtime role state: %', role_state;
     END IF;
 
+    -- Use the actual NOBYPASSRLS application role: a PostgreSQL superuser
+    -- fixture with only app.role='Student' would not test private table access.
+    IF has_table_privilege(verification_role, 'public.ai_grading_jobs', 'SELECT')
+       OR has_table_privilege(verification_role, 'public.ai_grading_jobs', 'INSERT')
+       OR has_table_privilege(verification_role, 'public.ai_grading_jobs', 'UPDATE')
+       OR has_table_privilege(verification_role, 'public.ai_grading_jobs', 'DELETE') THEN
+        RAISE EXCEPTION 'Runtime role must not access the private AI grading queue';
+    END IF;
+
     IF EXISTS (
         SELECT 1
         FROM pg_auth_members membership
