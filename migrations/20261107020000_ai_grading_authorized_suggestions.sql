@@ -4,6 +4,18 @@
 ALTER TABLE public.ai_grading_suggestions
 ADD COLUMN rubric_approval_id UUID
     REFERENCES public.ai_grading_rubric_approvals(id) ON DELETE RESTRICT;
+-- A new teacher-approved rubric may replace a revoked rubric without a
+-- student resubmission. Retain immutable evidence from both approvals.
+ALTER TABLE public.ai_grading_suggestions
+    DROP CONSTRAINT ai_grading_suggestions_submission_id_submission_revision_key;
+ALTER TABLE public.ai_grading_suggestions
+    ADD CONSTRAINT ai_grading_suggestions_revision_approval_key
+    UNIQUE (submission_id, submission_revision, rubric_approval_id);
+-- Historical rows, if any, predate the approval link. Keep their original
+-- per-revision uniqueness without allowing new NULL approvals (trigger denies).
+CREATE UNIQUE INDEX ai_grading_suggestions_legacy_revision_unique
+    ON public.ai_grading_suggestions (submission_id, submission_revision)
+    WHERE rubric_approval_id IS NULL;
 CREATE INDEX ai_grading_suggestions_approval
     ON public.ai_grading_suggestions (rubric_approval_id);
 
