@@ -5,6 +5,8 @@ use dioxus::prelude::*;
 // --- SHARED MODULES ---
 // (Compiled for Client AND Server)
 pub mod ai_gateway_protocol;
+#[path = "services/ai_grading_contract.rs"]
+pub mod ai_grading_contract;
 pub mod domain;
 pub mod models;
 pub mod product_capabilities;
