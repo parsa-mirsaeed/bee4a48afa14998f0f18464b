@@ -473,7 +473,10 @@ async fn school_and_teacher_authorization_matrix() {
         claimed_job = row.get("job_id");
         assert_eq!(row.get::<Uuid, _>("submission_id"), submissions[0]);
         assert_eq!(row.get::<Uuid, _>("rubric_approval_id"), rubric_id);
-        assert_eq!(row.get::<Uuid, _>("submission_revision"), changed.submission_revision);
+        assert_eq!(
+            row.get::<Uuid, _>("submission_revision"),
+            changed.submission_revision
+        );
         assert_eq!(row.get::<i32, _>("attempt_count"), 1);
     }
     {
@@ -503,15 +506,13 @@ async fn school_and_teacher_authorization_matrix() {
         let scoped = tx.authorized_pool();
         let state: Option<String> = tx
             .scope(
-                sqlx::query_scalar(
-                    "SELECT public.record_ai_grading_job_failure($1,$2,$3,$4,$5)",
-                )
-                .bind(worker_id)
-                .bind(claimed_job)
-                .bind("rate_limited")
-                .bind(true)
-                .bind(5_i32)
-                .fetch_one(&scoped),
+                sqlx::query_scalar("SELECT public.record_ai_grading_job_failure($1,$2,$3,$4,$5)")
+                    .bind(worker_id)
+                    .bind(claimed_job)
+                    .bind("rate_limited")
+                    .bind(true)
+                    .bind(5_i32)
+                    .fetch_one(&scoped),
                 |result| result.is_ok(),
             )
             .await
@@ -551,17 +552,18 @@ async fn school_and_teacher_authorization_matrix() {
         assert_eq!(recovered, 1);
     }
     let (status, current_lease): (String, Option<Uuid>) = {
-        let row = sqlx::query(
-            "SELECT status,lease_owner FROM public.ai_grading_jobs WHERE id=$1",
-        )
-        .bind(claimed_job)
-        .fetch_one(&pool)
-        .await
-        .expect("recovered job metadata");
+        let row = sqlx::query("SELECT status,lease_owner FROM public.ai_grading_jobs WHERE id=$1")
+            .bind(claimed_job)
+            .fetch_one(&pool)
+            .await
+            .expect("recovered job metadata");
         (row.get("status"), row.get("lease_owner"))
     };
     assert_eq!(status, "queued");
-    assert!(current_lease.is_none(), "expired lease owner must be cleared");
+    assert!(
+        current_lease.is_none(),
+        "expired lease owner must be cleared"
+    );
 
     // The test fixture uses a privileged PostgreSQL owner connection (which
     // bypasses RLS even when the transaction context says "Student"). Test
