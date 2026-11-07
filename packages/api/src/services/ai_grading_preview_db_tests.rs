@@ -565,6 +565,73 @@ async fn school_and_teacher_authorization_matrix() {
         "expired lease owner must be cleared"
     );
 
+    // An independent worker can reclaim a requeued job, but only the worker
+    // holding the current valid lease may cancel it for a verified reason.
+    let next_worker = Uuid::new_v4();
+    {
+        use crate::rls_context::{AuthorizedActor, AuthorizedTx};
+        let tx = AuthorizedTx::begin(&pool, AuthorizedActor::system_queue(next_worker))
+            .await
+            .expect("reclaim recovered work");
+        let scoped = tx.authorized_pool();
+        let next_id: Uuid = tx
+            .scope(
+                async {
+                    let row = sqlx::query("SELECT * FROM public.claim_next_ai_grading_job($1)")
+                        .bind(next_worker)
+                        .fetch_one(&scoped)
+                        .await?;
+                    Ok::<Uuid, sqlx::Error>(row.get("job_id"))
+                },
+                |result| result.is_ok(),
+            )
+            .await
+            .expect("complete reclaim transaction")
+            .expect("reclaim recovered job");
+        assert_eq!(next_id, claimed_job);
+    }
+    {
+        use crate::rls_context::{AuthorizedActor, AuthorizedTx};
+        let wrong_worker = Uuid::new_v4();
+        let tx = AuthorizedTx::begin(&pool, AuthorizedActor::system_queue(wrong_worker))
+            .await
+            .expect("wrong lease owner transaction");
+        let scoped = tx.authorized_pool();
+        let cancelled: bool = tx
+            .scope(
+                sqlx::query_scalar("SELECT public.cancel_ai_grading_job($1,$2,$3)")
+                    .bind(wrong_worker)
+                    .bind(claimed_job)
+                    .bind("authorization_revoked")
+                    .fetch_one(&scoped),
+                |result| result.is_ok(),
+            )
+            .await
+            .expect("finish wrong lease transaction")
+            .expect("wrong owner cancellation query");
+        assert!(!cancelled, "another worker may not cancel an active lease");
+    }
+    {
+        use crate::rls_context::{AuthorizedActor, AuthorizedTx};
+        let tx = AuthorizedTx::begin(&pool, AuthorizedActor::system_queue(next_worker))
+            .await
+            .expect("owner cancellation transaction");
+        let scoped = tx.authorized_pool();
+        let cancelled: bool = tx
+            .scope(
+                sqlx::query_scalar("SELECT public.cancel_ai_grading_job($1,$2,$3)")
+                    .bind(next_worker)
+                    .bind(claimed_job)
+                    .bind("authorization_revoked")
+                    .fetch_one(&scoped),
+                |result| result.is_ok(),
+            )
+            .await
+            .expect("finish owner cancellation transaction")
+            .expect("owner cancellation query");
+        assert!(cancelled);
+    }
+
     // The test fixture uses a privileged PostgreSQL owner connection (which
     // bypasses RLS even when the transaction context says "Student"). Test
     // structure here and test the real NOBYPASSRLS runtime role in the CI
