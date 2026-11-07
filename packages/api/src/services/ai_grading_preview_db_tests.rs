@@ -448,7 +448,10 @@ async fn school_and_teacher_authorization_matrix() {
     .fetch_one(&pool)
     .await
     .expect("grading queue policy inventory");
-    assert_eq!(policy_count, 3, "only owner-scoped policies may see or mutate queue rows");
+    assert_eq!(
+        policy_count, 3,
+        "only owner-scoped policies may see or mutate queue rows"
+    );
 
     // Persisted model suggestions must be denied without the exact currently
     // approved rubric, submission revision and active assigned teacher.
