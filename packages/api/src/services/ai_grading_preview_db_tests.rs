@@ -796,10 +796,7 @@ async fn school_and_teacher_authorization_matrix() {
     // Two independent connections: finalization holds the approved rubric
     // SHARE lock while enqueuing. A simultaneous teacher revocation cannot
     // overtake the uncommitted queue row and leave stale work runnable.
-    let mut finalization_tx = pool
-        .begin()
-        .await
-        .expect("begin concurrent finalization");
+    let mut finalization_tx = pool.begin().await.expect("begin concurrent finalization");
     let concurrent_revision: Uuid = sqlx::query_scalar(
         "UPDATE public.submissions SET revision=gen_random_uuid() \
          WHERE id=$1 RETURNING revision",
@@ -844,10 +841,13 @@ async fn school_and_teacher_authorization_matrix() {
             )
             .await
             .expect("complete concurrent revocation");
-        result.expect("authorized teacher may revoke")
+        result
+            .expect("authorized teacher may revoke")
             .rows_affected()
     });
-    ready_receiver.await.expect("revocation transaction started");
+    ready_receiver
+        .await
+        .expect("revocation transaction started");
     assert!(
         tokio::time::timeout(
             std::time::Duration::from_millis(250),
@@ -857,9 +857,14 @@ async fn school_and_teacher_authorization_matrix() {
         .is_err(),
         "revocation must wait for the uncommitted grading enqueue"
     );
-    finalization_tx.commit().await.expect("commit submitted revision");
+    finalization_tx
+        .commit()
+        .await
+        .expect("commit submitted revision");
     assert_eq!(
-        concurrent_revoke.await.expect("join independent revocation"),
+        concurrent_revoke
+            .await
+            .expect("join independent revocation"),
         1,
         "teacher revocation must eventually succeed"
     );
