@@ -117,7 +117,7 @@ pub async fn preview_teacher_ai_grading(
 
         let client =
             ExternalLlmClient::new().map_err(|_| ServerFnError::new("grading.unavailable"))?;
-        client
+        let suggestion = client
             .suggest_assignment_grade_for_school(
                 source.school_id,
                 source.submission_revision,
@@ -127,7 +127,24 @@ pub async fn preview_teacher_ai_grading(
                 grade_scale,
             )
             .await
-            .map_err(|_| ServerFnError::new("grading.unavailable"))
+            .map_err(|_| ServerFnError::new("grading.unavailable"))?;
+
+        // A student may resubmit while the gateway is processing. Re-check
+        // authorization and the current revision after inference, before
+        // returning even a non-persistent preview.
+        let latest = find_authorized_grading_source(&pool, submission_id, user_id)
+            .await
+            .map_err(|_| ServerFnError::new("grading.unavailable"))?
+            .ok_or_else(|| ServerFnError::new("grading.stale_submission"))?;
+        if latest.submission_revision != source.submission_revision
+            || latest.school_id != source.school_id
+            || latest.grade_scale != source.grade_scale
+            || latest.submission_text != source.submission_text
+            || latest.assignment_instructions != source.assignment_instructions
+        {
+            return Err(ServerFnError::new("grading.stale_submission"));
+        }
+        Ok(suggestion)
     }
 
     #[cfg(not(feature = "server"))]
