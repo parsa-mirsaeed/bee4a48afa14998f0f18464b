@@ -108,10 +108,9 @@ impl GradingSuggestion {
             if criterion.criterion_id.trim().is_empty()
                 || criterion.criterion_id.trim() != criterion.criterion_id
                 || criterion.criterion_id.len() > 100
-                || criterion
-                    .criterion_id
-                    .chars()
-                    .any(|c| c.is_control() || unsafe_bidi_format(c) || invisible_identifier_format(c))
+                || criterion.criterion_id.chars().any(|c| {
+                    c.is_control() || unsafe_bidi_format(c) || invisible_identifier_format(c)
+                })
                 || !ids.insert(criterion.criterion_id.as_str())
                 || !criterion.awarded_points.is_finite()
                 || !criterion.possible_points.is_finite()
@@ -382,10 +381,9 @@ impl GradingSuggestion {
             if item.criterion_id.trim().is_empty()
                 || item.criterion_id.trim() != item.criterion_id
                 || item.criterion_id.len() > 100
-                || item
-                    .criterion_id
-                    .chars()
-                    .any(|c| c.is_control() || unsafe_bidi_format(c) || invisible_identifier_format(c))
+                || item.criterion_id.chars().any(|c| {
+                    c.is_control() || unsafe_bidi_format(c) || invisible_identifier_format(c)
+                })
                 || !seen.insert(item.criterion_id.as_str())
                 || !item.possible_points.is_finite()
                 || item.possible_points <= 0.0
