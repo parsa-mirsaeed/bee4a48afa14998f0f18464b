@@ -428,6 +428,155 @@ async fn school_and_teacher_authorization_matrix() {
     .expect("queue created on late teacher approval");
     assert_eq!(queued_at_approval, 1);
 
+    // A queued job is claimable only by the bounded system-job actor.
+    // The separate teacher/Student actor cannot call queue functions simply
+    // by knowing a job UUID.
+    let worker_id = Uuid::new_v4();
+    {
+        use crate::rls_context::{AuthorizedActor, AuthorizedTx};
+        let actor = AuthorizedActor::new(student_a_user, "Student", Some(school_a))
+            .expect("student queue negative actor");
+        let tx = AuthorizedTx::begin(&pool, actor)
+            .await
+            .expect("student claim negative transaction");
+        let scoped = tx.authorized_pool();
+        let result = tx
+            .scope(
+                sqlx::query("SELECT * FROM public.claim_next_ai_grading_job($1)")
+                    .bind(worker_id)
+                    .fetch_optional(&scoped),
+                |_| false,
+            )
+            .await
+            .expect("student claim rollback");
+        assert!(result.is_err(), "student must not claim private AI work");
+    }
+
+    let claimed_job: Uuid;
+    {
+        use crate::rls_context::{AuthorizedActor, AuthorizedTx};
+        let tx = AuthorizedTx::begin(&pool, AuthorizedActor::system_queue(worker_id))
+            .await
+            .expect("bounded queue claim transaction");
+        let scoped = tx.authorized_pool();
+        let row = tx
+            .scope(
+                sqlx::query("SELECT * FROM public.claim_next_ai_grading_job($1)")
+                    .bind(worker_id)
+                    .fetch_optional(&scoped),
+                |result| result.is_ok(),
+            )
+            .await
+            .expect("finish claim transaction")
+            .expect("claim query")
+            .expect("eligible text-only work is claimable");
+        claimed_job = row.get("job_id");
+        assert_eq!(row.get::<Uuid, _>("submission_id"), submissions[0]);
+        assert_eq!(row.get::<Uuid, _>("rubric_approval_id"), rubric_id);
+        assert_eq!(row.get::<Uuid, _>("submission_revision"), changed.submission_revision);
+        assert_eq!(row.get::<i32, _>("attempt_count"), 1);
+    }
+    {
+        use crate::rls_context::{AuthorizedActor, AuthorizedTx};
+        let tx = AuthorizedTx::begin(&pool, AuthorizedActor::system_queue(worker_id))
+            .await
+            .expect("bounded heartbeat transaction");
+        let scoped = tx.authorized_pool();
+        let (heartbeat, complete): (bool, bool) = tx
+            .scope(
+                async {
+                    let heartbeat: bool = sqlx::query_scalar(
+                        "SELECT public.heartbeat_ai_grading_job($1,$2)",
+                    )
+                    .bind(worker_id)
+                    .bind(claimed_job)
+                    .fetch_one(&scoped)
+                    .await?;
+                    let complete: bool = sqlx::query_scalar(
+                        "SELECT public.complete_ai_grading_job($1,$2)",
+                    )
+                    .bind(worker_id)
+                    .bind(claimed_job)
+                    .fetch_one(&scoped)
+                    .await?;
+                    Ok::<_, sqlx::Error>((heartbeat, complete))
+                },
+                |result| result.is_ok(),
+            )
+            .await
+            .expect("finish heartbeat transaction")
+            .expect("heartbeat/complete query");
+        assert!(heartbeat, "active lease can be renewed");
+        assert!(!complete, "job cannot succeed without stored model evidence");
+    }
+    {
+        use crate::rls_context::{AuthorizedActor, AuthorizedTx};
+        let tx = AuthorizedTx::begin(&pool, AuthorizedActor::system_queue(worker_id))
+            .await
+            .expect("bounded failure transaction");
+        let scoped = tx.authorized_pool();
+        let state: Option<String> = tx
+            .scope(
+                sqlx::query_scalar(
+                    "SELECT public.record_ai_grading_job_failure($1,$2,$3,$4,$5)",
+                )
+                .bind(worker_id)
+                .bind(claimed_job)
+                .bind("rate_limited")
+                .bind(true)
+                .bind(5_i32)
+                .fetch_one(&scoped),
+                |result| result.is_ok(),
+            )
+            .await
+            .expect("finish bounded failure")
+            .expect("failure query");
+        assert_eq!(state.as_deref(), Some("queued"));
+    }
+    // Synthesize a worker crash and expire its lease, without sleeping;
+    // recovery must release ownership and preserve an auditable attempt.
+    sqlx::query(
+        "UPDATE public.ai_grading_jobs \
+         SET status='running',attempt_count=2,lease_owner=$2, \
+             lease_until=NOW()-INTERVAL '1 second' WHERE id=$1",
+    )
+    .bind(claimed_job)
+    .bind(worker_id)
+    .execute(&pool)
+    .await
+    .expect("prepare expired lease");
+    {
+        use crate::rls_context::{AuthorizedActor, AuthorizedTx};
+        let tx = AuthorizedTx::begin(&pool, AuthorizedActor::system_queue(Uuid::new_v4()))
+            .await
+            .expect("independent recovery worker");
+        let recovery_worker = tx.actor().user_id;
+        let scoped = tx.authorized_pool();
+        let recovered: i64 = tx
+            .scope(
+                sqlx::query_scalar("SELECT public.recover_expired_ai_grading_jobs($1)")
+                    .bind(recovery_worker)
+                    .fetch_one(&scoped),
+                |result| result.is_ok(),
+            )
+            .await
+            .expect("finish recovery transaction")
+            .expect("recover expired lease");
+        assert_eq!(recovered, 1);
+    }
+    let (status, current_lease): (String, Option<Uuid>) = {
+        let row = sqlx::query(
+            "SELECT status,lease_owner FROM public.ai_grading_jobs WHERE id=$1",
+        )
+        .bind(claimed_job)
+        .fetch_one(&pool)
+        .await
+        .expect("recovered job metadata");
+        (row.get("status"), row.get("lease_owner"))
+    };
+    assert_eq!(status, "queued");
+    assert!(current_lease.is_none(), "expired lease owner must be cleared");
+
     // The test fixture uses a privileged PostgreSQL owner connection (which
     // bypasses RLS even when the transaction context says "Student"). Test
     // structure here and test the real NOBYPASSRLS runtime role in the CI
