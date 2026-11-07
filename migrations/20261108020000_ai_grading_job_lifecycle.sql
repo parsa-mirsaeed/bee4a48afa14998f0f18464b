@@ -205,7 +205,7 @@ CREATE OR REPLACE FUNCTION public.cancel_ai_grading_job(
 RETURNS BOOLEAN
 LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, public
-AS $
+AS $$
 DECLARE
     affected INTEGER;
 BEGIN
@@ -227,7 +227,7 @@ BEGIN
     GET DIAGNOSTICS affected = ROW_COUNT;
     RETURN affected = 1;
 END;
-$;
+$$;
 REVOKE ALL ON FUNCTION public.cancel_ai_grading_job(UUID,UUID,TEXT) FROM PUBLIC;
 
 COMMENT ON FUNCTION public.claim_next_ai_grading_job(UUID) IS
