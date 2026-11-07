@@ -85,6 +85,17 @@ SELECT format(
     :'app_role'
 )
 \gexec
+
+-- Unlike application data tables, the AI grading work queue is an internal
+-- scheduling artifact. Its records are never available through ordinary
+-- actor-scoped SQL. A later worker must use separately audited, bounded
+-- SECURITY DEFINER claim/complete functions.
+SELECT format(
+    'REVOKE ALL PRIVILEGES ON TABLE public.ai_grading_jobs FROM %I',
+    :'app_role'
+)
+WHERE to_regclass('public.ai_grading_jobs') IS NOT NULL
+\gexec
 SELECT format(
     'GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO %I',
     :'app_role'
