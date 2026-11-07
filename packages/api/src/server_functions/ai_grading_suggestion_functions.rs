@@ -227,7 +227,7 @@ pub async fn generate_teacher_grading_suggestion(
                 grade_scale, suggested_grade, confidence, feedback, criteria
             )
             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-            ON CONFLICT (submission_id, submission_revision) DO NOTHING
+            ON CONFLICT (submission_id, submission_revision, rubric_approval_id) DO NOTHING
             RETURNING id, submission_id, submission_revision, rubric_approval_id,
                       contract_version, grade_scale, suggested_grade, confidence,
                       feedback, criteria, status, created_at::text AS created_at
