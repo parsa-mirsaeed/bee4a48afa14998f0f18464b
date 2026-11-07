@@ -92,10 +92,8 @@ async fn current_approved_rubric(
     .fetch_optional(pool)
     .await?;
     row.map(|row| {
-        let criteria: Vec<ExpectedCriterion> =
-            serde_json::from_value(row.get("criteria")).map_err(|error| {
-                sqlx::Error::Decode(Box::new(error))
-            })?;
+        let criteria: Vec<ExpectedCriterion> = serde_json::from_value(row.get("criteria"))
+            .map_err(|error| sqlx::Error::Decode(Box::new(error)))?;
         Ok(ApprovedRubric {
             id: row.get("id"),
             school_id: row.get("school_id"),
@@ -164,9 +162,7 @@ pub async fn generate_teacher_grading_suggestion(
             .await
             .map_err(|_| ServerFnError::new("grading.suggestion_unavailable"))?
             .ok_or_else(|| ServerFnError::new("grading.rubric_approval_required"))?;
-        if approved.school_id != source.school_id
-            || approved.grade_scale != source.grade_scale
-        {
+        if approved.school_id != source.school_id || approved.grade_scale != source.grade_scale {
             return Err(ServerFnError::new("grading.rubric_conflict"));
         }
         validate_authoritative_rubric(&approved.criteria, approved.grade_scale)
@@ -260,9 +256,14 @@ pub async fn generate_teacher_grading_suggestion(
         }
         // A concurrent identical request may have committed first. Reuse the
         // same approved artifact only; never overwrite or relabel evidence.
-        current_stored_suggestion(&pool, submission_id, suggestion.submission_revision, approved.id)
-            .await?
-            .ok_or_else(|| ServerFnError::new("grading.suggestion_conflict"))
+        current_stored_suggestion(
+            &pool,
+            submission_id,
+            suggestion.submission_revision,
+            approved.id,
+        )
+        .await?
+        .ok_or_else(|| ServerFnError::new("grading.suggestion_conflict"))
     }
     #[cfg(not(feature = "server"))]
     {
@@ -337,7 +338,10 @@ mod tests {
         ] {
             assert!(production.contains(required));
         }
-        for forbidden in ["UPDATE public.submissions", "UPDATE public.custom_assignments"] {
+        for forbidden in [
+            "UPDATE public.submissions",
+            "UPDATE public.custom_assignments",
+        ] {
             assert!(!production.contains(forbidden));
         }
     }
