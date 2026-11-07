@@ -673,7 +673,8 @@ BEGIN
         'public.claim_next_ai_grading_job(uuid)',
         'public.heartbeat_ai_grading_job(uuid,uuid)',
         'public.record_ai_grading_job_failure(uuid,uuid,text,boolean,integer)',
-        'public.recover_expired_ai_grading_jobs(uuid)'
+        'public.recover_expired_ai_grading_jobs(uuid)',
+        'public.cancel_ai_grading_job(uuid,uuid,text)'
     ] LOOP
         IF to_regprocedure(function_name) IS NULL THEN
             RAISE EXCEPTION 'Missing guarded AI grading worker lifecycle entry point %', function_name;
@@ -692,8 +693,7 @@ BEGIN
             END IF;
         END LOOP;
     END LOOP;
-    IF to_regprocedure('edutalent_internal.ai_grading_job_current(uuid)') IS NULL
-       OR to_regprocedure('edutalent_internal.require_ai_grading_worker(uuid)') IS NULL
+    IF to_regprocedure('edutalent_internal.require_ai_grading_worker(uuid)') IS NULL
        OR pg_get_functiondef(
            'edutalent_internal.require_ai_grading_worker(uuid)'::regprocedure
        ) NOT LIKE '%get_elevated_operation()%'
