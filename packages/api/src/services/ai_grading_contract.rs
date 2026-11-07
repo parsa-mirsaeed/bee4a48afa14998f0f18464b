@@ -362,6 +362,43 @@ pub struct ExpectedCriterion {
     pub possible_points: f64,
 }
 
+/// Validate teacher-supplied rubric data before any student text leaves the
+/// authorized application boundary. Names remain Unicode (including Persian)
+/// while default-ignorable, bidi-spoofing, padded and duplicate IDs are denied.
+pub fn validate_authoritative_rubric(
+    rubric: &[ExpectedCriterion],
+    grade_scale: i16,
+) -> Result<(), SuggestionValidationError> {
+    use SuggestionValidationError as Error;
+    if !matches!(grade_scale, 20 | 100)
+        || rubric.is_empty()
+        || rubric.len() > MAX_CRITERIA
+    {
+        return Err(Error::InvalidCriteria);
+    }
+    let mut ids = std::collections::HashSet::new();
+    let mut sum = 0.0;
+    for criterion in rubric {
+        if criterion.criterion_id.is_empty()
+            || criterion.criterion_id.trim() != criterion.criterion_id
+            || criterion.criterion_id.len() > 100
+            || criterion.criterion_id.chars().any(|c| {
+                c.is_control() || unsafe_bidi_format(c) || invisible_identifier_format(c)
+            })
+            || !ids.insert(criterion.criterion_id.as_str())
+            || !criterion.possible_points.is_finite()
+            || criterion.possible_points <= 0.0
+        {
+            return Err(Error::InvalidCriteria);
+        }
+        sum += criterion.possible_points;
+    }
+    if !sum.is_finite() || (sum - f64::from(grade_scale)).abs() > 0.000001 {
+        return Err(Error::InvalidCriteria);
+    }
+    Ok(())
+}
+
 impl GradingSuggestion {
     /// Validate model output against the *authoritative* teacher rubric, not
     /// against the model's self-reported possible points.
@@ -372,7 +409,8 @@ impl GradingSuggestion {
     ) -> Result<(), SuggestionValidationError> {
         use SuggestionValidationError as Error;
         self.validate(current_revision)?;
-        if expected.is_empty() || expected.len() != self.criteria.len() {
+        validate_authoritative_rubric(expected, self.grade_scale)?;
+        if expected.len() != self.criteria.len() {
             return Err(Error::InvalidCriteria);
         }
         let mut seen = std::collections::HashSet::new();
