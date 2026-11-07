@@ -411,6 +411,168 @@ async fn school_and_teacher_authorization_matrix() {
     assert_eq!(stored_fingerprint.len(), 64);
     assert_ne!(stored_fingerprint, "0".repeat(64));
 
+    // Persisted model suggestions must be denied without the exact currently
+    // approved rubric, submission revision and active assigned teacher.
+    async fn try_store_suggestion(
+        pool: &sqlx::PgPool,
+        user_id: Uuid,
+        role: &str,
+        school_id: Uuid,
+        submission_id: Uuid,
+        revision: Uuid,
+        approval_id: Uuid,
+        fingerprint: &str,
+    ) -> Result<Option<Uuid>, sqlx::Error> {
+        use crate::rls_context::{AuthorizedActor, AuthorizedTx};
+        let actor = AuthorizedActor::new(user_id, role, Some(school_id))
+            .expect("valid AI suggestion test actor");
+        let tx = AuthorizedTx::begin(pool, actor)
+            .await
+            .expect("begin AI suggestion test transaction");
+        let scoped = tx.authorized_pool();
+        let criteria = serde_json::json!([
+            {"criterion_id": "استدلال", "possible_points": 12.0,
+             "awarded_points": 10.0, "evidence": "Reasoning is mostly complete"},
+            {"criterion_id": "accuracy", "possible_points": 8.0,
+             "awarded_points": 8.0, "evidence": "Correct calculation"}
+        ]);
+        tx.scope(
+            async {
+                sqlx::query_scalar::<_, Uuid>(
+                    r#"
+                    INSERT INTO public.ai_grading_suggestions (
+                        submission_id, submission_revision, rubric_approval_id,
+                        school_id, rubric_fingerprint, contract_version,
+                        grade_scale, suggested_grade, confidence, feedback, criteria
+                    ) VALUES ($1,$2,$3,$4,$5,1,20,18,0.85,'Detailed teacher review pending',$6)
+                    ON CONFLICT (submission_id, submission_revision) DO NOTHING
+                    RETURNING id
+                    "#,
+                )
+                .bind(submission_id)
+                .bind(revision)
+                .bind(approval_id)
+                .bind(school_id)
+                .bind(fingerprint)
+                .bind(criteria)
+                .fetch_optional(&scoped)
+                .await
+            },
+            |result| result.is_ok(),
+        )
+        .await
+        .expect("finish AI suggestion test transaction")
+    }
+
+    assert!(
+        try_store_suggestion(
+            &pool, teacher_peer_user, "Teacher", school_a, submissions[0],
+            changed.submission_revision, rubric_id, &stored_fingerprint
+        )
+        .await
+        .is_err(),
+        "same-school unassigned teacher cannot persist an AI suggestion"
+    );
+    assert!(
+        try_store_suggestion(
+            &pool, teacher_b_user, "Teacher", school_b, submissions[0],
+            changed.submission_revision, rubric_id, &stored_fingerprint
+        )
+        .await
+        .is_err(),
+        "cross-school AI suggestion persistence must fail"
+    );
+    assert!(
+        try_store_suggestion(
+            &pool, student_a_user, "Student", school_a, submissions[0],
+            changed.submission_revision, rubric_id, &stored_fingerprint
+        )
+        .await
+        .is_err(),
+        "student cannot insert an unreviewed AI suggestion"
+    );
+    assert!(
+        try_store_suggestion(
+            &pool, teacher_a_user, "Teacher", school_a, submissions[0],
+            Uuid::new_v4(), rubric_id, &stored_fingerprint
+        )
+        .await
+        .is_err(),
+        "stale submission revisions must be rejected at the database boundary"
+    );
+    assert!(
+        try_store_suggestion(
+            &pool, teacher_a_user, "Teacher", school_a, submissions[0],
+            changed.submission_revision, rubric_id, &"f".repeat(64)
+        )
+        .await
+        .is_err(),
+        "teacher cannot substitute an unapproved rubric fingerprint"
+    );
+    assert!(
+        try_store_suggestion(
+            &pool, teacher_a_user, "Teacher", school_a, submissions[0],
+            changed.submission_revision, Uuid::new_v4(), &stored_fingerprint
+        )
+        .await
+        .is_err(),
+        "teacher cannot forge an unknown rubric approval"
+    );
+    let stored_id = try_store_suggestion(
+        &pool, teacher_a_user, "Teacher", school_a, submissions[0],
+        changed.submission_revision, rubric_id, &stored_fingerprint
+    )
+    .await
+    .expect("authorized teacher suggestion may be persisted")
+    .expect("inserted pending suggestion");
+    assert!(
+        try_store_suggestion(
+            &pool, teacher_a_user, "Teacher", school_a, submissions[0],
+            changed.submission_revision, rubric_id, &stored_fingerprint
+        )
+        .await
+        .expect("idempotent repeat")
+        .is_none(),
+        "concurrent/repeated generation must not overwrite evidence"
+    );
+    let stored_status: String =
+        sqlx::query_scalar("SELECT status FROM ai_grading_suggestions WHERE id=$1")
+            .bind(stored_id)
+            .fetch_one(&pool)
+            .await
+            .expect("persisted suggestion status");
+    assert_eq!(stored_status, "pending_review");
+
+    // No review/update/delete permissions can be smuggled through the
+    // teacher's bounded request context before an audited review API exists.
+    use crate::rls_context::{AuthorizedActor, AuthorizedTx};
+    let actor = AuthorizedActor::new(teacher_a_user, "Teacher", Some(school_a))
+        .expect("teacher review negative actor");
+    let tx = AuthorizedTx::begin(&pool, actor)
+        .await
+        .expect("begin denied direct review");
+    let scoped = tx.authorized_pool();
+    let changed_rows = tx.scope(
+        async {
+            sqlx::query(
+                "UPDATE ai_grading_suggestions SET status='rejected', \
+                 reviewed_by=$2, reviewed_at=NOW() WHERE id=$1",
+            )
+            .bind(stored_id)
+            .bind(teacher_a)
+            .execute(&scoped)
+            .await
+        },
+        |_| false,
+    )
+    .await
+    .expect("finish denied direct review");
+    assert!(
+        changed_rows.is_err() || changed_rows.expect("update count").rows_affected() == 0,
+        "teacher must not bypass controlled review by raw UPDATE"
+    );
+
+
     assert!(
         attempt_approval(
             &pool,
