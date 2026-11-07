@@ -209,7 +209,7 @@ BEGIN
     END IF;
     FOR criterion IN SELECT value FROM jsonb_array_elements(NEW.criteria) AS element(value) LOOP
         IF jsonb_typeof(criterion) IS DISTINCT FROM 'object'
-           OR NOT criterion ?& ARRAY['criterion_id', 'awarded_points', 'possible_points', 'evidence']
+           OR (criterion ?& ARRAY['criterion_id', 'awarded_points', 'possible_points', 'evidence']) IS NOT TRUE
            OR (SELECT COUNT(*) FROM jsonb_object_keys(criterion)) <> 4
            OR jsonb_typeof(criterion->'criterion_id') IS DISTINCT FROM 'string'
            OR jsonb_typeof(criterion->'awarded_points') IS DISTINCT FROM 'number'
