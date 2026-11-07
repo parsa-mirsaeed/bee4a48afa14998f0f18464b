@@ -692,20 +692,41 @@ async fn school_and_teacher_authorization_matrix() {
             .expect("revocation is terminal"),
         0
     );
-    assert!(
-        attempt_approval(
-            &pool,
-            teacher_a_user,
-            "Teacher",
-            school_a,
-            custom_id,
-            teacher_a,
-            criteria
-        )
-        .await
-        .expect("new approval after revocation")
-        .is_some(),
-        "revoked authority must require a fresh explicit approval"
+    let replacement_approval = attempt_approval(
+        &pool,
+        teacher_a_user,
+        "Teacher",
+        school_a,
+        custom_id,
+        teacher_a,
+        criteria,
+    )
+    .await
+    .expect("new approval after revocation")
+    .expect("revoked authority requires an explicit replacement approval");
+    let replacement_fingerprint: String = sqlx::query_scalar(
+        "SELECT rubric_fingerprint FROM ai_grading_rubric_approvals WHERE id=$1",
+    )
+    .bind(replacement_approval)
+    .fetch_one(&pool)
+    .await
+    .expect("replacement fingerprint");
+    let replacement_suggestion = try_store_suggestion(
+        &pool,
+        teacher_a_user,
+        "Teacher",
+        school_a,
+        submissions[0],
+        changed.submission_revision,
+        replacement_approval,
+        &replacement_fingerprint,
+    )
+    .await
+    .expect("replacement approval can issue its own suggestion")
+    .expect("new suggestion exists for unchanged submission revision");
+    assert_ne!(
+        replacement_suggestion, stored_id,
+        "revoked rubric evidence must remain immutable beside replacement evidence"
     );
 
     // The initial schema requires submissions.submitted_at NOT NULL;
