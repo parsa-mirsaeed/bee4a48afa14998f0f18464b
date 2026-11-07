@@ -211,7 +211,7 @@ BEGIN
         identifiers := array_append(identifiers, criterion_id);
         possible_sum := possible_sum + pts;
     END LOOP;
-    IF possible_sum <> NEW.grade_scale THEN
+    IF abs(possible_sum - NEW.grade_scale) > 0.000001 THEN
         RAISE EXCEPTION 'Rubric points do not match grade scale' USING ERRCODE = '23514';
     END IF;
 
