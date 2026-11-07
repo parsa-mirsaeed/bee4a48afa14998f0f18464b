@@ -334,7 +334,7 @@ mod tests {
             "validate_authoritative_rubric",
             "validate_against_rubric",
             "latest_approval",
-            "ON CONFLICT (submission_id, submission_revision) DO NOTHING",
+            "ON CONFLICT (submission_id, submission_revision, rubric_approval_id) DO NOTHING",
         ] {
             assert!(production.contains(required));
         }
