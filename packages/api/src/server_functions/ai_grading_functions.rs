@@ -520,11 +520,16 @@ mod tests {
             .expect("teacher can load revised submission");
         assert_ne!(own.submission_revision, changed.submission_revision);
 
-        sqlx::query("UPDATE submissions SET submitted_at = NULL WHERE id = $1")
-            .bind(submissions[0])
-            .execute(&pool)
-            .await
-            .expect("withdraw finalization for negative test");
+        // The initial schema requires submissions.submitted_at NOT NULL;
+        // custom_assignments.submitted_at is nullable and authoritative here.
+        sqlx::query(
+            "UPDATE custom_assignments SET submitted_at = NULL \
+             WHERE id = (SELECT custom_assignment_id FROM submissions WHERE id = $1)",
+        )
+        .bind(submissions[0])
+        .execute(&pool)
+        .await
+        .expect("withdraw finalization for negative test");
         assert!(
             source_as(&pool, teacher_a_user, school_a, submissions[0])
                 .await
