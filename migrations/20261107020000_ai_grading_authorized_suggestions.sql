@@ -119,9 +119,11 @@ BEGIN
         RAISE EXCEPTION 'AI grading suggestions cannot be deleted'
             USING ERRCODE = '23514';
     END IF;
-    IF TG_OP = 'UPDATE'
-        AND NEW.rubric_approval_id IS DISTINCT FROM OLD.rubric_approval_id THEN
-        RAISE EXCEPTION 'AI suggestion rubric approval provenance is immutable'
+    -- Review and publication have not yet been exposed through an audited
+    -- teacher decision API. Deny any UPDATE, including privileged DB writes,
+    -- until that separate authority path is explicitly implemented.
+    IF TG_OP = 'UPDATE' THEN
+        RAISE EXCEPTION 'AI grading review must use the future audited decision API'
             USING ERRCODE = '23514';
     END IF;
     IF public.get_role() IS DISTINCT FROM 'Teacher'
