@@ -612,11 +612,27 @@ BEGIN
     ) THEN
         RAISE EXCEPTION 'Durable AI grading job queue must retain FORCE RLS';
     END IF;
-    IF EXISTS (
+    IF (
+        SELECT COUNT(*) FROM pg_policies
+        WHERE schemaname='public' AND tablename='ai_grading_jobs'
+    ) <> 3 OR (
+        SELECT COUNT(*) FROM pg_policies
+        WHERE schemaname='public' AND tablename='ai_grading_jobs'
+          AND policyname IN (
+              'ai_grading_jobs_owner_select',
+              'ai_grading_jobs_owner_insert',
+              'ai_grading_jobs_owner_update'
+          )
+          AND (
+              COALESCE(qual, '') LIKE '%pg_get_userbyid%'
+              OR COALESCE(with_check, '') LIKE '%pg_get_userbyid%'
+          )
+    ) <> 3 OR EXISTS (
         SELECT 1 FROM pg_policies
         WHERE schemaname='public' AND tablename='ai_grading_jobs'
+          AND cmd IN ('DELETE', 'ALL')
     ) THEN
-        RAISE EXCEPTION 'Private AI grading jobs must not expose user RLS policies';
+        RAISE EXCEPTION 'Private queue needs exactly three owner-scoped RLS policies';
     END IF;
     FOREACH external_role IN ARRAY ARRAY['anon', 'authenticated'] LOOP
         IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname=external_role)
