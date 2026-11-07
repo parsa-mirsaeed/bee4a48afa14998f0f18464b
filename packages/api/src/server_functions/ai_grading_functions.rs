@@ -5,7 +5,7 @@
 //! The submitted revision is read under a request-scoped authorization
 //! transaction, and model output is never persisted or published here.
 
-use crate::services::ai_grading_contract::{ExpectedCriterion, GradingSuggestion};
+use crate::ai_grading_contract::{ExpectedCriterion, GradingSuggestion};
 use dioxus::prelude::*;
 
 #[cfg(feature = "server")]
