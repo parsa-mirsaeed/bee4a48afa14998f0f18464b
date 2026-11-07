@@ -50,9 +50,39 @@ BEGIN
         REVOKE ALL ON public.ai_grading_jobs FROM authenticated;
     END IF;
 END $$;
--- No RLS policies: only the two SECURITY DEFINER trigger functions below
--- create/cancel work. A later worker must use an audited bounded system-job
--- role and reauthorize every claim before model egress.
+-- FORCE RLS applies even to a non-BYPASSRLS migration owner. Grant
+-- precisely SELECT/INSERT/UPDATE to the *effective table owner* so its
+-- SECURITY DEFINER triggers may create/cancel work. No ordinary runtime
+-- role can inherit this identity; runtime table grants are revoked separately.
+-- No owner DELETE policy: queue audit history is append-or-status-only.
+CREATE POLICY ai_grading_jobs_owner_select ON public.ai_grading_jobs
+FOR SELECT USING (
+    current_user = pg_get_userbyid(
+        (SELECT relowner FROM pg_class
+         WHERE oid = 'public.ai_grading_jobs'::regclass)
+    )
+);
+CREATE POLICY ai_grading_jobs_owner_insert ON public.ai_grading_jobs
+FOR INSERT WITH CHECK (
+    current_user = pg_get_userbyid(
+        (SELECT relowner FROM pg_class
+         WHERE oid = 'public.ai_grading_jobs'::regclass)
+    )
+);
+CREATE POLICY ai_grading_jobs_owner_update ON public.ai_grading_jobs
+FOR UPDATE USING (
+    current_user = pg_get_userbyid(
+        (SELECT relowner FROM pg_class
+         WHERE oid = 'public.ai_grading_jobs'::regclass)
+    )
+)
+WITH CHECK (
+    current_user = pg_get_userbyid(
+        (SELECT relowner FROM pg_class
+         WHERE oid = 'public.ai_grading_jobs'::regclass)
+    )
+);
+-- Future worker claim/complete functions require a separate audit.
 
 CREATE OR REPLACE FUNCTION edutalent_internal.enqueue_ai_grading_if_eligible(
     p_submission_id UUID,
