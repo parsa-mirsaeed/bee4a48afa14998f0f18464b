@@ -1,9 +1,9 @@
 use crate::application::AuthHooks;
 use crate::i18n::{assignment_status_label, format_product_date_text, use_locale};
 use crate::views::role_based::components::ResponsiveDashboardLayout;
-use api::server_functions::dashboard_functions::{
-    get_student_assignments, get_student_classes_view, StudentAssignmentPresentationState,
-};
+use crate::views::role_based::student::study_sky::{action_queue, SkyData, StudySkyHero};
+use api::server_functions::dashboard_functions::get_student_assignments;
+use api::server_functions::dashboard_functions::get_student_classes_view;
 use dioxus::prelude::*;
 
 #[component]
@@ -52,17 +52,17 @@ pub fn StudentOverviewSection(on_navigate: EventHandler<String>) -> Element {
     let locale = use_locale();
     let classes = use_resource(move || async move { get_student_classes_view().await });
     let assignments = use_resource(move || async move { get_student_assignments().await });
-    let enrolled_class_count = match classes.read().as_ref() {
-        Some(Ok(items)) => items.len().to_string(),
-        _ => "—".to_string(),
+    // The Study Sky hero and the upcoming list below both read the same
+    // get_student_assignments result, so their counts cannot drift apart.
+    let sky_data = match &*assignments.read() {
+        None => SkyData::Loading,
+        Some(Err(_)) => SkyData::Failed,
+        Some(Ok(items)) => SkyData::Ready(items.clone()),
     };
 
     rsx! {
         div { class: "et-page-stack",
-            header { class: "et-overview-intro",
-                h2 { class: "et-overview-title", "{locale.t(\"dashboard.overview\")}" }
-                p { class: "et-overview-copy", "{locale.t(\"student.dashboard.intro\")}" }
-            }
+            StudySkyHero { data: sky_data, on_navigate }
 
             section { class: "et-section",
                 div { class: "et-section-heading",
@@ -90,69 +90,18 @@ pub fn StudentOverviewSection(on_navigate: EventHandler<String>) -> Element {
                         StudentState { message: locale.t("assignments.no_assignments"), error: false }
                     },
                     Some(Ok(items)) => {
-                        let pending_count = items
-                            .iter()
-                            .filter(|item| {
-                                matches!(
-                                    item.presentation_state,
-                                    StudentAssignmentPresentationState::Pending
-                                        | StudentAssignmentPresentationState::Overdue
-                                )
-                            })
-                            .count();
-                        let completed_count = items
-                            .iter()
-                            .filter(|item| matches!(
-                                item.presentation_state,
-                                StudentAssignmentPresentationState::Submitted
-                                    | StudentAssignmentPresentationState::Graded
-                            ))
-                            .count();
-                        let total_count = items.len();
-                        let upcoming = items
-                            .iter()
-                            .filter(|item| {
-                                item.presentation_state
-                                    == StudentAssignmentPresentationState::Pending
-                            })
-                            .take(5)
-                            .collect::<Vec<_>>();
+                        // Overdue first, then pending: the same queue that drives
+                        // "Up next" and the to-do count in the hero.
+                        let queue = action_queue(items);
+                        let upcoming = queue.into_iter().take(5).collect::<Vec<_>>();
                         rsx! {
-                            StudentQuestTracker {
-                                total: total_count,
-                                completed: completed_count,
-                                pending: pending_count,
-                                on_navigate: move |_| on_navigate.call("assignments".to_string()),
-                            }
-                            div { class: "et-student-progress",
-                                div { class: "et-student-progress__focus",
-                                    div { class: "et-student-progress__icon",
-                                        span { class: "material-icons-outlined", "aria-hidden": "true", "assignment_turned_in" }
-                                    }
-                                    div { class: "et-student-progress__copy",
-                                        p { class: "et-stat-label", "{locale.t(\"dashboard.pending_tasks\")}" }
-                                        p { class: "et-stat-value", "{pending_count}" }
-                                    }
-                                    button {
-                                        class: "et-student-progress__action",
-                                        r#type: "button",
-                                        onclick: move |_| on_navigate.call("assignments".to_string()),
-                                        "aria-label": locale.t("student.dashboard.view_all"),
-                                        span { class: "material-icons-outlined", "aria-hidden": "true", "arrow_forward" }
-                                    }
-                                }
-                                div { class: "et-student-progress__secondary",
-                                    p { class: "et-stat-label", "{locale.t(\"dashboard.enrolled_classes\")}" }
-                                    p { class: "et-stat-value", "{enrolled_class_count}" }
-                                }
-                            }
                             if upcoming.is_empty() {
                                 StudentState {
                                     message: locale.t("student.dashboard.no_upcoming_assignments"),
                                     error: false,
                                 }
                             } else {
-                                div { class: "et-panel",
+                                div { class: "et-panel ss-queue",
                                     for assignment in upcoming {
                                         {
                                             let status = assignment_status_label(
@@ -228,59 +177,6 @@ pub fn StudentOverviewSection(on_navigate: EventHandler<String>) -> Element {
     }
 }
 
-/// A playful view of real persisted submission states; no points or badges
-/// are granted by this presentation-only component.
-#[component]
-fn StudentQuestTracker(
-    total: usize,
-    completed: usize,
-    pending: usize,
-    on_navigate: EventHandler,
-) -> Element {
-    let locale = use_locale();
-    let percent = if total == 0 {
-        0
-    } else {
-        completed.saturating_mul(100) / total
-    };
-
-    rsx! {
-        section { class: "et-play-quest", "aria-label": locale.t("play.student.journey_title"),
-            div { class: "et-play-quest__copy",
-                span { class: "et-play-quest__eyebrow",
-                    span { class: "material-icons-outlined", "aria-hidden": "true", "auto_awesome" }
-                    "{locale.t(\"play.student.journey_title\")}"
-                }
-                h3 { class: "et-play-quest__title", "{locale.t(\"play.student.journey_intro\")}" }
-                p { class: "et-play-quest__caption",
-                    "{completed} / {total} · {locale.t(\"play.student.submitted\")}"
-                }
-                div {
-                    class: "et-play-quest__track",
-                    role: "progressbar",
-                    "aria-label": locale.t("play.student.progress"),
-                    "aria-valuemin": "0",
-                    "aria-valuemax": "100",
-                    "aria-valuenow": "{percent}",
-                    div { class: "et-play-quest__fill", style: "width: {percent}%;" }
-                }
-                p { class: "et-play-quest__pending", "{pending} · {locale.t(\"play.student.pending\")}" }
-                button {
-                    class: "et-play-quest__action",
-                    r#type: "button",
-                    onclick: move |_| on_navigate.call(()),
-                    "{locale.t(\"play.student.open_tasks\")}"
-                    span { class: "material-icons-outlined", "aria-hidden": "true", "arrow_forward" }
-                }
-            }
-            div { class: "et-play-quest__art", "aria-hidden": "true",
-                span { class: "material-icons-outlined et-play-quest__star", "stars" }
-                span { class: "material-icons-outlined et-play-quest__orbit", "rocket_launch" }
-            }
-        }
-    }
-}
-
 #[component]
 fn StudentState(message: String, error: bool) -> Element {
     let class = if error {
@@ -294,13 +190,17 @@ fn StudentState(message: String, error: bool) -> Element {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn upcoming_queue_excludes_submitted_and_graded_work() {
+    fn overview_uses_the_study_sky_hero_and_one_shared_action_queue() {
         let source = include_str!("dashboard.rs");
         let implementation = source
             .split("#[cfg(test)]")
             .next()
             .expect("dashboard implementation before tests");
-        assert!(implementation.contains("StudentAssignmentPresentationState::Pending"));
+        assert!(implementation.contains("StudySkyHero"));
+        assert!(implementation.contains("action_queue"));
+        assert!(!implementation.contains("StudentQuestTracker"));
+        assert!(!implementation.contains("et-student-progress"));
+        assert!(!implementation.contains("et-overview-intro"));
         assert!(!implementation.contains("assignment.status"));
     }
 
