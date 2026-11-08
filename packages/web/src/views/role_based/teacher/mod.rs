@@ -1,5 +1,6 @@
 // Teacher dashboard components
 
+mod ai_grading_panel;
 pub mod assignments;
 pub mod classes;
 pub mod dashboard;

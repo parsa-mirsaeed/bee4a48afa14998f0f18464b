@@ -411,6 +411,19 @@ fn GradeSubmissionModal(
                         }
                     }
 
+                    // Teacher-supervised AI grading never silently publishes.
+                    if let (Ok(submission_id), Ok(assignment_id)) = (
+                        uuid::Uuid::parse_str(&submission.id),
+                        uuid::Uuid::parse_str(&submission.custom_assignment_id),
+                    ) {
+                        super::ai_grading_panel::AiGradingPanel {
+                            submission_id,
+                            custom_assignment_id: assignment_id,
+                            grade_scale: submission.grade_scale,
+                            on_graded: on_graded.clone(),
+                        }
+                    }
+
                     // Grade input
                     div {
                         class: "space-y-2",

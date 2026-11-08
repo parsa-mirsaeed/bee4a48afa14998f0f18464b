@@ -2,8 +2,8 @@
 
 use super::{
     parent_translation, platform_admin_translation, student_translation, supplemental_translation,
-    t, teacher_assignments_translation, teacher_classes_translation, teacher_dashboard_translation,
-    Locale, LocalizedGrade,
+    t, teacher_ai_grading_translation, teacher_assignments_translation,
+    teacher_classes_translation, teacher_dashboard_translation, Locale, LocalizedGrade,
 };
 use dioxus::prelude::*;
 
@@ -44,6 +44,7 @@ impl LocaleContext {
             .or_else(|| parent_translation(key, self.current()))
             .or_else(|| platform_admin_translation(key, self.current()))
             .or_else(|| teacher_dashboard_translation(key, self.current()))
+            .or_else(|| teacher_ai_grading_translation(key, self.current()))
             .or_else(|| teacher_assignments_translation(key, self.current()))
             .or_else(|| teacher_classes_translation(key, self.current()))
             .or_else(|| supplemental_translation(key, self.current()))
