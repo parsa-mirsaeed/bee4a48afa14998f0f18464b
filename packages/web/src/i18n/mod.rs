@@ -14,6 +14,7 @@ mod parent_translations;
 mod platform_admin_translations;
 pub mod provider;
 mod student_translations;
+mod teacher_ai_grading_translations;
 mod teacher_assignments_translations;
 mod teacher_classes_translations;
 mod teacher_dashboard_translations;
@@ -34,6 +35,7 @@ pub(crate) use platform_admin_translations::{
 };
 pub use provider::*;
 pub(crate) use student_translations::student_translation;
+pub(crate) use teacher_ai_grading_translations::teacher_ai_grading_translation;
 pub(crate) use teacher_assignments_translations::teacher_assignments_translation;
 pub(crate) use teacher_classes_translations::{
     format_teacher_vectorization_duration, teacher_classes_translation,
