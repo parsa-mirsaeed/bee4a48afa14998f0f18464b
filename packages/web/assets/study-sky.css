@@ -1,0 +1,414 @@
+/* Study Sky: student overview hero.
+ *
+ * Presentation only. Every star is one assignment returned by
+ * get_student_assignments and nothing here invents progress: there is no
+ * score, level, reward or counter that is not a count of returned rows.
+ *
+ * Motion contract
+ *  - animate transform, opacity and stroke-dashoffset only
+ *  - nothing loops; every animation runs once
+ *  - the base style of each element is its final state, so removing an
+ *    animation (reduced motion, failed paint) never changes the information
+ *  - three depth layers in CSS 3D on wide screens, a flat 2D sky on mobile
+ *  - logical properties only, so the sky mirrors in RTL
+ */
+
+.ss-hero {
+  --ss-night-1: #0e1230;
+  --ss-night-2: #191d4a;
+  --ss-night-3: #2a2872;
+  --ss-ink: #ffffff;
+  --ss-ink-soft: #dbe0ff;
+  --ss-ink-muted: #bcc5f2;
+  --ss-lit: #ffd45c;
+  --ss-lit-core: #fff0b3;
+  --ss-ring: #a9b8ff;
+  --ss-warn: #ff9f8f;
+  --ss-panel: rgb(255 255 255 / 0.08);
+  --ss-panel-edge: rgb(214 222 255 / 0.24);
+  --ss-star-clip: polygon(
+    50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%,
+    50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%
+  );
+
+  isolation: isolate;
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+  align-items: center;
+  gap: clamp(20px, 3vw, 40px);
+  overflow: hidden;
+  padding: clamp(24px, 3.2vw, 44px) clamp(22px, 4vw, 56px);
+  border: 1px solid #4a498a;
+  border-radius: 24px;
+  background: linear-gradient(120deg, var(--ss-night-1) 0%, var(--ss-night-2) 55%, var(--ss-night-3) 100%);
+  color: var(--ss-ink);
+  box-shadow: 0 18px 40px rgb(14 18 48 / 0.28);
+}
+
+.ss-hero--plain { grid-template-columns: minmax(0, 1fr); }
+
+.ss-hero__copy {
+  display: grid;
+  gap: 14px;
+  min-inline-size: 0;
+}
+
+.ss-hero__eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ss-lit);
+  font-size: 13px;
+  font-weight: 750;
+}
+.ss-hero__eyebrow .material-icons-outlined { font-size: 20px; }
+
+.ss-hero__title {
+  color: var(--ss-ink);
+  font-size: clamp(28px, 3vw, 40px);
+  font-weight: 750;
+  letter-spacing: -0.045em;
+  line-height: 1.2;
+}
+[dir="rtl"] .ss-hero__title { letter-spacing: normal; }
+
+.ss-hero__intro {
+  max-inline-size: 36rem;
+  color: var(--ss-ink-soft);
+  font-size: 14px;
+  line-height: 1.8;
+}
+
+.ss-hero__empty {
+  max-inline-size: 36rem;
+  padding: 14px 16px;
+  border: 1px dashed var(--ss-panel-edge);
+  border-radius: 14px;
+  background: var(--ss-panel);
+  color: var(--ss-ink-soft);
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.ss-hero__stat {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+}
+.ss-hero__stat-value {
+  color: var(--ss-ink);
+  font-size: clamp(34px, 4vw, 52px);
+  font-weight: 760;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+.ss-hero__stat-label {
+  color: var(--ss-ink-muted);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.ss-track {
+  position: relative;
+  overflow: hidden;
+  max-inline-size: 28rem;
+  block-size: 10px;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.18);
+}
+.ss-track__fill {
+  inline-size: 100%;
+  block-size: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--ss-lit), #ffb347);
+  transform: scaleX(calc(var(--ss-progress, 0) / 100));
+  transform-origin: left center;
+  animation: ss-grow 700ms cubic-bezier(0.2, 0.7, 0.2, 1) backwards;
+}
+[dir="rtl"] .ss-track__fill { transform-origin: right center; }
+
+.ss-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ss-legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border: 1px solid var(--ss-panel-edge);
+  border-radius: 999px;
+  background: var(--ss-panel);
+  color: var(--ss-ink-soft);
+  font-size: 13px;
+  line-height: 1.4;
+}
+.ss-legend__count {
+  color: var(--ss-ink);
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+}
+
+.ss-hero__more {
+  color: var(--ss-ink-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+/* Star shapes: an outer star in the edge colour with a smaller concentric
+ * star in the core colour. Hollow means the work is not submitted yet. */
+.ss-star__shape,
+.ss-swatch {
+  position: relative;
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+  clip-path: var(--ss-star-clip);
+  background: var(--ss-edge);
+}
+.ss-star__shape::after,
+.ss-swatch::after {
+  content: "";
+  position: absolute;
+  inset: 17%;
+  clip-path: var(--ss-star-clip);
+  background: var(--ss-core);
+}
+.ss-swatch {
+  flex: 0 0 16px;
+  inline-size: 16px;
+  block-size: 16px;
+}
+
+.ss-star--pending,
+.ss-swatch--pending {
+  --ss-edge: var(--ss-ring);
+  --ss-core: var(--ss-night-1);
+}
+.ss-star--overdue,
+.ss-swatch--overdue {
+  --ss-edge: var(--ss-warn);
+  --ss-core: var(--ss-night-1);
+}
+.ss-star--submitted,
+.ss-swatch--submitted,
+.ss-star--graded,
+.ss-swatch--graded {
+  --ss-edge: var(--ss-lit);
+  --ss-core: var(--ss-lit-core);
+}
+
+.ss-next {
+  display: grid;
+  gap: 6px;
+  max-inline-size: 28rem;
+  padding: 14px 16px;
+  border: 1px solid var(--ss-panel-edge);
+  border-inline-start: 4px solid var(--ss-ring);
+  border-radius: 14px;
+  background: var(--ss-panel);
+}
+.ss-next--overdue { border-inline-start-color: var(--ss-warn); }
+.ss-next__label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  color: var(--ss-ink-muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+.ss-next__status {
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.16);
+  color: var(--ss-ink);
+  font-size: 12px;
+  font-weight: 700;
+}
+.ss-next--overdue .ss-next__status {
+  background: var(--ss-warn);
+  color: #2a0f12;
+}
+.ss-next__title {
+  color: var(--ss-ink);
+  font-size: 17px;
+  font-weight: 750;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.ss-next__meta {
+  color: var(--ss-ink-soft);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.ss-hero__cta {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  gap: 10px;
+  min-block-size: 44px;
+  padding: 10px 18px;
+  border: 1px solid rgb(255 255 255 / 0.3);
+  border-radius: 12px;
+  background: #ffffff;
+  color: #191d4a;
+  font-size: 13px;
+  font-weight: 750;
+  transition: transform 160ms ease;
+}
+.ss-hero__cta:hover { transform: translateY(-2px); background: #e8ebff; }
+.ss-hero__cta .material-icons-outlined { font-size: 18px; }
+[dir="rtl"] .ss-hero__cta .material-icons-outlined { transform: scaleX(-1); }
+.ss-hero :where(button):focus-visible {
+  outline: 3px solid #ffffff;
+  outline-offset: 3px;
+}
+
+/* The scene: three depth layers. Only the near layer carries data. */
+.ss-scene {
+  position: relative;
+  min-inline-size: 0;
+  aspect-ratio: 16 / 10;
+  perspective: 900px;
+  perspective-origin: 50% 40%;
+}
+.ss-world {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+  transition: transform 600ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.ss-layer {
+  position: absolute;
+  inset: 0;
+}
+.ss-layer--far {
+  transform: translateZ(-160px) scale(1.18);
+  background-image:
+    radial-gradient(circle at 12% 22%, rgb(255 255 255 / 0.85) 0 1px, transparent 2px),
+    radial-gradient(circle at 31% 74%, rgb(255 255 255 / 0.6) 0 1px, transparent 2px),
+    radial-gradient(circle at 47% 14%, rgb(255 255 255 / 0.7) 0 1px, transparent 2px),
+    radial-gradient(circle at 63% 82%, rgb(255 255 255 / 0.55) 0 1px, transparent 2px),
+    radial-gradient(circle at 78% 26%, rgb(255 255 255 / 0.8) 0 1px, transparent 2px),
+    radial-gradient(circle at 90% 68%, rgb(255 255 255 / 0.6) 0 1px, transparent 2px),
+    radial-gradient(circle at 5% 56%, rgb(255 255 255 / 0.5) 0 1px, transparent 2px);
+}
+.ss-layer--mid {
+  transform: translateZ(-70px) scale(1.07);
+  background-image:
+    radial-gradient(ellipse at 70% 30%, rgb(124 106 255 / 0.34), transparent 60%),
+    radial-gradient(ellipse at 20% 80%, rgb(70 214 205 / 0.16), transparent 62%);
+}
+.ss-layer--near { transform: translateZ(0); }
+
+.ss-lines {
+  position: absolute;
+  inset: 0;
+  inline-size: 100%;
+  block-size: 100%;
+  overflow: visible;
+}
+[dir="rtl"] .ss-lines { transform: scaleX(-1); }
+.ss-lines__path {
+  fill: none;
+  stroke: var(--ss-ring);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 3 5;
+  vector-effect: non-scaling-stroke;
+  opacity: 0.6;
+  animation: ss-fade 700ms ease-out backwards;
+}
+
+.ss-star {
+  --ss-size: clamp(20px, 2.6vw, 32px);
+  position: absolute;
+  inset-inline-start: calc(var(--ss-x) * 1%);
+  inset-block-start: calc(var(--ss-y) * 1%);
+  inline-size: var(--ss-size);
+  block-size: var(--ss-size);
+  margin-inline-start: calc(var(--ss-size) / -2);
+  margin-block-start: calc(var(--ss-size) / -2);
+  animation: ss-rise 560ms cubic-bezier(0.2, 0.7, 0.2, 1) backwards;
+  animation-delay: calc(var(--ss-i, 0) * 45ms);
+}
+.ss-star--submitted,
+.ss-star--graded { filter: drop-shadow(0 0 8px rgb(255 212 92 / 0.55)); }
+.ss-star--graded::before {
+  content: "";
+  position: absolute;
+  inset: -45%;
+  border: 2px solid var(--ss-lit);
+  border-radius: 50%;
+  opacity: 0.55;
+}
+.ss-star--overdue::before {
+  content: "";
+  position: absolute;
+  inset-inline-end: -18%;
+  inset-block-start: -18%;
+  inline-size: 38%;
+  block-size: 38%;
+  border: 2px solid var(--ss-night-2);
+  border-radius: 50%;
+  background: var(--ss-warn);
+}
+
+@keyframes ss-rise {
+  from { opacity: 0; transform: translateY(10px) scale(0.6); }
+}
+@keyframes ss-fade {
+  from { opacity: 0; }
+}
+@keyframes ss-grow {
+  from { transform: scaleX(0); }
+}
+
+@media (hover: hover) and (min-width: 768px) {
+  .ss-scene:hover .ss-world { transform: rotateX(4deg) rotateY(-6deg); }
+  [dir="rtl"] .ss-scene:hover .ss-world { transform: rotateX(4deg) rotateY(6deg); }
+}
+
+@media (max-width: 1100px) {
+  .ss-hero { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Mobile: a flat 2D sky. No perspective, no depth transforms. */
+@media (max-width: 767px) {
+  .ss-hero {
+    padding: 24px 20px;
+    border-radius: 19px;
+  }
+  .ss-scene {
+    aspect-ratio: 16 / 11;
+    perspective: none;
+  }
+  .ss-world {
+    transform-style: flat;
+    transform: none;
+    transition: none;
+  }
+  .ss-layer--far,
+  .ss-layer--mid,
+  .ss-layer--near { transform: none; }
+  .ss-star { --ss-size: 22px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ss-star,
+  .ss-lines__path,
+  .ss-track__fill { animation: none !important; }
+  .ss-world,
+  .ss-hero__cta { transition: none !important; }
+  .ss-scene:hover .ss-world { transform: none !important; }
+  .ss-hero__cta:hover { transform: none !important; }
+}
