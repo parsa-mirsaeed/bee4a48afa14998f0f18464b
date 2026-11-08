@@ -14,6 +14,7 @@ mod parent_translations;
 mod platform_admin_translations;
 pub mod provider;
 mod student_translations;
+mod study_sky_translations;
 mod teacher_assignments_translations;
 mod teacher_classes_translations;
 mod teacher_dashboard_translations;
@@ -33,7 +34,6 @@ pub(crate) use platform_admin_translations::{
     platform_admin_target_type_label, platform_admin_translation,
 };
 pub use provider::*;
-pub(crate) use student_translations::student_translation;
 pub(crate) use teacher_assignments_translations::teacher_assignments_translation;
 pub(crate) use teacher_classes_translations::{
     format_teacher_vectorization_duration, teacher_classes_translation,
@@ -42,3 +42,11 @@ pub(crate) use teacher_dashboard_translations::teacher_dashboard_translation;
 pub use translations::*;
 pub use ui_translations::role_label;
 pub(crate) use ui_translations::supplemental_translation;
+
+/// Student copy lives in two catalogs. The Study Sky catalog is consulted first;
+/// its keys are disjoint from the base student catalog, so order is not a
+/// precedence rule.
+pub(crate) fn student_translation(key: &'static str, locale: Locale) -> Option<&'static str> {
+    study_sky_translations::study_sky_translation(key, locale)
+        .or_else(|| student_translations::student_translation(key, locale))
+}
