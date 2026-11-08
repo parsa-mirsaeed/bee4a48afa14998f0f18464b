@@ -80,12 +80,12 @@ test('teacher priority shows persisted grading workload and opens submissions @s
   await expect(page).toHaveURL(/\/dashboard\/submissions$/);
 });
 
-test('student task summary opens the real assignment list @smoke @aurora @student', async ({ page }) => {
+test('student Study Sky hero opens the real assignment list @smoke @aurora @student', async ({ page }) => {
   await signIn(page, 'e2e-student-a@example.test');
   await expect(page.getByText('E2E Class A1', { exact: true }).first()).toBeVisible();
-  const summary = page.locator('.et-student-progress');
-  await expect(summary).toBeVisible();
-  await summary.locator('.et-student-progress__action').click();
+  const hero = page.locator('.ss-hero');
+  await expect(hero).toBeVisible();
+  await hero.locator('.ss-hero__cta').click();
   await expect(page).toHaveURL(/\/dashboard\/assignments$/);
   await expect(page.getByText('E2E Assignment A1', { exact: true }).first()).toBeVisible();
 });
@@ -602,9 +602,9 @@ test('teacher create assignment fields are explicitly labeled, required, and key
   }
 });
 
-test('student learning journey reflects real assignment state and opens tasks @smoke @aurora @student', async ({ page }) => {
+test('student Study Sky reflects real assignment state and opens tasks @smoke @aurora @student', async ({ page }) => {
   await signIn(page, 'e2e-student-a@example.test');
-  const journey = page.locator('.et-play-quest');
+  const journey = page.locator('.ss-hero');
   await expect(journey).toBeVisible();
   const bar = journey.getByRole('progressbar', { name: 'Assignment submission progress' });
   await expect(bar).toHaveAttribute('aria-valuenow', /^\d+$/);
