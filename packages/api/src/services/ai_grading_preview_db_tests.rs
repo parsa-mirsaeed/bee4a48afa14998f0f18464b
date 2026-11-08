@@ -906,6 +906,18 @@ async fn school_and_teacher_authorization_matrix() {
     assert_eq!(finished.0, "succeeded");
     assert_eq!(finished.1, None, "AI suggestions never publish grades");
 
+    // This test also proves that a queued job is cancelled upon a later
+    // rubric revocation. Restore only the synthetic fixture's queue state:
+    // operationally, a succeeded job is never requeued by the service.
+    sqlx::query(
+        "UPDATE public.ai_grading_jobs SET status='queued', completed_at=NULL, \
+         lease_owner=NULL, lease_until=NULL WHERE id=$1",
+    )
+    .bind(claimed_job)
+    .execute(&pool)
+    .await
+    .expect("restore independent revocation fixture");
+
     assert!(
         try_store_suggestion(
             &pool,
