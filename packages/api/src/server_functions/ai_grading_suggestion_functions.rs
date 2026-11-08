@@ -148,79 +148,96 @@ pub async fn generate_teacher_grading_suggestion(
         }
         let user_id =
             Uuid::parse_str(&user.id).map_err(|_| ServerFnError::new("grading.forbidden"))?;
-        let source = find_authorized_grading_source(&pool, submission_id, user_id)
-            .await
-            .map_err(|_| ServerFnError::new("grading.suggestion_unavailable"))?
-            .ok_or_else(|| ServerFnError::new("grading.not_found"))?;
-        if source.submission_revision.is_nil()
-            || source.submission_text.trim().is_empty()
-            || source.assignment_instructions.trim().is_empty()
-        {
-            return Err(ServerFnError::new("grading.text_required"));
-        }
-        let approved = current_approved_rubric(&pool, submission_id, user_id)
-            .await
-            .map_err(|_| ServerFnError::new("grading.suggestion_unavailable"))?
-            .ok_or_else(|| ServerFnError::new("grading.rubric_approval_required"))?;
-        if approved.school_id != source.school_id || approved.grade_scale != source.grade_scale {
-            return Err(ServerFnError::new("grading.rubric_conflict"));
-        }
-        validate_authoritative_rubric(&approved.criteria, approved.grade_scale)
-            .map_err(|_| ServerFnError::new("grading.invalid_rubric"))?;
-        if let Some(previous) = current_stored_suggestion(
-            &pool,
-            submission_id,
+        return generate_authorized_teacher_suggestion(&pool, submission_id, user_id).await;
+    }
+    #[cfg(not(feature = "server"))]
+    {
+        let _ = submission_id;
+        Err(ServerFnError::new("server only"))
+    }
+}
+
+/// Shared audited core for both the Teacher HTTP endpoint and a separately
+/// authorized background worker. Caller MUST establish a live Teacher-scoped
+/// AuthorizedTx; this function never reads through a global system-job actor.
+#[cfg(feature = "server")]
+pub(crate) async fn generate_authorized_teacher_suggestion(
+    pool: &AuthorizedPool,
+    submission_id: Uuid,
+    user_id: Uuid,
+) -> Result<StoredGradingSuggestion, ServerFnError> {
+    let source = find_authorized_grading_source(&pool, submission_id, user_id)
+        .await
+        .map_err(|_| ServerFnError::new("grading.suggestion_unavailable"))?
+        .ok_or_else(|| ServerFnError::new("grading.not_found"))?;
+    if source.submission_revision.is_nil()
+        || source.submission_text.trim().is_empty()
+        || source.assignment_instructions.trim().is_empty()
+    {
+        return Err(ServerFnError::new("grading.text_required"));
+    }
+    let approved = current_approved_rubric(&pool, submission_id, user_id)
+        .await
+        .map_err(|_| ServerFnError::new("grading.suggestion_unavailable"))?
+        .ok_or_else(|| ServerFnError::new("grading.rubric_approval_required"))?;
+    if approved.school_id != source.school_id || approved.grade_scale != source.grade_scale {
+        return Err(ServerFnError::new("grading.rubric_conflict"));
+    }
+    validate_authoritative_rubric(&approved.criteria, approved.grade_scale)
+        .map_err(|_| ServerFnError::new("grading.invalid_rubric"))?;
+    if let Some(previous) = current_stored_suggestion(
+        &pool,
+        submission_id,
+        source.submission_revision,
+        approved.id,
+    )
+    .await?
+    {
+        return Ok(previous);
+    }
+
+    let llm = ExternalLlmClient::new().map_err(|_| ServerFnError::new("grading.unavailable"))?;
+    let suggestion = llm
+        .suggest_assignment_grade_for_school(
+            source.school_id,
             source.submission_revision,
-            approved.id,
+            &source.assignment_instructions,
+            &source.submission_text,
+            &approved.criteria,
+            approved.grade_scale,
         )
-        .await?
-        {
-            return Ok(previous);
-        }
+        .await
+        .map_err(|_| ServerFnError::new("grading.unavailable"))?;
+    suggestion
+        .validate_against_rubric(source.submission_revision, &approved.criteria)
+        .map_err(|_| ServerFnError::new("grading.invalid_suggestion"))?;
 
-        let llm =
-            ExternalLlmClient::new().map_err(|_| ServerFnError::new("grading.unavailable"))?;
-        let suggestion = llm
-            .suggest_assignment_grade_for_school(
-                source.school_id,
-                source.submission_revision,
-                &source.assignment_instructions,
-                &source.submission_text,
-                &approved.criteria,
-                approved.grade_scale,
-            )
-            .await
-            .map_err(|_| ServerFnError::new("grading.unavailable"))?;
-        suggestion
-            .validate_against_rubric(source.submission_revision, &approved.criteria)
-            .map_err(|_| ServerFnError::new("grading.invalid_suggestion"))?;
+    // The model request may take seconds. Re-read both authoritative
+    // resources and fail closed if the teacher, answer or rubric changed.
+    let latest = find_authorized_grading_source(&pool, submission_id, user_id)
+        .await
+        .map_err(|_| ServerFnError::new("grading.suggestion_unavailable"))?
+        .ok_or_else(|| ServerFnError::new("grading.stale_submission"))?;
+    let latest_approval = current_approved_rubric(&pool, submission_id, user_id)
+        .await
+        .map_err(|_| ServerFnError::new("grading.suggestion_unavailable"))?
+        .ok_or_else(|| ServerFnError::new("grading.rubric_revoked"))?;
+    if source.submission_revision != latest.submission_revision
+        || source.school_id != latest.school_id
+        || source.grade_scale != latest.grade_scale
+        || source.submission_text != latest.submission_text
+        || source.assignment_instructions != latest.assignment_instructions
+        || approved.id != latest_approval.id
+        || approved.fingerprint != latest_approval.fingerprint
+        || approved.criteria != latest_approval.criteria
+    {
+        return Err(ServerFnError::new("grading.stale_submission"));
+    }
 
-        // The model request may take seconds. Re-read both authoritative
-        // resources and fail closed if the teacher, answer or rubric changed.
-        let latest = find_authorized_grading_source(&pool, submission_id, user_id)
-            .await
-            .map_err(|_| ServerFnError::new("grading.suggestion_unavailable"))?
-            .ok_or_else(|| ServerFnError::new("grading.stale_submission"))?;
-        let latest_approval = current_approved_rubric(&pool, submission_id, user_id)
-            .await
-            .map_err(|_| ServerFnError::new("grading.suggestion_unavailable"))?
-            .ok_or_else(|| ServerFnError::new("grading.rubric_revoked"))?;
-        if source.submission_revision != latest.submission_revision
-            || source.school_id != latest.school_id
-            || source.grade_scale != latest.grade_scale
-            || source.submission_text != latest.submission_text
-            || source.assignment_instructions != latest.assignment_instructions
-            || approved.id != latest_approval.id
-            || approved.fingerprint != latest_approval.fingerprint
-            || approved.criteria != latest_approval.criteria
-        {
-            return Err(ServerFnError::new("grading.stale_submission"));
-        }
-
-        let evidence = serde_json::to_value(&suggestion.criteria)
-            .map_err(|_| ServerFnError::new("grading.invalid_suggestion"))?;
-        let row = sqlx::query(
-            r#"
+    let evidence = serde_json::to_value(&suggestion.criteria)
+        .map_err(|_| ServerFnError::new("grading.invalid_suggestion"))?;
+    let row = sqlx::query(
+        r#"
             INSERT INTO public.ai_grading_suggestions (
                 submission_id, submission_revision, school_id,
                 rubric_approval_id, rubric_fingerprint, contract_version,
@@ -232,44 +249,38 @@ pub async fn generate_teacher_grading_suggestion(
                       contract_version, grade_scale, suggested_grade, confidence,
                       feedback, criteria, status, created_at::text AS created_at
             "#,
-        )
-        .bind(submission_id)
-        .bind(suggestion.submission_revision)
-        .bind(source.school_id)
-        .bind(approved.id)
-        .bind(&approved.fingerprint)
-        .bind(suggestion.contract_version as i16)
-        .bind(suggestion.grade_scale)
-        .bind(suggestion.suggested_grade)
-        .bind(suggestion.confidence)
-        .bind(&suggestion.feedback)
-        .bind(evidence)
-        .fetch_optional(&*pool)
-        .await
-        .map_err(|error| {
-            tracing::warn!(%error, "Authorized AI grading suggestion insertion rejected");
-            ServerFnError::new("grading.suggestion_unavailable")
-        })?;
+    )
+    .bind(submission_id)
+    .bind(suggestion.submission_revision)
+    .bind(source.school_id)
+    .bind(approved.id)
+    .bind(&approved.fingerprint)
+    .bind(suggestion.contract_version as i16)
+    .bind(suggestion.grade_scale)
+    .bind(suggestion.suggested_grade)
+    .bind(suggestion.confidence)
+    .bind(&suggestion.feedback)
+    .bind(evidence)
+    .fetch_optional(&*pool)
+    .await
+    .map_err(|error| {
+        tracing::warn!(%error, "Authorized AI grading suggestion insertion rejected");
+        ServerFnError::new("grading.suggestion_unavailable")
+    })?;
 
-        if let Some(row) = row {
-            return map_suggestion(row);
-        }
-        // A concurrent identical request may have committed first. Reuse the
-        // same approved artifact only; never overwrite or relabel evidence.
-        current_stored_suggestion(
-            &pool,
-            submission_id,
-            suggestion.submission_revision,
-            approved.id,
-        )
-        .await?
-        .ok_or_else(|| ServerFnError::new("grading.suggestion_conflict"))
+    if let Some(row) = row {
+        return map_suggestion(row);
     }
-    #[cfg(not(feature = "server"))]
-    {
-        let _ = submission_id;
-        Err(ServerFnError::new("server only"))
-    }
+    // A concurrent identical request may have committed first. Reuse the
+    // same approved artifact only; never overwrite or relabel evidence.
+    current_stored_suggestion(
+        &pool,
+        submission_id,
+        suggestion.submission_revision,
+        approved.id,
+    )
+    .await?
+    .ok_or_else(|| ServerFnError::new("grading.suggestion_conflict"))
 }
 
 /// The assigned teacher can inspect only the pending suggestion for the

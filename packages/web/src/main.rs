@@ -97,6 +97,12 @@ async fn main() {
         app_state.services.pool.clone(),
     );
 
+    // Intentional opt-in until human-reviewed grading quality acceptance.
+    let _ai_grading_worker = api::services::start_ai_grading_worker(
+        app_state.services.raw_pool.clone(),
+        app_state.services.pool.clone(),
+    );
+
     let _attachment_cleanup =
         api::services::submission_attachment_cleanup::start_submission_attachment_cleanup(
             app_state.clone(),

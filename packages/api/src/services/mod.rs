@@ -1,4 +1,6 @@
 pub use crate::ai_grading_contract;
+#[cfg(feature = "server")]
+pub mod ai_grading_worker;
 pub mod ai_outage_queue;
 pub mod assignment_personalization_service;
 #[cfg(feature = "server")]
@@ -27,6 +29,9 @@ pub mod supabase_auth;
 pub mod validation_service;
 #[cfg(feature = "server")]
 pub mod vector_store_service;
+
+#[cfg(feature = "server")]
+pub use ai_grading_worker::start_ai_grading_worker;
 
 // Re-export services for convenience
 pub use assignment_personalization_service::{
