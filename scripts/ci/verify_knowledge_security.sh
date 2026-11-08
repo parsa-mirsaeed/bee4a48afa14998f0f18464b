@@ -659,3 +659,46 @@ BEGIN
     END LOOP;
 END $$;
 SQL
+
+# The durable queue lifecycle must be guarded by bounded system-job
+# authorization. The private queue remains inaccessible as a direct table,
+# even though privileged helper functions may claim/recover it.
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 <<'SQL'
+DO $$
+DECLARE
+    function_name TEXT;
+    external_role TEXT;
+BEGIN
+    FOREACH function_name IN ARRAY ARRAY[
+        'public.claim_next_ai_grading_job(uuid)',
+        'public.heartbeat_ai_grading_job(uuid,uuid)',
+        'public.record_ai_grading_job_failure(uuid,uuid,text,boolean,integer)',
+        'public.recover_expired_ai_grading_jobs(uuid)',
+        'public.cancel_ai_grading_job(uuid,uuid,text)'
+    ] LOOP
+        IF to_regprocedure(function_name) IS NULL THEN
+            RAISE EXCEPTION 'Missing guarded AI grading worker lifecycle entry point %', function_name;
+        END IF;
+        IF pg_get_functiondef(to_regprocedure(function_name))
+            NOT LIKE '%edutalent_internal.require_ai_grading_worker%' THEN
+            RAISE EXCEPTION 'AI grading worker lifecycle entry point lacks bounded authorization: %',
+                function_name;
+        END IF;
+        FOREACH external_role IN ARRAY ARRAY['anon', 'authenticated'] LOOP
+            IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname=external_role)
+               AND has_function_privilege(external_role, to_regprocedure(function_name), 'EXECUTE')
+            THEN
+                RAISE EXCEPTION 'AI grading worker function leaked to %: %', external_role,
+                    function_name;
+            END IF;
+        END LOOP;
+    END LOOP;
+    IF to_regprocedure('edutalent_internal.require_ai_grading_worker(uuid)') IS NULL
+       OR pg_get_functiondef(
+           'edutalent_internal.require_ai_grading_worker(uuid)'::regprocedure
+       ) NOT LIKE '%get_elevated_operation()%'
+    THEN
+        RAISE EXCEPTION 'AI grading worker authorization helpers missing';
+    END IF;
+END $$;
+SQL
