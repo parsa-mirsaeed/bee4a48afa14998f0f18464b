@@ -12,6 +12,7 @@ server|ai-grading/rubrics/current|TeacherOnly|Teacher|session_school|teacher_cus
 server|ai-grading/rubrics/revoke|TeacherOnly|Teacher|session_school|teacher_custom_assignment|write|standard|required|ai_grading_rubric_functions::revoke_teacher_grading_rubric|-
 server|ai-grading/suggestions/generate|TeacherOnly|Teacher|session_school|teacher_submission|write|expensive|required|ai_grading_suggestion_functions::generate_teacher_grading_suggestion|-
 server|ai-grading/suggestions/current|TeacherOnly|Teacher|session_school|teacher_submission|read|standard|none|ai_grading_suggestion_functions::get_current_teacher_grading_suggestion|-
+server|ai-grading/suggestions/review|TeacherOnly|Teacher|session_school|teacher_submission|write|standard|required|ai_grading_decision_functions::review_teacher_ai_grading_suggestion|-
 server|assignments/get_all|TeacherOnly|Teacher|session_school|teacher_assignments|read|bounded_list|none|assignment_functions::get_all_assignments|-
 server|assignments/get_by_id|TeacherOnly|Teacher|session_school|assignment_owner|read|standard|none|assignment_functions::get_assignment_by_id|-
 server|assignments/create|TeacherOnly|Teacher|session_school|teacher_class|write|bounded_payload|required|assignment_functions::create_assignment|-

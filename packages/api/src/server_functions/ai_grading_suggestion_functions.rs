@@ -113,6 +113,10 @@ const READ_SUGGESTION: &str = r#"
     FROM public.ai_grading_suggestions
     WHERE submission_id = $1 AND submission_revision = $2
       AND rubric_approval_id = $3 AND status = 'pending_review'
+      AND NOT EXISTS (
+          SELECT 1 FROM public.ai_grading_decisions decision
+          WHERE decision.suggestion_id = public.ai_grading_suggestions.id
+      )
 "#;
 
 #[cfg(feature = "server")]
