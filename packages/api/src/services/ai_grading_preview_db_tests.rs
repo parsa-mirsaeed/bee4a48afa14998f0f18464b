@@ -847,6 +847,75 @@ async fn school_and_teacher_authorization_matrix() {
     .await
     .expect("authorized teacher suggestion may be persisted")
     .expect("inserted pending suggestion");
+
+    // Accept and reject each run inside a deliberately rolled-back teacher
+    // transaction, so the existing rubric-revocation matrix remains isolated.
+    for action in ["accept", "reject"] {
+        use crate::rls_context::{AuthorizedActor, AuthorizedTx};
+        let actor = AuthorizedActor::new(teacher_a_user, "Teacher", Some(school_a))
+            .expect("decision teacher actor");
+        let tx = AuthorizedTx::begin(&pool, actor)
+            .await
+            .expect("begin authorized decision");
+        let scoped = tx.authorized_pool();
+        let (accepted, official_grade, decision_count): (bool, Option<f64>, i64) = tx
+            .scope(
+                async {
+                    let accepted: bool =
+                        sqlx::query_scalar("SELECT public.decide_ai_grading_suggestion($1,$2)")
+                            .bind(stored_id)
+                            .bind(action)
+                            .fetch_one(&scoped)
+                            .await?;
+                    let grade = sqlx::query_scalar::<_, Option<f64>>(
+                        "SELECT grade::float8 FROM public.submissions WHERE id=$1",
+                    )
+                    .bind(submissions[0])
+                    .fetch_one(&scoped)
+                    .await?;
+                    let count = sqlx::query_scalar::<_, i64>(
+                        "SELECT count(*) FROM public.ai_grading_decisions WHERE suggestion_id=$1",
+                    )
+                    .bind(stored_id)
+                    .fetch_one(&scoped)
+                    .await?;
+                    Ok::<_, sqlx::Error>((accepted, grade, count))
+                },
+                |_| false,
+            )
+            .await
+            .expect("rollback isolated teacher decision")
+            .expect("decision and grade state");
+        assert!(accepted);
+        assert_eq!(decision_count, 1);
+        assert_eq!(
+            official_grade,
+            if action == "accept" { Some(18.0) } else { None }
+        );
+    }
+    // An unrelated teacher must never be able to decide an artifact.
+    {
+        use crate::rls_context::{AuthorizedActor, AuthorizedTx};
+        let actor = AuthorizedActor::new(teacher_peer_user, "Teacher", Some(school_a))
+            .expect("unassigned reviewer");
+        let tx = AuthorizedTx::begin(&pool, actor)
+            .await
+            .expect("negative review tx");
+        let scoped = tx.authorized_pool();
+        let unauthorized = tx
+            .scope(
+                sqlx::query_scalar::<_, bool>(
+                    "SELECT public.decide_ai_grading_suggestion($1,'accept')",
+                )
+                .bind(stored_id)
+                .fetch_one(&scoped),
+                |_| false,
+            )
+            .await
+            .expect("rollback unauthorized decision");
+        assert!(!matches!(unauthorized, Ok(true)));
+    }
+
     // A valid lease can be completed only with the exact revision/rubric
     // evidence; success never publishes or mutates the official grade.
     let completion_worker = Uuid::new_v4();

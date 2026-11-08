@@ -487,6 +487,57 @@ BEGIN
     ) THEN
         RAISE EXCEPTION 'AI grading evidence completion must be owner/system-job scoped';
     END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_class
+        WHERE oid='public.ai_grading_decisions'::regclass
+          AND relrowsecurity AND relforcerowsecurity
+    ) THEN
+        RAISE EXCEPTION 'AI grading decisions must be private under FORCE RLS';
+    END IF;
+    IF (
+        SELECT COUNT(*) FROM pg_policies
+        WHERE schemaname='public' AND tablename='ai_grading_decisions'
+    ) <> 3 OR (
+        SELECT COUNT(*) FROM pg_policies
+        WHERE schemaname='public' AND tablename='ai_grading_decisions'
+          AND policyname IN (
+              'ai_grading_decisions_owner_select',
+              'ai_grading_decisions_owner_insert',
+              'ai_grading_decisions_teacher_select'
+          )
+    ) <> 3 OR EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname='public' AND tablename='ai_grading_decisions'
+          AND cmd IN ('UPDATE','DELETE','ALL')
+    ) THEN
+        RAISE EXCEPTION 'AI decision RLS must be append-only and audited';
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_trigger
+        WHERE tgrelid='public.ai_grading_decisions'::regclass
+          AND tgname='ai_grading_decisions_guard' AND tgenabled<>'D'
+    ) THEN
+        RAISE EXCEPTION 'Immutable AI decision trigger missing';
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_proc
+        WHERE oid='public.decide_ai_grading_suggestion(uuid,text)'::regprocedure
+          AND prosecdef
+    ) THEN
+        RAISE EXCEPTION 'AI decision RPC must be SECURITY DEFINER';
+    END IF;
+    FOREACH runtime_role IN ARRAY ARRAY['anon','authenticated'] LOOP
+        IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname=runtime_role)
+           AND (
+                has_table_privilege(runtime_role,'public.ai_grading_decisions','SELECT')
+                OR has_table_privilege(runtime_role,'public.ai_grading_decisions','INSERT')
+                OR has_table_privilege(runtime_role,'public.ai_grading_decisions','UPDATE')
+                OR has_table_privilege(runtime_role,'public.ai_grading_decisions','DELETE')
+           ) THEN
+            RAISE EXCEPTION 'AI review decision leaked Data API privileges to %',runtime_role;
+        END IF;
+    END LOOP;
     IF EXISTS (
         SELECT 1 FROM pg_policies
         WHERE schemaname = 'public' AND tablename = 'ai_grading_suggestions'
