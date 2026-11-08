@@ -464,15 +464,28 @@ BEGIN
     IF (
         SELECT COUNT(*) FROM pg_policies
         WHERE schemaname = 'public' AND tablename = 'ai_grading_suggestions'
-    ) <> 2 OR (
+    ) <> 3 OR (
         SELECT COUNT(*) FROM pg_policies
         WHERE schemaname = 'public' AND tablename = 'ai_grading_suggestions'
           AND policyname IN (
               'ai_grading_suggestion_teacher_select',
-              'ai_grading_suggestion_teacher_insert'
+              'ai_grading_suggestion_teacher_insert',
+              'ai_grading_suggestion_owner_completion_select'
           )
-    ) <> 2 THEN
-        RAISE EXCEPTION 'AI grading suggestions must have exactly the two audited teacher policies';
+    ) <> 3 THEN
+        RAISE EXCEPTION 'AI grading suggestions must retain exactly the three audited policies';
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_policies
+        WHERE schemaname='public' AND tablename='ai_grading_suggestions'
+          AND policyname='ai_grading_suggestion_owner_completion_select'
+          AND cmd='SELECT'
+          AND qual LIKE '%pg_get_userbyid%'
+          AND qual LIKE '%system_job%'
+          AND qual LIKE '%get_elevated_operation%'
+          AND qual LIKE '%get_school_id%'
+    ) THEN
+        RAISE EXCEPTION 'AI grading evidence completion must be owner/system-job scoped';
     END IF;
     IF EXISTS (
         SELECT 1 FROM pg_policies

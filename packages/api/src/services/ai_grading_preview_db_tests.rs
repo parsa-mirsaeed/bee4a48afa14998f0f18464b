@@ -479,6 +479,31 @@ async fn school_and_teacher_authorization_matrix() {
         );
         assert_eq!(row.get::<i32, _>("attempt_count"), 1);
     }
+    // The scheduler may learn only the assigned active teacher identity.
+    // It cannot declare a job successful without matching persisted evidence.
+    {
+        use crate::rls_context::{AuthorizedActor, AuthorizedTx};
+        let tx = AuthorizedTx::begin(&pool, AuthorizedActor::system_queue(worker_id))
+            .await
+            .expect("bounded teacher resolution transaction");
+        let scoped = tx.authorized_pool();
+        let (teacher, incomplete): (Option<Uuid>, bool) = tx
+            .scope(async {
+                let teacher = sqlx::query_scalar(
+                    "SELECT public.resolve_ai_grading_job_teacher($1,$2)")
+                    .bind(worker_id).bind(claimed_job)
+                    .fetch_one(&scoped).await?;
+                let incomplete = sqlx::query_scalar(
+                    "SELECT public.complete_ai_grading_job($1,$2,$3)")
+                    .bind(worker_id).bind(claimed_job).bind(Uuid::new_v4())
+                    .fetch_one(&scoped).await?;
+                Ok::<_, sqlx::Error>((teacher, incomplete))
+            }, |result| result.is_ok())
+            .await.expect("finish bounded teacher discovery")
+            .expect("worker metadata lookups");
+        assert_eq!(teacher, Some(teacher_a_user));
+        assert!(!incomplete, "completion without evidence must be denied");
+    }
     {
         use crate::rls_context::{AuthorizedActor, AuthorizedTx};
         let tx = AuthorizedTx::begin(&pool, AuthorizedActor::system_queue(worker_id))
@@ -813,6 +838,47 @@ async fn school_and_teacher_authorization_matrix() {
     .await
     .expect("authorized teacher suggestion may be persisted")
     .expect("inserted pending suggestion");
+    // A valid lease can be completed only with the exact revision/rubric
+    // evidence; success never publishes or mutates the official grade.
+    let completion_worker = Uuid::new_v4();
+    sqlx::query(
+        "UPDATE public.ai_grading_jobs SET status='running', \
+         lease_owner=$2, lease_until=NOW()+INTERVAL '180 seconds' WHERE id=$1")
+        .bind(claimed_job).bind(completion_worker).execute(&pool)
+        .await.expect("reopen fixture lease for completion");
+    {
+        use crate::rls_context::{AuthorizedActor, AuthorizedTx};
+        let tx = AuthorizedTx::begin(&pool, AuthorizedActor::system_queue(completion_worker))
+            .await.expect("completion proof authorization");
+        let scoped = tx.authorized_pool();
+        let (wrong_evidence, correct_evidence): (bool, bool) = tx.scope(
+            async {
+                let wrong: bool = sqlx::query_scalar(
+                    "SELECT public.complete_ai_grading_job($1,$2,$3)")
+                    .bind(completion_worker).bind(claimed_job).bind(Uuid::new_v4())
+                    .fetch_one(&scoped).await?;
+                let right: bool = sqlx::query_scalar(
+                    "SELECT public.complete_ai_grading_job($1,$2,$3)")
+                    .bind(completion_worker).bind(claimed_job).bind(stored_id)
+                    .fetch_one(&scoped).await?;
+                Ok::<_, sqlx::Error>((wrong, right))
+            },
+            |result| result.is_ok(),
+        ).await.expect("commit evidence completion").expect("bounded evidence outcomes");
+        assert!(!wrong_evidence);
+        assert!(correct_evidence);
+    }
+    let finished: (String, Option<f64>) = {
+        let row=sqlx::query(
+            "SELECT j.status, s.grade FROM public.ai_grading_jobs j \
+             JOIN public.submissions s ON s.id=j.submission_id WHERE j.id=$1")
+            .bind(claimed_job).fetch_one(&pool).await
+            .expect("completion metadata");
+        (row.get("status"),row.get("grade"))
+    };
+    assert_eq!(finished.0, "succeeded");
+    assert_eq!(finished.1, None, "AI suggestions never publish grades");
+
     assert!(
         try_store_suggestion(
             &pool,
