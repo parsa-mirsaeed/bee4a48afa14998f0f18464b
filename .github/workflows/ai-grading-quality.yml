@@ -1,0 +1,49 @@
+name: AI Grading Quality Evaluation
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/ai_grading/**'
+      - '.github/workflows/ai-grading-quality.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/ai_grading/**'
+      - '.github/workflows/ai-grading-quality.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-quality-harness:
+    name: Offline benchmark input and threshold regression
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          show-progress: false
+      - name: Run deterministic privacy and quality regression tests
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s scripts/ai_grading -p 'test_*.py' -v
+      - name: Prove CLI exit codes with synthetic reference grades
+        run: |
+          set -euo pipefail
+          printf '%s\n' '{"case_id":"synthetic_1","cohort":"math","language":"fa","grade_scale":20,"reference_grade":18,"predicted_grade":18,"confidence":0.9}' > /tmp/ai-grading-benchmark.jsonl
+          python3 scripts/ai_grading/evaluate.py --input /tmp/ai-grading-benchmark.jsonl --min-samples 1 --min-coverage 1 --max-mae-pp 5 --max-severe-rate 0 --max-overconfident-rate 0 > /tmp/ai-grading-quality.json
+          python3 -c 'import json; d=json.load(open("/tmp/ai-grading-quality.json")); assert d["passed"] and d["overall"]["graded_count"] == 1'
+          if python3 scripts/ai_grading/evaluate.py --input /tmp/ai-grading-benchmark.jsonl --min-samples 2 --min-coverage 1 --max-mae-pp 5 --max-severe-rate 0 --max-overconfident-rate 0 > /dev/null; then
+            echo 'Insufficient benchmark unexpectedly passed' >&2
+            exit 1
+          fi
+          printf '%s\n' '{"case_id":"synthetic_1","cohort":"math","language":"fa","grade_scale":20,"reference_grade":18,"predicted_grade":18,"confidence":0.9,"student_name":"forbidden"}' > /tmp/ai-grading-benchmark.jsonl
+          set +e
+          python3 scripts/ai_grading/evaluate.py --input /tmp/ai-grading-benchmark.jsonl --min-samples 1 --min-coverage 1 --max-mae-pp 5 --max-severe-rate 0 --max-overconfident-rate 0 > /dev/null
+          code=$?
+          set -e
+          test "$code" -eq 2
