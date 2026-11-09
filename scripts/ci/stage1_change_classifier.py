@@ -173,6 +173,13 @@ def classify(files: Iterable[str]) -> dict:
             _mark(categories, "docs")
             matched = True
 
+        # This offline AI-grading quality harness defines release evidence
+        # thresholds, is independently unit-tested by its own workflow, and
+        # must not be misclassified as unknown executable code or DB access.
+        if path.startswith("scripts/ai_grading/") and path.endswith((".py", ".md")):
+            _mark(categories, "workflow_policy")
+            matched = True
+
         if WORKFLOW_POLICY_RE.match(path) or path in {
             "EduTalent-Workflow-Trigger-Guide.md",
             "EduTalent-Stage1-Smart-CI-CD-and-Build-Optimization-Plan.md",
