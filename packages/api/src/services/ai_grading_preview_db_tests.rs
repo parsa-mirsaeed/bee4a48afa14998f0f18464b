@@ -1408,12 +1408,13 @@ async fn school_and_teacher_authorization_matrix() {
             "unassigned, cross-school, or student grading must fail closed"
         );
     }
-    let before_manual: (Option<f64>, Option<Uuid>) =
-        sqlx::query_as("SELECT grade::double precision, graded_by FROM public.submissions WHERE id=$1")
-            .bind(submissions[0])
-            .fetch_one(&pool)
-            .await
-            .expect("read unchanged grade after denied cases");
+    let before_manual: (Option<f64>, Option<Uuid>) = sqlx::query_as(
+        "SELECT grade::double precision, graded_by FROM public.submissions WHERE id=$1",
+    )
+    .bind(submissions[0])
+    .fetch_one(&pool)
+    .await
+    .expect("read unchanged grade after denied cases");
     assert_eq!(before_manual, (None, None));
 
     assert!(
