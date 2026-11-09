@@ -1409,7 +1409,7 @@ async fn school_and_teacher_authorization_matrix() {
         );
     }
     let before_manual: (Option<f64>, Option<Uuid>) =
-        sqlx::query_as("SELECT grade, graded_by FROM public.submissions WHERE id=$1")
+        sqlx::query_as("SELECT grade::double precision, graded_by FROM public.submissions WHERE id=$1")
             .bind(submissions[0])
             .fetch_one(&pool)
             .await
@@ -1430,7 +1430,7 @@ async fn school_and_teacher_authorization_matrix() {
         "assigned teacher must commit a valid grade"
     );
     let after_manual: (Option<f64>, i16, Option<Uuid>, String) = sqlx::query_as(
-        "SELECT s.grade, s.grade_scale, s.graded_by, ca.status::text \
+        "SELECT s.grade::double precision, s.grade_scale, s.graded_by, ca.status::text \
          FROM public.submissions s JOIN public.custom_assignments ca \
            ON ca.id=s.custom_assignment_id WHERE s.id=$1",
     )
@@ -1456,7 +1456,7 @@ async fn school_and_teacher_authorization_matrix() {
         "nonfinite scores must fail closed without mutation"
     );
     let unchanged_grade: Option<f64> =
-        sqlx::query_scalar("SELECT grade FROM public.submissions WHERE id=$1")
+        sqlx::query_scalar("SELECT grade::double precision FROM public.submissions WHERE id=$1")
             .bind(submissions[0])
             .fetch_one(&pool)
             .await
