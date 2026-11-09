@@ -315,7 +315,10 @@ fn GradeSubmissionModal(
     let locale = use_locale();
 
     let mut grade_value = use_signal(|| {
-        if let Some(g) = submission.grade.and_then(|value| normalized_submission_grade(value, submission.grade_scale)) {
+        if let Some(g) = submission
+            .grade
+            .and_then(|value| normalized_submission_grade(value, submission.grade_scale))
+        {
             // Normalize the persisted grade/scale to 0–100 before locale conversion.
             let val = LocalizedGrade::english(g)
                 .convert_to(locale.current())
