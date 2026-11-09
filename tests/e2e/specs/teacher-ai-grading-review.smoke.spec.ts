@@ -61,11 +61,11 @@ for (const scenario of [
 
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible();
-    // Dioxus Dialog may portal children outside its accessible subtree.
-    // Target the unique, visibly rendered AI panel heading on the page.
-    const heading = page.getByText(scenario.title, { exact: true });
-    await expect(heading).toBeVisible();
-    const panel = heading.locator('xpath=ancestor::section[1]');
+    // The Material icon contributes text to the heading element, so exact
+    // heading text locators are invalid even though the panel is visible.
+    const panel = dialog.locator('section').filter({ hasText: scenario.title }).last();
+    await expect(panel).toBeVisible();
+    await expect(panel).toContainText(scenario.title);
     await expect(panel).toContainText(scenario.description);
     await expect(panel).not.toContainText('ai_grading.');
 
