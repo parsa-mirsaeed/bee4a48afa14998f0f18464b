@@ -193,6 +193,19 @@ fn SubmissionSkeleton() -> Element {
     }
 }
 
+/// Persisted grades use each submission's authoritative grade scale, while
+/// this teacher view renders the locale's normalized 0–100 baseline.
+/// Invalid or corrupt grade/scale pairs must never be displayed as scores.
+fn normalized_submission_grade(grade: f64, grade_scale: i16) -> Option<f64> {
+    if !(1..=100).contains(&grade_scale)
+        || !grade.is_finite()
+        || !(0.0..=f64::from(grade_scale)).contains(&grade)
+    {
+        return None;
+    }
+    Some(grade * (100.0 / f64::from(grade_scale)))
+}
+
 /// Individual submission card
 #[component]
 fn SubmissionCard(
@@ -270,7 +283,7 @@ fn SubmissionCard(
                 // Grade info or action button
                 div {
                     class: "flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-2",
-                    if let Some(grade) = submission.grade {
+                    if let Some(grade) = submission.grade.and_then(|value| normalized_submission_grade(value, submission.grade_scale)) {
                         div {
                             class: "flex items-center gap-2",
                             span { class: "text-gray-500 dark:text-gray-400 text-sm", "{locale.t(\"submissions.grade_label\")}:" }
@@ -302,8 +315,8 @@ fn GradeSubmissionModal(
     let locale = use_locale();
 
     let mut grade_value = use_signal(|| {
-        if let Some(g) = submission.grade {
-            // Backend sends 0-100. Convert to current locale scale.
+        if let Some(g) = submission.grade.and_then(|value| normalized_submission_grade(value, submission.grade_scale)) {
+            // Normalize the persisted grade/scale to 0–100 before locale conversion.
             let val = LocalizedGrade::english(g)
                 .convert_to(locale.current())
                 .value;
@@ -514,5 +527,31 @@ mod attachment_preview_tests {
         assert_eq!(preview.chars().count(), 203);
         assert!(preview.ends_with("..."));
         assert_eq!(super::submission_preview("پاسخ کوتاه"), "پاسخ کوتاه");
+    }
+}
+
+#[cfg(test)]
+mod submission_grade_scale_regression_tests {
+    use super::normalized_submission_grade;
+
+    #[test]
+    fn ai_grading_scale_twenty_displays_on_normalized_scale() {
+        assert_eq!(normalized_submission_grade(18.0, 20), Some(90.0));
+        assert_eq!(normalized_submission_grade(10.0, 20), Some(50.0));
+    }
+
+    #[test]
+    fn manual_grading_scale_hundred_is_unchanged() {
+        assert_eq!(normalized_submission_grade(90.0, 100), Some(90.0));
+        assert_eq!(normalized_submission_grade(0.0, 100), Some(0.0));
+    }
+
+    #[test]
+    fn invalid_scale_and_out_of_bounds_scores_fail_closed() {
+        assert_eq!(normalized_submission_grade(18.0, 0), None);
+        assert_eq!(normalized_submission_grade(18.0, -1), None);
+        assert_eq!(normalized_submission_grade(101.0, 100), None);
+        assert_eq!(normalized_submission_grade(-1.0, 20), None);
+        assert_eq!(normalized_submission_grade(f64::NAN, 100), None);
     }
 }
