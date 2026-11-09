@@ -1363,4 +1363,82 @@ async fn school_and_teacher_authorization_matrix() {
     .await
     .expect("prior revision cancelled");
     assert_eq!(status, "cancelled");
+
+    // Exact-object teacher authorization and two-row manual-grade lifecycle
+    // proof against real PostgreSQL/RLS, after AI-preview assertions are done.
+    async fn manual_grade_as(
+        raw: &sqlx::PgPool,
+        actor_id: Uuid,
+        actor_role: &str,
+        actor_school: Uuid,
+        submission_id: Uuid,
+        points: f64,
+    ) -> Result<bool, dioxus::prelude::ServerFnError> {
+        use crate::rls_context::{AuthorizedActor, AuthorizedTx};
+        let actor = AuthorizedActor::new(actor_id, actor_role, Some(actor_school))
+            .expect("valid teacher-grade test actor");
+        let tx = AuthorizedTx::begin(raw, actor)
+            .await
+            .expect("begin manual-grade authorization test");
+        let scoped = tx.authorized_pool();
+        tx.scope(
+            crate::server_functions::dashboard_functions::save_authorized_manual_grade(
+                &scoped, actor_id, submission_id, points, Some("Teacher-reviewed".to_string()),
+            ),
+            Result::is_ok,
+        )
+        .await
+        .expect("complete grading test transaction")
+    }
+
+    for (actor, role, school, target) in [
+        (teacher_peer_user, "Teacher", school_a, submissions[0]),
+        (teacher_b_user, "Teacher", school_b, submissions[0]),
+        (teacher_a_user, "Teacher", school_a, submissions[1]),
+        (student_a_user, "Student", school_a, submissions[0]),
+    ] {
+        assert!(
+            manual_grade_as(&pool, actor, role, school, target, 90.0)
+                .await
+                .is_err(),
+            "unassigned, cross-school, or student grading must fail closed"
+        );
+    }
+    let before_manual: (Option<f64>, Option<Uuid>) =
+        sqlx::query_as("SELECT grade, graded_by FROM public.submissions WHERE id=$1")
+            .bind(submissions[0])
+            .fetch_one(&pool)
+            .await
+            .expect("read unchanged grade after denied cases");
+    assert_eq!(before_manual, (None, None));
+
+    assert!(
+        manual_grade_as(&pool, teacher_a_user, "Teacher", school_a, submissions[0], 90.0)
+            .await
+            .expect("assigned teacher may grade"),
+        "assigned teacher must commit a valid grade"
+    );
+    let after_manual: (Option<f64>, i16, Option<Uuid>, String) = sqlx::query_as(
+        "SELECT s.grade, s.grade_scale, s.graded_by, ca.status::text \
+         FROM public.submissions s JOIN public.custom_assignments ca \
+           ON ca.id=s.custom_assignment_id WHERE s.id=$1",
+    )
+    .bind(submissions[0])
+    .fetch_one(&pool)
+    .await
+    .expect("read committed manual grade and lifecycle");
+    assert_eq!(after_manual, (Some(90.0), 100, Some(teacher_a), "Graded".to_string()));
+    assert!(
+        manual_grade_as(&pool, teacher_a_user, "Teacher", school_a, submissions[0], f64::NAN)
+            .await
+            .is_err(),
+        "nonfinite scores must fail closed without mutation"
+    );
+    let unchanged_grade: Option<f64> =
+        sqlx::query_scalar("SELECT grade FROM public.submissions WHERE id=$1")
+            .bind(submissions[0])
+            .fetch_one(&pool)
+            .await
+            .expect("unchanged official grade");
+    assert_eq!(unchanged_grade, Some(90.0));
 }

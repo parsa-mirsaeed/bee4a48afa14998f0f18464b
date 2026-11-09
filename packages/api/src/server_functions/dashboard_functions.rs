@@ -2292,8 +2292,7 @@ pub async fn get_submissions_for_assignment(
     Ok(vec![])
 }
 
-/// Grade a submission. Teacher authorization and both grade writes share one
-/// transaction; an error or stale assignment must never leave half a grade.
+/// Grade a submission through the active Teacher RLS transaction.
 #[server(endpoint = "teacher/submissions/grade")]
 pub async fn grade_submission(
     submission_id: String,
@@ -2310,96 +2309,111 @@ pub async fn grade_submission(
             Uuid::parse_str(&user.id).map_err(|_| ServerFnError::new("grading.forbidden"))?;
         let submission_uuid =
             Uuid::parse_str(&submission_id).map_err(|_| ServerFnError::new("grading.forbidden"))?;
-
-        // The live authenticated Teacher must belong to the same active school,
-        // be assigned to this class, and grade an enrolled active student's
-        // submitted assignment. Lock both lifecycle rows before writing.
-        let mut transaction = pool
-            .begin()
-            .await
-            .map_err(|_| ServerFnError::new("grading.unavailable"))?;
-        let target = sqlx::query(
-            r#"
-            SELECT s.custom_assignment_id, t.id AS teacher_id
-            FROM public.submissions s
-            JOIN public.custom_assignments ca
-              ON ca.id = s.custom_assignment_id AND ca.student_id = s.student_id
-            JOIN public.assignments a ON a.id = ca.assignment_id
-            JOIN public.class_sections cs ON cs.id = a.class_section_id
-            JOIN public.teachers t
-              ON t.id = a.teacher_id AND t.school_id = cs.school_id
-            JOIN public.users teacher_user
-              ON teacher_user.id = t.user_id AND teacher_user.school_id = cs.school_id
-             AND teacher_user.is_active = TRUE
-            JOIN public.roles teacher_role ON teacher_role.id = teacher_user.role_id
-            JOIN public.teaching_assignments ta
-              ON ta.teacher_id = t.id AND ta.class_section_id = cs.id
-            JOIN public.students st
-              ON st.id = ca.student_id AND st.school_id = cs.school_id
-            JOIN public.users student_user
-              ON student_user.id = st.user_id AND student_user.school_id = cs.school_id
-             AND student_user.is_active = TRUE
-            JOIN public.enrollments e
-              ON e.student_id = st.id AND e.class_section_id = cs.id
-            WHERE s.id = $1 AND teacher_user.id = $2
-              AND teacher_role.name::text = 'Teacher'
-              AND a.status = 'Published'::assignment_status
-              AND ca.status IN ('Submitted'::custom_status, 'Graded'::custom_status)
-              AND ca.submitted_at IS NOT NULL AND s.submitted_at IS NOT NULL
-            FOR UPDATE OF s, ca
-            "#,
-        )
-        .bind(submission_uuid)
-        .bind(user_id)
-        .fetch_optional(&mut *transaction)
-        .await
-        .map_err(|_| ServerFnError::new("grading.unavailable"))?
-        .ok_or_else(|| ServerFnError::new("grading.forbidden"))?;
-
-        let assignment_id: Uuid = target.get("custom_assignment_id");
-        let teacher_id: Uuid = target.get("teacher_id");
-        let grade_updated = sqlx::query(
-            r#"
-            UPDATE public.submissions
-            SET grade = $1, grade_scale = 100, feedback = $2, graded_by = $3
-            WHERE id = $4 AND custom_assignment_id = $5
-            "#,
-        )
-        .bind(grade)
-        .bind(&feedback)
-        .bind(teacher_id)
-        .bind(submission_uuid)
-        .bind(assignment_id)
-        .execute(&mut *transaction)
-        .await
-        .map_err(|_| ServerFnError::new("grading.unavailable"))?;
-
-        let assignment_updated = sqlx::query(
-            r#"
-            UPDATE public.custom_assignments
-            SET status = 'Graded'::custom_status, graded_at = NOW()
-            WHERE id = $1
-              AND status IN ('Submitted'::custom_status, 'Graded'::custom_status)
-            "#,
-        )
-        .bind(assignment_id)
-        .execute(&mut *transaction)
-        .await
-        .map_err(|_| ServerFnError::new("grading.unavailable"))?;
-        if grade_updated.rows_affected() != 1 || assignment_updated.rows_affected() != 1 {
-            return Err(ServerFnError::new("grading.stale_submission"));
-        }
-        transaction
-            .commit()
-            .await
-            .map_err(|_| ServerFnError::new("grading.unavailable"))?;
-        Ok(true)
+        save_authorized_manual_grade(&pool, user_id, submission_uuid, grade, feedback).await
     }
     #[cfg(not(feature = "server"))]
     {
         let _ = (submission_id, grade, feedback);
         Ok(false)
     }
+}
+
+/// A separately testable authorized implementation. The caller must have a
+/// live Teacher-scoped AuthorizedTx. Nested savepoints roll back both rows.
+#[cfg(feature = "server")]
+pub(crate) async fn save_authorized_manual_grade(
+    pool: &AuthorizedPool,
+    user_id: Uuid,
+    submission_uuid: Uuid,
+    grade: f64,
+    feedback: Option<String>,
+) -> Result<bool, ServerFnError> {
+    if !(0.0..=100.0).contains(&grade) || submission_uuid.is_nil() {
+        return Err(ServerFnError::new("grading.forbidden"));
+    }
+    // The live authenticated Teacher must belong to the same active school,
+    // be assigned to this class, and grade an enrolled active student's
+    // submitted assignment. Lock both lifecycle rows before writing.
+    let mut transaction = pool
+        .begin()
+        .await
+        .map_err(|_| ServerFnError::new("grading.unavailable"))?;
+    let target = sqlx::query(
+        r#"
+        SELECT s.custom_assignment_id, t.id AS teacher_id
+        FROM public.submissions s
+        JOIN public.custom_assignments ca
+          ON ca.id = s.custom_assignment_id AND ca.student_id = s.student_id
+        JOIN public.assignments a ON a.id = ca.assignment_id
+        JOIN public.class_sections cs ON cs.id = a.class_section_id
+        JOIN public.teachers t
+          ON t.id = a.teacher_id AND t.school_id = cs.school_id
+        JOIN public.users teacher_user
+          ON teacher_user.id = t.user_id AND teacher_user.school_id = cs.school_id
+         AND teacher_user.is_active = TRUE
+        JOIN public.roles teacher_role ON teacher_role.id = teacher_user.role_id
+        JOIN public.teaching_assignments ta
+          ON ta.teacher_id = t.id AND ta.class_section_id = cs.id
+        JOIN public.students st
+          ON st.id = ca.student_id AND st.school_id = cs.school_id
+        JOIN public.users student_user
+          ON student_user.id = st.user_id AND student_user.school_id = cs.school_id
+         AND student_user.is_active = TRUE
+        JOIN public.enrollments e
+          ON e.student_id = st.id AND e.class_section_id = cs.id
+        WHERE s.id = $1 AND teacher_user.id = $2
+          AND teacher_role.name::text = 'Teacher'
+          AND a.status = 'Published'::assignment_status
+          AND ca.status IN ('Submitted'::custom_status, 'Graded'::custom_status)
+          AND ca.submitted_at IS NOT NULL AND s.submitted_at IS NOT NULL
+        FOR UPDATE OF s, ca
+        "#,
+    )
+    .bind(submission_uuid)
+    .bind(user_id)
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(|_| ServerFnError::new("grading.unavailable"))?
+    .ok_or_else(|| ServerFnError::new("grading.forbidden"))?;
+
+    let assignment_id: Uuid = target.get("custom_assignment_id");
+    let teacher_id: Uuid = target.get("teacher_id");
+    let grade_updated = sqlx::query(
+        r#"
+        UPDATE public.submissions
+        SET grade = $1, grade_scale = 100, feedback = $2, graded_by = $3
+        WHERE id = $4 AND custom_assignment_id = $5
+        "#,
+    )
+    .bind(grade)
+    .bind(&feedback)
+    .bind(teacher_id)
+    .bind(submission_uuid)
+    .bind(assignment_id)
+    .execute(&mut *transaction)
+    .await
+    .map_err(|_| ServerFnError::new("grading.unavailable"))?;
+
+    let assignment_updated = sqlx::query(
+        r#"
+        UPDATE public.custom_assignments
+        SET status = 'Graded'::custom_status, graded_at = NOW()
+        WHERE id = $1
+          AND status IN ('Submitted'::custom_status, 'Graded'::custom_status)
+        "#,
+    )
+    .bind(assignment_id)
+    .execute(&mut *transaction)
+    .await
+    .map_err(|_| ServerFnError::new("grading.unavailable"))?;
+    if grade_updated.rows_affected() != 1 || assignment_updated.rows_affected() != 1 {
+        return Err(ServerFnError::new("grading.stale_submission"));
+    }
+    transaction
+        .commit()
+        .await
+        .map_err(|_| ServerFnError::new("grading.unavailable"))?;
+    Ok(true)
 }
 
 // ==================== Teacher Material Management Functions ====================
