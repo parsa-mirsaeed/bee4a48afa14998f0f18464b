@@ -61,6 +61,14 @@ for (const scenario of [
 
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible();
+    // Diagnose the actual rendered Teacher modal before the UI assertion.
+    // No submission content or private AI evidence is included in diagnostics.
+    console.log('AI_GRADING_MODAL_STRUCTURE', JSON.stringify({
+      headings: await dialog.locator('h1,h2,h3,h4').allTextContents(),
+      sections: await dialog.locator('section').count(),
+      rawKeys: await dialog.getByText(/ai_grading\./).count(),
+      visibleTitle: await dialog.getByText(scenario.title, { exact: true }).count(),
+    }));
     const heading = dialog.getByText(scenario.title, { exact: true });
     await expect(heading).toBeVisible();
     const panel = heading.locator('xpath=ancestor::section[1]');
