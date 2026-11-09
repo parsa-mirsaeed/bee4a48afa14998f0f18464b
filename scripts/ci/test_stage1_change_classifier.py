@@ -296,6 +296,16 @@ class ClassifierTests(unittest.TestCase):
             needs_browser=False,
         )
 
+    def test_offline_ai_grading_quality_tool_is_owned_policy(self):
+        self.assert_categories(
+            ["scripts/ai_grading/evaluate.py", "scripts/ai_grading/test_evaluate.py"],
+            required=("workflow_policy",),
+            forbidden=("unknown", "database", "api_logic", "web_logic"),
+            rust=False,
+            needs_postgres=False,
+            needs_browser=False,
+        )
+
     def test_checkout_head_contract_is_owned_as_workflow_policy(self):
         self.assert_categories(
             ["scripts/ci/test_checkout_head_contract.py"],
