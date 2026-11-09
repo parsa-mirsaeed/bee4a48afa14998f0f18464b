@@ -50,6 +50,12 @@ fn parse_teacher_criteria(value: &str, grade_scale: i16) -> Option<Vec<ExpectedC
     Some(entries)
 }
 
+/// Model confidence is a fraction in [0, 1], not a percentage.
+/// Treat this as model-reported confidence, never as a calibrated probability.
+fn format_model_confidence(value: f64) -> String {
+    format!("{:.0}%", value * 100.0)
+}
+
 #[component]
 pub(super) fn AiGradingPanel(
     submission_id: Uuid,
@@ -147,7 +153,7 @@ pub(super) fn AiGradingPanel(
                             }
                         }
                         p { class: "text-xs text-gray-500 dark:text-gray-400",
-                            "{locale.t(\"ai_grading.confidence\")}: {stored.suggestion.confidence:.0}%"
+                            "{locale.t(\"ai_grading.confidence\")}: {format_model_confidence(stored.suggestion.confidence)}"
                         }
                     }
                     p { class: "text-sm font-medium text-gray-900 dark:text-white", "{locale.t(\"ai_grading.feedback\")}" }
@@ -245,6 +251,14 @@ pub(super) fn AiGradingPanel(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn confidence_fraction_is_displayed_as_percentage() {
+        assert_eq!(format_model_confidence(0.0), "0%");
+        assert_eq!(format_model_confidence(0.85), "85%");
+        assert_eq!(format_model_confidence(0.995), "100%");
+        assert_eq!(format_model_confidence(1.0), "100%");
+    }
 
     #[test]
     fn only_explicit_valid_teacher_criteria_pass() {
