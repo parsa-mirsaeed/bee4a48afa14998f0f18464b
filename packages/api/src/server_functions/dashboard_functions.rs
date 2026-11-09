@@ -2374,7 +2374,7 @@ pub(crate) async fn save_authorized_manual_grade(
     .fetch_optional(&mut *transaction)
     .await
     .map_err(|_| ServerFnError::new("grading.unavailable"))?
-    .ok_or_else(|| ServerFnError::new("grading.forbidden"))?;
+    .ok_or_else(|| ServerFnError::new("Submission not found or not owned by you"))?;
 
     let assignment_id: Uuid = target.get("custom_assignment_id");
     let teacher_id: Uuid = target.get("teacher_id");

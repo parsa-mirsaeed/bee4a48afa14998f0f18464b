@@ -1383,7 +1383,11 @@ async fn school_and_teacher_authorization_matrix() {
         let scoped = tx.authorized_pool();
         tx.scope(
             crate::server_functions::dashboard_functions::save_authorized_manual_grade(
-                &scoped, actor_id, submission_id, points, Some("Teacher-reviewed".to_string()),
+                &scoped,
+                actor_id,
+                submission_id,
+                points,
+                Some("Teacher-reviewed".to_string()),
             ),
             Result::is_ok,
         )
@@ -1413,9 +1417,16 @@ async fn school_and_teacher_authorization_matrix() {
     assert_eq!(before_manual, (None, None));
 
     assert!(
-        manual_grade_as(&pool, teacher_a_user, "Teacher", school_a, submissions[0], 90.0)
-            .await
-            .expect("assigned teacher may grade"),
+        manual_grade_as(
+            &pool,
+            teacher_a_user,
+            "Teacher",
+            school_a,
+            submissions[0],
+            90.0
+        )
+        .await
+        .expect("assigned teacher may grade"),
         "assigned teacher must commit a valid grade"
     );
     let after_manual: (Option<f64>, i16, Option<Uuid>, String) = sqlx::query_as(
@@ -1427,11 +1438,21 @@ async fn school_and_teacher_authorization_matrix() {
     .fetch_one(&pool)
     .await
     .expect("read committed manual grade and lifecycle");
-    assert_eq!(after_manual, (Some(90.0), 100, Some(teacher_a), "Graded".to_string()));
+    assert_eq!(
+        after_manual,
+        (Some(90.0), 100, Some(teacher_a), "Graded".to_string())
+    );
     assert!(
-        manual_grade_as(&pool, teacher_a_user, "Teacher", school_a, submissions[0], f64::NAN)
-            .await
-            .is_err(),
+        manual_grade_as(
+            &pool,
+            teacher_a_user,
+            "Teacher",
+            school_a,
+            submissions[0],
+            f64::NAN
+        )
+        .await
+        .is_err(),
         "nonfinite scores must fail closed without mutation"
     );
     let unchanged_grade: Option<f64> =
