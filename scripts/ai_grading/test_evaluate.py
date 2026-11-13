@@ -47,6 +47,37 @@ class EvaluationTest(unittest.TestCase):
         self.assertFalse(result["passed"])
         self.assertIn("language:en: insufficient samples", result["failures"])
 
+    def test_cohort_language_intersections_cannot_hide_sparse_groups(self):
+        # Each subject and language has two examples, but each intersection
+        # has only one. A headline-only or single-axis gate would pass.
+        rows = self.parse(
+            record("math_fa", cohort="math", language="fa"),
+            record("math_en", cohort="math", language="en"),
+            record("history_fa", cohort="history", language="fa"),
+            record("history_en", cohort="history", language="en"),
+        )
+        result = evaluate(rows, policy(min_samples=2))
+        self.assertEqual(result["version"], 2)
+        self.assertEqual(result["cohorts"]["math"]["sample_count"], 2)
+        self.assertEqual(result["languages"]["fa"]["sample_count"], 2)
+        self.assertFalse(result["passed"])
+        self.assertIn("cohort_language:math/fa: insufficient samples", result["failures"])
+        self.assertIn("cohort_language:history/en: insufficient samples", result["failures"])
+
+    def test_intersection_quality_failure_even_when_axes_pass(self):
+        # The poor mathematics/Farsi case is diluted in its subject and
+        # language groups; intersection guardrails still reject it.
+        rows = self.parse(
+            record("math_fa", cohort="math", language="fa", reference=18, predicted=17),
+            record("math_en", cohort="math", language="en"),
+            record("history_fa", cohort="history", language="fa"),
+            record("history_en", cohort="history", language="en"),
+        )
+        result = evaluate(rows, policy(max_mae_pp=3))
+        self.assertNotIn("cohort:math: MAE is unavailable or excessive", result["failures"])
+        self.assertNotIn("language:fa: MAE is unavailable or excessive", result["failures"])
+        self.assertIn("cohort_language:math/fa: MAE is unavailable or excessive", result["failures"])
+
     def test_unknown_pii_field_rejected(self):
         with self.assertRaises(InvalidBenchmark):
             self.parse(dict(record(), student_name="Sensitive name"))
