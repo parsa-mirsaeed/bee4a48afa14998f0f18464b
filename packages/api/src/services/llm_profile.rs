@@ -121,7 +121,10 @@ mod tests {
 
     #[test]
     fn aliases_resolve_to_registered_profile() {
-        assert_eq!(resolve_llm_profile("openai-gpt4o-v1").unwrap(), OPENAI_GPT4O_V1);
+        assert_eq!(
+            resolve_llm_profile("openai-gpt4o-v1").unwrap(),
+            OPENAI_GPT4O_V1
+        );
         assert_eq!(OPENAI_GPT4O_V1.provider.as_str(), "openai");
         assert_eq!(resolve_llm_profile("deepseek").unwrap(), DEEPSEEK_CHAT_V1);
         assert_eq!(DEEPSEEK_V41_FLASH_V1.provider.as_str(), "gapgpt");
