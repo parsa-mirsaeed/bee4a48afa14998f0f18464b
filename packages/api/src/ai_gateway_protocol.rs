@@ -46,7 +46,8 @@ pub struct GatewayUsage {
 /// upstream authorized server: the gateway must independently verify its
 /// bearer token and school header, never trust a client-supplied destination.
 /// No external file URLs or arbitrary provider credentials are accepted.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+/// Intentionally no Debug implementation: a request contains student PDF bytes.
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
 pub struct GatewayNativePdfRequest {
     pub model: String,
     pub submission_id: Uuid,
