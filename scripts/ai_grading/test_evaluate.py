@@ -61,6 +61,39 @@ class EvaluationTest(unittest.TestCase):
         with self.assertRaises(InvalidBenchmark):
             self.parse(record(), record())
 
+    def test_coverage_threshold_uses_exact_fraction_not_rounded_display(self):
+        # 2/3 is below 0.6666668, although rounding to six decimals
+        # yields 0.666667 and would incorrectly pass.
+        rows = self.parse(
+            record("fixture_1"),
+            record("fixture_2"),
+            record("fixture_3", predicted=None, confidence=None),
+        )
+        result = evaluate(rows, policy(min_coverage=0.6666668))
+        self.assertFalse(result["passed"])
+        self.assertIn("overall: insufficient prediction coverage", result["failures"])
+
+    def test_severe_error_threshold_uses_exact_fraction(self):
+        # 1/3 exceeds 0.3333332; premature rounding used to hide it.
+        rows = self.parse(
+            record("fixture_1", predicted=8),
+            record("fixture_2"),
+            record("fixture_3"),
+        )
+        result = evaluate(rows, policy(max_mae_pp=100, max_severe_rate=0.3333332,
+                                       max_overconfident_rate=1))
+        self.assertFalse(result["passed"])
+        self.assertIn("overall: severe disagreement rate is unavailable or excessive", result["failures"])
+
+    def test_duplicate_json_key_rejected_before_model_evaluation(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "benchmark.jsonl"
+            path.write_text(json.dumps(record()).replace(
+                '"case_id": "fixture_1"', '"case_id": "fixture_1", "case_id": "fixture_2"'
+            ), encoding="utf-8")
+            with self.assertRaisesRegex(InvalidBenchmark, "duplicate JSON field"):
+                read_benchmark(path)
+
     def test_unsafe_case_id_rejected(self):
         with self.assertRaises(InvalidBenchmark):
             self.parse(record(case_id="someone@example.com"))

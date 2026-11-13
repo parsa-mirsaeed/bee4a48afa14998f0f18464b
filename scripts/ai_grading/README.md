@@ -17,3 +17,5 @@ Illustrative limits only, not an approved rollout policy:
     python3 scripts/ai_grading/evaluate.py --input benchmark.jsonl --output report.json --min-samples 50 --min-coverage 0.90 --max-mae-pp 5 --max-severe-rate 0.05 --max-overconfident-rate 0.01
 
 Exit 0: all overall/cohort/language quality thresholds pass; exit 1: quality failure; exit 2: invalid input. Every group must satisfy sample count and coverage to prevent misleading headline accuracy. The harness does NOT certify model correctness, representativeness, pedagogical suitability, consent/privacy, or authorization to auto-publish grades. Teacher feedback review and live-model benchmarks remain required before rollout.
+
+Acceptance comparisons use unrounded numerical metrics, including exact coverage and severe-disagreement fractions; report JSON retains full precision. Repeated JSON object keys are rejected to avoid ambiguous last-value-wins records. Do not round thresholds or metrics before determining pass/fail.
