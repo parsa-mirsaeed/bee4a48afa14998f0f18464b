@@ -119,14 +119,18 @@ def summarize(rows: list[Example], severe_error_pp: float, high_confidence: floa
 def evaluate(rows: list[Example], args: argparse.Namespace) -> dict:
     by_cohort = defaultdict(list)
     by_language = defaultdict(list)
+    by_cohort_language = defaultdict(list)
     for row in rows:
         by_cohort[row.cohort].append(row)
         by_language[row.language].append(row)
+        by_cohort_language[(row.cohort, row.language)].append(row)
     overall = summarize(rows, args.severe_error_pp, args.high_confidence)
     cohorts = {k: summarize(v, args.severe_error_pp, args.high_confidence) for k, v in sorted(by_cohort.items())}
     languages = {k: summarize(v, args.severe_error_pp, args.high_confidence) for k, v in sorted(by_language.items())}
+    cohort_languages = {f"{cohort}/{language}": summarize(v, args.severe_error_pp, args.high_confidence)
+                        for (cohort, language), v in sorted(by_cohort_language.items())}
     failures = []
-    for scope, metrics in [("overall", overall)] + [(f"cohort:{key}", val) for key, val in cohorts.items()] + [(f"language:{key}", val) for key, val in languages.items()]:
+    for scope, metrics in [("overall", overall)] + [(f"cohort:{key}", val) for key, val in cohorts.items()] + [(f"language:{key}", val) for key, val in languages.items()] + [(f"cohort_language:{key}", val) for key, val in cohort_languages.items()]:
         if metrics["sample_count"] < args.min_samples:
             failures.append(f"{scope}: insufficient samples")
         if metrics["coverage"] < args.min_coverage:
@@ -137,7 +141,8 @@ def evaluate(rows: list[Example], args: argparse.Namespace) -> dict:
             failures.append(f"{scope}: severe disagreement rate is unavailable or excessive")
         if metrics["overconfident_severe_rate"] is None or metrics["overconfident_severe_rate"] > args.max_overconfident_rate:
             failures.append(f"{scope}: overconfident severe disagreement rate is unavailable or excessive")
-    return {"version": 1, "passed": not failures, "overall": overall, "cohorts": cohorts, "languages": languages, "failures": failures,
+    return {"version": 2, "passed": not failures, "overall": overall, "cohorts": cohorts, "languages": languages,
+            "cohort_languages": cohort_languages, "failures": failures,
             "policy": {"min_samples_per_group": args.min_samples, "min_coverage": args.min_coverage, "max_mae_percentage_points": args.max_mae_pp,
                        "max_severe_disagreement_rate": args.max_severe_rate, "max_overconfident_severe_rate": args.max_overconfident_rate,
                        "severe_error_percentage_points": args.severe_error_pp, "high_confidence": args.high_confidence}}
