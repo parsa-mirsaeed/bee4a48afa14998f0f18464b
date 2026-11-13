@@ -8,6 +8,7 @@
 
 use crate::ai_gateway_protocol::{
     GatewayChatRequest, GatewayChatResponse, GatewayEmbeddingRequest, GatewayEmbeddingResponse,
+    GatewayNativePdfRequest,
     GatewayErrorBody, GatewayErrorEnvelope,
 };
 use crate::services::embedding_profile::{
@@ -17,6 +18,7 @@ use crate::services::llm_profile::{
     resolve_llm_profile, validate_llm_profile_override, LlmProfile, LlmProviderKind,
     DEEPSEEK_CHAT_V1, DEEPSEEK_V41_FLASH_V1, OPENAI_GPT4O_V1,
 };
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use axum::{
     extract::{DefaultBodyLimit, State},
     http::{header::AUTHORIZATION, HeaderMap, StatusCode},
@@ -31,6 +33,7 @@ use reqwest::{
     StatusCode as ProviderStatus, Url,
 };
 use serde::Serialize;
+use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
@@ -53,6 +56,10 @@ const OPENAI_BASE_URL: &str = "https://api.openai.com/v1/";
 const LLM_BASE_URL: &str = "https://api.deepseek.com/v1/";
 const LLM_MODEL: &str = "deepseek-chat";
 const LOCAL_TEI_BASE_URL: &str = "http://embedding:80/v1/";
+/// Initial strict pilot ceiling. Larger documents need independent cost/page
+/// guardrails and must not silently inherit a larger global gateway limit.
+const MAX_NATIVE_PDF_BYTES: usize = 1_000_000;
+const MAX_NATIVE_PDF_BODY_BYTES: usize = 1_500_000;
 
 #[derive(Debug, Error)]
 pub enum StartupError {
@@ -153,6 +160,7 @@ struct Config {
     circuit_open_for: Duration,
     embedding_concurrency: usize,
     llm_concurrency: usize,
+    native_pdf_enabled: bool,
     embedding_quota: QuotaPolicy,
     llm_quota: QuotaPolicy,
     max_body_bytes: usize,
@@ -269,6 +277,7 @@ impl Config {
             circuit_open_for: Duration::from_secs(env_u64("AI_CIRCUIT_OPEN_SECONDS", 30, 1, 600)),
             embedding_concurrency: env_u64("AI_EMBEDDING_CONCURRENCY", 4, 1, 32) as usize,
             llm_concurrency: env_u64("AI_LLM_CONCURRENCY", 2, 1, 16) as usize,
+            native_pdf_enabled: matches!(env::var("AI_NATIVE_PDF_GATEWAY_ENABLED").ok().as_deref(), Some("true" | "1")),
             embedding_quota: QuotaPolicy {
                 requests_per_hour: env_u64(
                     "AI_EMBEDDING_QUOTA_REQUESTS_PER_HOUR",
@@ -337,6 +346,7 @@ impl Config {
             circuit_open_for: Duration::from_millis(25),
             embedding_concurrency: 2,
             llm_concurrency: 1,
+            native_pdf_enabled: false,
             embedding_quota: QuotaPolicy {
                 requests_per_hour: 100,
                 characters_per_hour: 100_000,
@@ -564,7 +574,10 @@ fn embedding_client_requires_direct_connect(config: &Config) -> bool {
     // custom LLM is enabled, regardless of the embedding mode.
     config.mode == Mode::Offline
         || (config.llm_mode == LlmMode::Connected
-            && config.llm_profile.provider == LlmProviderKind::Custom)
+            && matches!(
+                config.llm_profile.provider,
+                LlmProviderKind::Custom | LlmProviderKind::OpenAi
+            ))
 }
 
 fn provider_client(config: &Config) -> Result<reqwest::Client, StartupError> {
@@ -742,6 +755,107 @@ impl AppState {
             }
         }
     }
+
+    /// Native PDF grading is separately opt-in. Identity must originate from
+    /// a teacher-authorized application transaction; this gateway has no DB
+    /// credentials and never accepts an external PDF URL or provider origin.
+    async fn native_pdf(
+        &self,
+        context: &RequestContext,
+        request: GatewayNativePdfRequest,
+    ) -> Result<GatewayChatResponse, HttpError> {
+        if !self.config.native_pdf_enabled {
+            return Err(unavailable("native_pdf_disabled"));
+        }
+        if self.config.llm_profile != OPENAI_GPT4O_V1
+            || self.config.llm_provider.as_ref().map(|p| p.model.as_str()) != Some("gpt-4o")
+            || request.model != "gpt-4o"
+        {
+            return Err(bad_request(
+                "native_pdf_provider_unsupported",
+                "Native PDF requires the approved OpenAI GPT-4o profile",
+            ));
+        }
+        if request.pdf_base64.is_empty() || request.pdf_base64.len() > 4 * ((MAX_NATIVE_PDF_BYTES + 2) / 3) {
+            return Err(HttpError::new(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "native_pdf_too_large",
+                "Native PDF exceeds the bounded request limit",
+            ));
+        }
+        let bytes = STANDARD
+            .decode(&request.pdf_base64)
+            .map_err(|_| bad_request("native_pdf_invalid", "Invalid PDF encoding"))?;
+        if bytes.len() > MAX_NATIVE_PDF_BYTES {
+            return Err(HttpError::new(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "native_pdf_too_large",
+                "Native PDF exceeds the bounded request limit",
+            ));
+        }
+        let document = crate::services::ai_grading_native_pdf::NativePdfGradingInput::from_private_original(
+            context.school_id,
+            request.submission_id,
+            request.submission_revision,
+            request.attachment_id,
+            "application/pdf",
+            &request.pdf_sha256,
+            bytes,
+        )
+        .map_err(|_| bad_request("native_pdf_invalid", "PDF original failed integrity validation"))?;
+        use crate::services::ai_grading_pdf_provider_payload::{
+            openai_chat_pdf_payload, NativePdfModel,
+        };
+        let payload = openai_chat_pdf_payload(
+            NativePdfModel::OpenAiGpt4o,
+            &request.system_instructions,
+            &request.teacher_rubric_prompt,
+            &document,
+            request.max_tokens,
+        )
+        .map_err(|_| bad_request("native_pdf_invalid", "Invalid PDF grading request"))?;
+        self.llm_breaker.before_call().await?;
+        // Count encoded document input against the school quota; a PDF is not
+        // free merely because there is no extracted text prompt.
+        let charge = request
+            .pdf_base64
+            .len()
+            .saturating_add(request.system_instructions.chars().count())
+            .saturating_add(request.teacher_rubric_prompt.chars().count());
+        self.llm_quota
+            .consume(context.school_id, charge as u64)
+            .await?;
+        let _permit = self
+            .llm_slots
+            .acquire()
+            .await
+            .map_err(|_| unavailable("gateway_shutting_down"))?;
+        let started = Instant::now();
+        match forward_native_pdf(self, &payload).await {
+            Ok(response) => {
+                self.llm_breaker.success().await;
+                tracing::info!(
+                    request_id = %context.request_id,
+                    school_id = %context.school_id,
+                    elapsed_ms = started.elapsed().as_millis(),
+                    "Native PDF grading provider response validated"
+                );
+                Ok(response)
+            }
+            Err(failure) => {
+                if failure.counts_toward_circuit() {
+                    self.llm_breaker.failure().await;
+                }
+                tracing::warn!(
+                    request_id = %context.request_id,
+                    school_id = %context.school_id,
+                    error_code = failure.code(),
+                    "Native PDF grading provider request failed"
+                );
+                Err(failure.http_error())
+            }
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -878,9 +992,18 @@ pub async fn run() -> Result<(), StartupError> {
     let state = AppState::new(config)?;
     let router = Router::new()
         .route("/healthz", get(health))
-        .route("/v1/embeddings", post(embeddings))
-        .route("/v1/chat/completions", post(chat_completions))
-        .layer(DefaultBodyLimit::max(max_body_bytes))
+        .route(
+            "/v1/embeddings",
+            post(embeddings).layer(DefaultBodyLimit::max(max_body_bytes)),
+        )
+        .route(
+            "/v1/chat/completions",
+            post(chat_completions).layer(DefaultBodyLimit::max(max_body_bytes)),
+        )
+        .route(
+            "/v1/grading/pdf",
+            post(native_pdf_grading).layer(DefaultBodyLimit::max(MAX_NATIVE_PDF_BODY_BYTES)),
+        )
         .with_state(state);
 
     tracing::info!(%listen_addr, "AI gateway listening");
@@ -931,6 +1054,16 @@ async fn chat_completions(
 ) -> Result<Json<GatewayChatResponse>, HttpError> {
     let context = authenticate(&headers, &state.config.internal_token_hash)?;
     state.chat(&context, request).await.map(Json)
+}
+
+
+async fn native_pdf_grading(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<GatewayNativePdfRequest>,
+) -> Result<Json<GatewayChatResponse>, HttpError> {
+    let context = authenticate(&headers, &state.config.internal_token_hash)?;
+    state.native_pdf(&context, request).await.map(Json)
 }
 
 fn authenticate(
@@ -1187,6 +1320,43 @@ async fn forward_chat(
         }
     }
     Err(ProviderFailure::Unavailable)
+}
+
+
+async fn forward_native_pdf(
+    state: &AppState,
+    payload: &Value,
+) -> Result<GatewayChatResponse, ProviderFailure> {
+    let provider = state
+        .config
+        .llm_provider
+        .as_ref()
+        .ok_or(ProviderFailure::Unconfigured)?;
+    let api_key = provider.api_key.as_deref().ok_or(ProviderFailure::Unconfigured)?;
+    let url = provider
+        .endpoint("chat/completions")
+        .map_err(|_| ProviderFailure::Unavailable)?;
+    // No automatic network retry: PDF inference may be expensive and repeated
+    // POST requests can charge the school twice on ambiguous timeouts.
+    let response = state
+        .client
+        .post(url)
+        .bearer_auth(api_key)
+        .json(payload)
+        .send()
+        .await
+        .map_err(|_| ProviderFailure::Unavailable)?;
+    if !response.status().is_success() {
+        return Err(status_failure(
+            response.status(),
+            retry_after_seconds(response.headers()),
+        ));
+    }
+    let body = bounded_body(response, state.config.max_provider_response_bytes).await?;
+    let parsed: GatewayChatResponse =
+        serde_json::from_slice(&body).map_err(|_| ProviderFailure::InvalidResponse)?;
+    validate_chat_response(provider, &parsed)?;
+    Ok(parsed)
 }
 
 async fn bounded_body(
