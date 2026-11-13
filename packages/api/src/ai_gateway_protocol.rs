@@ -48,6 +48,7 @@ pub struct GatewayUsage {
 /// No external file URLs or arbitrary provider credentials are accepted.
 /// Intentionally no Debug implementation: a request contains student PDF bytes.
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct GatewayNativePdfRequest {
     pub model: String,
     pub submission_id: Uuid,
