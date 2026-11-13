@@ -15,7 +15,7 @@ use crate::services::embedding_profile::{
 };
 use crate::services::llm_profile::{
     resolve_llm_profile, validate_llm_profile_override, LlmProfile, LlmProviderKind,
-    DEEPSEEK_CHAT_V1, DEEPSEEK_V41_FLASH_V1,
+    DEEPSEEK_CHAT_V1, DEEPSEEK_V41_FLASH_V1, OPENAI_GPT4O_V1,
 };
 use axum::{
     extract::{DefaultBodyLimit, State},
@@ -219,7 +219,12 @@ impl Config {
         validate_llm_profile_override(&llm_profile, Some(&configured_llm_model))
             .map_err(|error| StartupError::InvalidConfig(error.to_string()))?;
         let llm_provider = if llm_mode == LlmMode::Connected {
-            let configured_origin = env_value("AI_LLM_BASE_URL", LLM_BASE_URL);
+            let default_origin = if llm_profile.provider == LlmProviderKind::OpenAi {
+                OPENAI_BASE_URL
+            } else {
+                LLM_BASE_URL
+            };
+            let configured_origin = env_value("AI_LLM_BASE_URL", default_origin);
             let base_url = if llm_profile.provider == LlmProviderKind::Custom {
                 custom_llm_url(&configured_origin)?
             } else {
@@ -1308,13 +1313,14 @@ async fn sleep_before_retry(config: &Config, attempt: u32, retry_after: Option<u
 }
 
 const GAPGPT_LLM_BASE_URL: &str = "https://api.gapgpt.app/v1/";
-const APPROVED_LLM_URLS: &[&str] = &[LLM_BASE_URL, GAPGPT_LLM_BASE_URL];
+const APPROVED_LLM_URLS: &[&str] = &[LLM_BASE_URL, GAPGPT_LLM_BASE_URL, OPENAI_BASE_URL];
 
 // Fixed profiles retain their exact approved origin/model contract. A custom
 // profile may use one operator-declared HTTPS origin; no untrusted request may
 // influence it or the provider model.
 fn validate_llm_origin_profile(url: &Url, profile: &LlmProfile) -> Result<(), StartupError> {
-    if (url.as_str() == LLM_BASE_URL && profile == &DEEPSEEK_CHAT_V1)
+    if (url.as_str() == OPENAI_BASE_URL && profile == &OPENAI_GPT4O_V1)
+        || (url.as_str() == LLM_BASE_URL && profile == &DEEPSEEK_CHAT_V1)
         || (url.as_str() == GAPGPT_LLM_BASE_URL && profile == &DEEPSEEK_V41_FLASH_V1)
         || (profile.provider == LlmProviderKind::Custom
             && custom_llm_url(url.as_str()).is_ok_and(|accepted| accepted == *url))
@@ -1596,13 +1602,23 @@ mod tests {
 
     #[test]
     fn approved_llm_origins_require_the_matching_registered_profile() {
+        let openai = exact_llm_url(OPENAI_BASE_URL).expect("OpenAI URL");
         let direct = exact_llm_url(LLM_BASE_URL).expect("direct DeepSeek URL");
         let gap = exact_llm_url(GAPGPT_LLM_BASE_URL).expect("GapGPT URL");
+        assert!(validate_llm_origin_profile(&openai, &OPENAI_GPT4O_V1).is_ok());
+        assert!(validate_llm_origin_profile(&openai, &DEEPSEEK_CHAT_V1).is_err());
+        assert!(validate_llm_origin_profile(&direct, &OPENAI_GPT4O_V1).is_err());
+        assert!(validate_llm_origin_profile(&gap, &OPENAI_GPT4O_V1).is_err());
         assert!(validate_llm_origin_profile(&direct, &DEEPSEEK_CHAT_V1).is_ok());
         assert!(validate_llm_origin_profile(&gap, &DEEPSEEK_V41_FLASH_V1).is_ok());
         assert!(validate_llm_origin_profile(&direct, &DEEPSEEK_V41_FLASH_V1).is_err());
         assert!(validate_llm_origin_profile(&gap, &DEEPSEEK_CHAT_V1).is_err());
         for rejected in [
+            "https://api.openai.com.evil.invalid/v1/",
+            "http://api.openai.com/v1/",
+            "https://api.openai.com/v1/other/",
+            "https://api.openai.com:8443/v1/",
+            "https://someone@api.openai.com/v1/",
             "http://api.gapgpt.app/v1/",
             "https://api.gapgpt.app.evil.invalid/v1/",
             "https://api.gapgpt.app/v1/other/",
