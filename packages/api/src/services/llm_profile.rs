@@ -9,6 +9,7 @@ use thiserror::Error;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LlmProviderKind {
+    OpenAi,
     DeepSeek,
     GapGpt,
     Custom,
@@ -17,6 +18,7 @@ pub enum LlmProviderKind {
 impl LlmProviderKind {
     pub fn as_str(self) -> &'static str {
         match self {
+            Self::OpenAi => "openai",
             Self::DeepSeek => "deepseek",
             Self::GapGpt => "gapgpt",
             Self::Custom => "custom",
@@ -30,6 +32,12 @@ pub struct LlmProfile {
     pub provider: LlmProviderKind,
     pub model: Cow<'static, str>,
 }
+
+pub const OPENAI_GPT4O_V1: LlmProfile = LlmProfile {
+    id: Cow::Borrowed("openai-gpt4o-v1"),
+    provider: LlmProviderKind::OpenAi,
+    model: Cow::Borrowed("gpt-4o"),
+};
 
 pub const DEEPSEEK_CHAT_V1: LlmProfile = LlmProfile {
     id: Cow::Borrowed("deepseek-chat-v1"),
@@ -82,6 +90,7 @@ pub fn resolve_llm_profile(value: &str) -> Result<LlmProfile, LlmProfileError> {
         ));
     }
     match value.to_ascii_lowercase().as_str() {
+        "openai-gpt4o-v1" => Ok(OPENAI_GPT4O_V1),
         "deepseek" | "deepseek-chat" | "deepseek-chat-v1" => Ok(DEEPSEEK_CHAT_V1),
         "deepseek-v41-flash-v1" => Ok(DEEPSEEK_V41_FLASH_V1),
         other => Err(LlmProfileError::Unsupported(
@@ -112,6 +121,8 @@ mod tests {
 
     #[test]
     fn aliases_resolve_to_registered_profile() {
+        assert_eq!(resolve_llm_profile("openai-gpt4o-v1").unwrap(), OPENAI_GPT4O_V1);
+        assert_eq!(OPENAI_GPT4O_V1.provider.as_str(), "openai");
         assert_eq!(resolve_llm_profile("deepseek").unwrap(), DEEPSEEK_CHAT_V1);
         assert_eq!(DEEPSEEK_V41_FLASH_V1.provider.as_str(), "gapgpt");
         assert_eq!(
@@ -146,6 +157,8 @@ mod tests {
     #[test]
     fn models_are_exactly_pinned_per_profile() {
         for rejected in [
+            "gpt-4o",
+            "openai-gpt4o",
             "deepseek-v4.1-flash",
             "deepseek-any-other-model",
             "deepseek/another-model",
@@ -166,6 +179,8 @@ mod tests {
         )
         .is_err());
         assert!(resolve_llm_profile("deepseek-user-model").is_err());
+        assert!(validate_llm_profile_override(&OPENAI_GPT4O_V1, Some("gpt-4o-mini")).is_err());
+        assert!(resolve_llm_profile("openai-gpt4o-evil").is_err());
     }
 
     #[test]
