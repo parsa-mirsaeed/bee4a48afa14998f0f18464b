@@ -2,6 +2,8 @@ pub use crate::ai_grading_contract;
 #[cfg(feature = "server")]
 pub mod ai_grading_native_pdf;
 #[cfg(feature = "server")]
+pub mod ai_grading_pdf_provider_payload;
+#[cfg(feature = "server")]
 pub mod ai_grading_worker;
 pub mod ai_outage_queue;
 pub mod assignment_personalization_service;

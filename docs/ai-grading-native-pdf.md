@@ -18,3 +18,8 @@ PDF content must be treated as **untrusted reference data**, not a source of sys
 
 ## Workflow
 The changed server-side module requires exact-head AI Change Proof and focused Rust tests; when authorized DB read and LLM gateway transport change, require the union of DB RLS/integration, Rust, gateway mock/provider payload tests, and browser proof for any affected Teacher UI. Do not merge from stale checks or treat an outer successful workflow with skipped substantive jobs as comprehensive validation.
+
+## Provider payload adapter stage (not live dispatch)
+- `ai_grading_pdf_provider_payload` builds native OpenAI Chat Completions `file` content and Anthropic Messages `document` content, using bytes verified by `NativePdfGradingInput` and a fixed non-sensitive filename. The original PDF bytes survive base64 round-trip unchanged; no extraction occurs in the application.
+- This adapter is **not yet wired to the gateway**. Before forwarding anything, the gateway must choose an explicit approved provider/model capability, the matching endpoint and authentication, apply binary-size quotas (the old text-character quota is insufficient for base64), and have a mock provider test for authorization and byte fidelity.
+- Verified public provider documentation: https://developers.openai.com/api/docs/guides/file-inputs and https://platform.claude.com/docs/en/build-with-claude/pdf-support (checked 2026-11-13). Provider-specific schemas and feature availability must be checked when integration is performed.
