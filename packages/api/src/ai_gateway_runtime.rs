@@ -2590,7 +2590,7 @@ mod tests {
         .await
         .err()
         .expect("missing internal bearer token");
-        assert_eq!(error.code, "unauthorized");
+        assert_eq!(error.code, "invalid_gateway_token");
     }
 
     #[test]
