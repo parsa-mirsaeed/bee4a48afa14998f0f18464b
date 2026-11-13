@@ -41,7 +41,6 @@ pub struct GatewayUsage {
     pub total_tokens: Option<u32>,
 }
 
-
 /// Internal native-PDF grading request. Identity fields are asserted by the
 /// upstream authorized server: the gateway must independently verify its
 /// bearer token and school header, never trust a client-supplied destination.
