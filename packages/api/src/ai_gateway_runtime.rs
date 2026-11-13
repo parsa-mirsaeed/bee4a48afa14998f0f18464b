@@ -2510,7 +2510,24 @@ mod tests {
         let mut config = pdf_test_config(Url::parse(&format!("http://{addr}/v1/")).unwrap());
         config.native_pdf_enabled = true;
         let state = AppState::new(config).unwrap();
-        let response = state.native_pdf(&context(), pdf_request(&original)).await.unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            AUTHORIZATION,
+            axum::http::HeaderValue::from_static(
+                "Bearer test-internal-token-abcdefghijklmnopqrstuvwxyz",
+            ),
+        );
+        headers.insert(
+            SCHOOL_HEADER,
+            axum::http::HeaderValue::from_str(&Uuid::new_v4().to_string()).unwrap(),
+        );
+        let Json(response) = native_pdf_grading(
+            State(state),
+            headers,
+            Json(pdf_request(&original)),
+        )
+        .await
+        .unwrap();
         assert_eq!(response.model, "gpt-4o");
         assert_eq!(response.choices[0].message.content, "{\"grade\":18}");
         handle.abort();
