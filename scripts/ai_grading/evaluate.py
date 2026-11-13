@@ -66,6 +66,16 @@ def validate(row: object, line: int) -> Example:
     return Example(row["case_id"], row["cohort"], row["language"], scale, reference, predicted, confidence)
 
 
+def reject_duplicate_fields(pairs: list[tuple[str, object]]) -> dict:
+    """Reject ambiguous JSON; the last-value-wins decoder can hide tampering."""
+    row = {}
+    for key, value in pairs:
+        if key in row:
+            raise InvalidBenchmark(f"duplicate JSON field: {key}")
+        row[key] = value
+    return row
+
+
 def read_benchmark(path: Path) -> list[Example]:
     seen = set()
     examples = []
@@ -73,7 +83,7 @@ def read_benchmark(path: Path) -> list[Example]:
         if not line.strip():
             continue
         try:
-            row = json.loads(line, parse_constant=lambda x: (_ for _ in ()).throw(ValueError("nonfinite")))
+            row = json.loads(line, object_pairs_hook=reject_duplicate_fields, parse_constant=lambda x: (_ for _ in ()).throw(ValueError("nonfinite")))
             example = validate(row, line_num)
         except (ValueError, TypeError) as exc:
             raise InvalidBenchmark(f"line {line_num}: {exc}") from exc
@@ -91,16 +101,18 @@ def summarize(rows: list[Example], severe_error_pp: float, high_confidence: floa
     errors = [100 * abs(x.predicted - x.reference) / x.grade_scale for x in graded]
     severe = sum(error >= severe_error_pp for error in errors)
     overconfident = sum(error >= severe_error_pp and x.confidence >= high_confidence for x, error in zip(graded, errors))
+    # Preserve full precision for acceptance decisions. Rounding to six decimals
+    # before the comparison can silently approve a borderline failing cohort.
     return {
         "sample_count": len(rows),
         "graded_count": len(graded),
         "abstention_count": len(rows) - len(graded),
-        "coverage": round(len(graded) / len(rows), 6),
-        "mae_percentage_points": round(sum(errors) / len(errors), 6) if errors else None,
+        "coverage": len(graded) / len(rows),
+        "mae_percentage_points": sum(errors) / len(errors) if errors else None,
         "severe_disagreement_count": severe,
-        "severe_disagreement_rate": round(severe / len(graded), 6) if graded else None,
+        "severe_disagreement_rate": severe / len(graded) if graded else None,
         "overconfident_severe_count": overconfident,
-        "overconfident_severe_rate": round(overconfident / len(graded), 6) if graded else None,
+        "overconfident_severe_rate": overconfident / len(graded) if graded else None,
     }
 
 
