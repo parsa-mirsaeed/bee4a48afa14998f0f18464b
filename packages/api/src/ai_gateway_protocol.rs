@@ -5,6 +5,7 @@
 //! every external destination and secret.
 
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct GatewayEmbeddingRequest {
@@ -38,6 +39,26 @@ pub struct GatewayUsage {
     pub completion_tokens: Option<u32>,
     #[serde(default)]
     pub total_tokens: Option<u32>,
+}
+
+/// Internal native-PDF grading request. Identity fields are asserted by the
+/// upstream authorized server: the gateway must independently verify its
+/// bearer token and school header, never trust a client-supplied destination.
+/// No external file URLs or arbitrary provider credentials are accepted.
+/// Intentionally no Debug implementation: a request contains student PDF bytes.
+#[derive(Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct GatewayNativePdfRequest {
+    pub model: String,
+    pub submission_id: Uuid,
+    pub submission_revision: Uuid,
+    pub attachment_id: Uuid,
+    pub pdf_sha256: String,
+    /// Base64 encoding of the exact immutable original PDF, not extracted text.
+    pub pdf_base64: String,
+    pub system_instructions: String,
+    pub teacher_rubric_prompt: String,
+    pub max_tokens: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
