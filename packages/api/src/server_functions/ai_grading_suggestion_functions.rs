@@ -273,8 +273,8 @@ pub(crate) async fn generate_authorized_teacher_suggestion(
         // request/byte/cost-envelope reservation before the provider call.
         // Do not roll the reservation back with a later model error: an
         // ambiguous timeout could already have incurred provider charges.
-        crate::services::ai_grading_pdf_budget::reserve_pdf_budget_before_egress(
-            state.services.raw_pool.as_ref(),
+        crate::services::ai_grading_pdf_budget::reserve_pdf_budget_for_grading_state(
+            state,
             user_id,
             source.school_id,
             submission_id,
