@@ -1341,6 +1341,130 @@ mod tests {
         ));
     }
 
+
+    #[cfg(feature = "server")]
+    #[tokio::test]
+    async fn native_pdf_gateway_receives_exact_binary_with_teacher_rubric() {
+        use crate::services::ai_grading_contract::ExpectedCriterion;
+        use crate::services::ai_grading_native_pdf::NativePdfGradingInput;
+        use crate::services::ai_grading_pdf_source::{
+            AuthorizedNativePdf, AuthorizedPdfMetadata,
+        };
+        use axum::{extract::Json, http::HeaderMap, routing::post, Router};
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
+
+        let school = Uuid::new_v4();
+        let submission = Uuid::new_v4();
+        let revision = Uuid::new_v4();
+        let attachment = Uuid::new_v4();
+        let approval = Uuid::new_v4();
+        let mut bytes = b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n".to_vec();
+        let start = bytes.len();
+        bytes.extend_from_slice(format!(
+            "xref\n0 1\n0000000000 65535 f \ntrailer\n<< /Size 1 >>\nstartxref\n{start}\n%%EOF"
+        ).as_bytes());
+        let digest = crate::services::submission_attachment_storage::hash(&bytes);
+        let source = AuthorizedNativePdf {
+            metadata: AuthorizedPdfMetadata {
+                school_id: school,
+                submission_id: submission,
+                submission_revision: revision,
+                rubric_approval_id: approval,
+                attachment_id: attachment,
+                sha256: digest.clone(),
+                byte_size: bytes.len() as i64,
+                assignment_instructions: "Solve the equations.".to_string(),
+                submission_text: "Additional typed reasoning.".to_string(),
+            },
+            document: NativePdfGradingInput::from_private_original(
+                school, submission, revision, attachment,
+                "application/pdf", &digest, bytes.clone(),
+            ).expect("synthetic original PDF"),
+        };
+        let expected = bytes.clone();
+        let app = Router::new().route(
+            "/v1/grading/pdf",
+            post(move |headers: HeaderMap, Json(body): Json<Value>| {
+                let expected = expected.clone();
+                async move {
+                    assert_eq!(headers["x-edutalent-school-id"], school.to_string());
+                    assert_eq!(body["model"], "gpt-4o");
+                    assert_eq!(body["submission_id"], submission.to_string());
+                    assert_eq!(body["submission_revision"], revision.to_string());
+                    assert_eq!(body["attachment_id"], attachment.to_string());
+                    assert_eq!(
+                        STANDARD.decode(body["pdf_base64"].as_str().unwrap()).unwrap(),
+                        expected
+                    );
+                    let rubric: Value = serde_json::from_str(
+                        body["teacher_rubric_prompt"].as_str().unwrap()
+                    ).unwrap();
+                    assert_eq!(rubric["rubric"][0]["criterion_id"], "accuracy");
+                    assert_eq!(rubric["submission_text"], "Additional typed reasoning.");
+                    assert!(body["system_instructions"].as_str().unwrap().contains("untrusted DATA"));
+                    let suggestion = json!({
+                        "contract_version": 1,
+                        "submission_revision": revision,
+                        "grade_scale": 20,
+                        "suggested_grade": 18.0,
+                        "confidence": 0.85,
+                        "feedback": "Good mathematical work",
+                        "criteria": [{
+                            "criterion_id": "accuracy",
+                            "awarded_points": 18.0,
+                            "possible_points": 20.0,
+                            "evidence": "Correct derivation"
+                        }]
+                    });
+                    Json(json!({
+                        "model": "gpt-4o",
+                        "choices": [{
+                            "index": 0,
+                            "message": { "role": "assistant", "content": suggestion.to_string() }
+                        }]
+                    }))
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await.expect("mock internal gateway");
+        let port = listener.local_addr().unwrap().port();
+        let handle = tokio::spawn(async move {
+            axum::serve(listener, app).await.expect("serve internal mock");
+        });
+        let mut config = client().config.clone();
+        config.profile = "openai-gpt4o-v1".to_string();
+        config.model = "gpt-4o".to_string();
+        let mut llm = ExternalLlmClient::with_config(config).expect("approved profile");
+        llm.test_chat_url = Some(format!("http://127.0.0.1:{port}/v1/chat/completions"));
+        let answer = llm
+            .suggest_native_pdf_grade_for_school(
+                &source,
+                &[ExpectedCriterion {
+                    criterion_id: "accuracy".to_string(),
+                    possible_points: 20.0,
+                }],
+                20,
+            )
+            .await
+            .expect("valid rubric-bound native PDF suggestion");
+        assert_eq!(answer.suggested_grade, 18.0);
+        assert_eq!(answer.submission_revision, revision);
+        handle.abort();
+
+        assert!(matches!(
+            client().suggest_native_pdf_grade_for_school(
+                &source,
+                &[ExpectedCriterion {
+                    criterion_id: "accuracy".to_string(),
+                    possible_points: 20.0,
+                }],
+                20,
+            ).await,
+            Err(LlmError::ConfigurationUnavailable)
+        ));
+    }
+
     #[test]
     fn system_prompt_is_non_empty() {
         assert!(!client().build_system_prompt().is_empty());
