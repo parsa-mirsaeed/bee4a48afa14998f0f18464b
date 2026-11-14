@@ -1682,6 +1682,56 @@ async fn school_and_teacher_authorization_matrix() {
             .expect("complete denied opt-in update");
         assert!(denied.is_err(), "runtime Teacher bypassed PDF opt-in guard");
     }
+    // A pending sibling has NULL submission_id; the queue must count it
+    // against the same custom assignment before deciding a PDF is complete.
+    let queue_pending_sibling = Uuid::new_v4();
+    sqlx::query(
+        r#"
+        INSERT INTO public.submission_attachments (
+            id, custom_assignment_id, student_id, school_id,
+            request_id, filename, media_type, byte_size, sha256, status
+        )
+        SELECT $1, s.custom_assignment_id, s.student_id, $2, $3,
+               'not-finished.png', 'image/png', 20, repeat('c',64), 'pending'
+        FROM public.submissions s WHERE s.id=$4
+        "#,
+    )
+    .bind(queue_pending_sibling)
+    .bind(school_a)
+    .bind(Uuid::new_v4())
+    .bind(submissions[0])
+    .execute(&pool)
+    .await
+    .expect("create pending sibling before queue");
+    let incomplete_revision: Uuid = sqlx::query_scalar(
+        "UPDATE public.submissions SET revision=gen_random_uuid() \
+         WHERE id=$1 RETURNING revision",
+    )
+    .bind(submissions[0])
+    .fetch_one(&pool)
+    .await
+    .expect("finalize incomplete PDF revision");
+    let incomplete_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM public.ai_grading_jobs \
+         WHERE submission_id=$1 AND submission_revision=$2",
+    )
+    .bind(submissions[0])
+    .bind(incomplete_revision)
+    .fetch_one(&pool)
+    .await
+    .expect("check incomplete PDF queue denial");
+    assert_eq!(
+        incomplete_count, 0,
+        "opted-in school must never enqueue a PDF while a sibling upload is pending"
+    );
+    sqlx::query(
+        "UPDATE public.submission_attachments SET status='removed' WHERE id=$1",
+    )
+    .bind(queue_pending_sibling)
+    .execute(&pool)
+    .await
+    .expect("remove unfinished sibling before fresh finalization");
+
     let queued_revision: Uuid = sqlx::query_scalar(
         "UPDATE public.submissions SET revision=gen_random_uuid() \
          WHERE id=$1 RETURNING revision",
