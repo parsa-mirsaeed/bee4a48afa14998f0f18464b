@@ -35,6 +35,8 @@ WITH CHECK (
         (SELECT relowner FROM pg_class
          WHERE oid='public.ai_grading_pdf_school_optins'::regclass)
     )
+    AND public.get_role() IS NULL
+    AND public.get_user_id() IS NULL
 );
 CREATE POLICY ai_grading_pdf_optin_owner_update
 ON public.ai_grading_pdf_school_optins FOR UPDATE
@@ -43,12 +45,16 @@ USING (
         (SELECT relowner FROM pg_class
          WHERE oid='public.ai_grading_pdf_school_optins'::regclass)
     )
+    AND public.get_role() IS NULL
+    AND public.get_user_id() IS NULL
 )
 WITH CHECK (
     current_user = pg_get_userbyid(
         (SELECT relowner FROM pg_class
          WHERE oid='public.ai_grading_pdf_school_optins'::regclass)
     )
+    AND public.get_role() IS NULL
+    AND public.get_user_id() IS NULL
 );
 
 -- Reinstate all of the queue's existing revision/rubric/Teacher/enrollment
