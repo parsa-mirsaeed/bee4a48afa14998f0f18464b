@@ -93,8 +93,7 @@ async fn pdf_budget_reserve_as(
     bytes: i64,
 ) -> bool {
     use crate::rls_context::{AuthorizedActor, AuthorizedTx};
-    let actor = AuthorizedActor::new(user_id, role, Some(school_id))
-        .expect("valid budget actor");
+    let actor = AuthorizedActor::new(user_id, role, Some(school_id)).expect("valid budget actor");
     let tx = AuthorizedTx::begin(raw, actor)
         .await
         .expect("budget authorized transaction");
@@ -1793,8 +1792,14 @@ async fn school_and_teacher_authorization_matrix() {
     // the durable, operator-configured budget starts empty and denies all.
     assert!(
         !pdf_budget_reserve_as(
-            &pool, teacher_a_user, "Teacher", school_a,
-            submissions[0], queued_revision, pdf_approval, 12,
+            &pool,
+            teacher_a_user,
+            "Teacher",
+            school_a,
+            submissions[0],
+            queued_revision,
+            pdf_approval,
+            12,
         )
         .await,
         "unconfigured PDF budget must block model egress"
@@ -1835,16 +1840,52 @@ async fn school_and_teacher_authorization_matrix() {
         assert!(denied.is_err(), "Teacher must not raise an operator budget");
     }
     for (actor, role, school, revision, rubric) in [
-        (teacher_peer_user, "Teacher", school_a, queued_revision, pdf_approval),
-        (teacher_b_user, "Teacher", school_b, queued_revision, pdf_approval),
-        (student_a_user, "Student", school_a, queued_revision, pdf_approval),
-        (teacher_a_user, "Teacher", school_a, Uuid::new_v4(), pdf_approval),
-        (teacher_a_user, "Teacher", school_a, queued_revision, Uuid::new_v4()),
+        (
+            teacher_peer_user,
+            "Teacher",
+            school_a,
+            queued_revision,
+            pdf_approval,
+        ),
+        (
+            teacher_b_user,
+            "Teacher",
+            school_b,
+            queued_revision,
+            pdf_approval,
+        ),
+        (
+            student_a_user,
+            "Student",
+            school_a,
+            queued_revision,
+            pdf_approval,
+        ),
+        (
+            teacher_a_user,
+            "Teacher",
+            school_a,
+            Uuid::new_v4(),
+            pdf_approval,
+        ),
+        (
+            teacher_a_user,
+            "Teacher",
+            school_a,
+            queued_revision,
+            Uuid::new_v4(),
+        ),
     ] {
         assert!(
             !pdf_budget_reserve_as(
-                &pool, actor, role, school,
-                submissions[0], revision, rubric, 12,
+                &pool,
+                actor,
+                role,
+                school,
+                submissions[0],
+                revision,
+                rubric,
+                12,
             )
             .await,
             "unauthorized or stale budget reservation must be denied"
@@ -1855,15 +1896,25 @@ async fn school_and_teacher_authorization_matrix() {
     // reservation before outbound model I/O. It must remain charged even when
     // the caller's longer model/suggestion transaction later fails.
     crate::services::ai_grading_pdf_budget::reserve_pdf_budget_before_egress(
-        &pool, teacher_a_user, school_a,
-        submissions[0], queued_revision, pdf_approval, 12,
+        &pool,
+        teacher_a_user,
+        school_a,
+        submissions[0],
+        queued_revision,
+        pdf_approval,
+        12,
     )
     .await
     .expect("first authorized school PDF budget reservation");
     assert_eq!(
         crate::services::ai_grading_pdf_budget::reserve_pdf_budget_before_egress(
-            &pool, teacher_a_user, school_a,
-            submissions[0], queued_revision, pdf_approval, 12,
+            &pool,
+            teacher_a_user,
+            school_a,
+            submissions[0],
+            queued_revision,
+            pdf_approval,
+            12,
         )
         .await,
         Err(crate::services::ai_grading_pdf_budget::PdfBudgetError::Denied),
