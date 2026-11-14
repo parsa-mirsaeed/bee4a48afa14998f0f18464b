@@ -55,6 +55,10 @@ fn classify(error: &ExecutionError) -> Failure {
                 || value.contains("grading.rubric_approval_required")
             {
                 Failure::Cancel("rubric_revoked")
+            } else if value.contains("grading.pdf_budget_exhausted") {
+                // The operator must explicitly adjust a hard budget.
+                // A bounded automatic retry would only consume more money.
+                Failure::Retry("pdf_budget_exhausted", false, 5)
             } else if value.contains("grading.pdf_school_disabled") {
                 Failure::Cancel("authorization_revoked")
             } else if value.contains("grading.text_required") {
@@ -444,6 +448,12 @@ mod tests {
                 "grading.pdf_school_disabled"
             ))),
             Failure::Cancel("authorization_revoked")
+        );
+        assert_eq!(
+            classify(&ExecutionError::Grading(ServerFnError::new(
+                "grading.pdf_budget_exhausted"
+            ))),
+            Failure::Retry("pdf_budget_exhausted", false, 5)
         );
     }
 }
