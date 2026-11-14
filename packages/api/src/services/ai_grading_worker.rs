@@ -55,6 +55,8 @@ fn classify(error: &ExecutionError) -> Failure {
                 || value.contains("grading.rubric_approval_required")
             {
                 Failure::Cancel("rubric_revoked")
+            } else if value.contains("grading.pdf_school_disabled") {
+                Failure::Cancel("authorization_revoked")
             } else if value.contains("grading.text_required") {
                 Failure::Cancel("attachment_unsupported")
             } else if value.contains("grading.invalid_suggestion")
@@ -128,9 +130,43 @@ async fn generate(
     if !authorized {
         return Err(ExecutionError::InvalidClaim);
     }
+    // A queued PDF job can outlive a school opt-in revocation. The queue
+    // metadata itself is not proof of current permission to process a PDF.
+    // Check before fetching originals/inference and again before completing
+    // the lease. Text-only jobs retain their existing behavior.
+    let has_original: bool = sqlx::query_scalar(
+        "SELECT EXISTS ( \
+            SELECT 1 FROM public.submission_attachments attachment \
+            JOIN public.submissions submission \
+              ON submission.custom_assignment_id=attachment.custom_assignment_id \
+            WHERE submission.id=$1 AND attachment.school_id=$2 \
+              AND attachment.student_id=submission.student_id \
+              AND attachment.status <> 'removed' \
+        )",
+    )
+    .bind(job.submission_id)
+    .bind(job.school_id)
+    .fetch_one(pool)
+    .await?;
+    if has_original
+        && !crate::services::ai_grading_pdf_source::school_pdf_grading_enabled(pool, job.school_id)
+            .await?
+    {
+        return Err(ExecutionError::Grading(ServerFnError::new(
+            "grading.pdf_school_disabled",
+        )));
+    }
     let suggestion = generate_authorized_teacher_suggestion(pool, job.submission_id, teacher_id)
         .await
         .map_err(ExecutionError::Grading)?;
+    if has_original
+        && !crate::services::ai_grading_pdf_source::school_pdf_grading_enabled(pool, job.school_id)
+            .await?
+    {
+        return Err(ExecutionError::Grading(ServerFnError::new(
+            "grading.pdf_school_disabled",
+        )));
+    }
     if suggestion.submission_id != job.submission_id
         || suggestion.rubric_approval_id != job.rubric_approval_id
         || suggestion.suggestion.submission_revision != job.revision
@@ -402,6 +438,12 @@ mod tests {
                 "grading.invalid_suggestion"
             ))),
             Failure::Retry("invalid_model_response", false, 5)
+        );
+        assert_eq!(
+            classify(&ExecutionError::Grading(ServerFnError::new(
+                "grading.pdf_school_disabled"
+            ))),
+            Failure::Cancel("authorization_revoked")
         );
     }
 }
