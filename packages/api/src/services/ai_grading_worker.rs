@@ -212,7 +212,7 @@ async fn fail(raw: &PgPool, pool: &AuthorizedPool, worker: Uuid, job: ClaimedJob
     }
 }
 
-/// Start the text-only worker. Deployment must explicitly opt in after
+/// Start the grading worker. Deployment must explicitly opt in after
 /// reviewing model costs and quality; a failed gateway cannot publish grades.
 pub fn start_ai_grading_worker(
     raw: Arc<PgPool>,
