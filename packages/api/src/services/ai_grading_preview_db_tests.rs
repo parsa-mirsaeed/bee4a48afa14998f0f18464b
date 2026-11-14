@@ -80,6 +80,42 @@ async fn pdf_egress_enabled_as(raw: &sqlx::PgPool, teacher_user_id: Uuid, school
     .expect("read school PDF opt-in")
 }
 
+/// Exercise the SECURITY DEFINER budget gate with explicit request actor.
+/// Fails closed without configured limits or current Teacher/rubric/PDF rights.
+async fn pdf_budget_reserve_as(
+    raw: &sqlx::PgPool,
+    user_id: Uuid,
+    role: &str,
+    school_id: Uuid,
+    submission_id: Uuid,
+    revision: Uuid,
+    approval_id: Uuid,
+    bytes: i64,
+) -> bool {
+    use crate::rls_context::{AuthorizedActor, AuthorizedTx};
+    let actor = AuthorizedActor::new(user_id, role, Some(school_id))
+        .expect("valid budget actor");
+    let tx = AuthorizedTx::begin(raw, actor)
+        .await
+        .expect("budget authorized transaction");
+    let scoped = tx.authorized_pool();
+    tx.scope(
+        sqlx::query_scalar::<_, bool>(
+            "SELECT public.reserve_ai_grading_pdf_budget($1,$2,$3,$4,$5)",
+        )
+        .bind(school_id)
+        .bind(submission_id)
+        .bind(revision)
+        .bind(approval_id)
+        .bind(bytes)
+        .fetch_one(&scoped),
+        Result::is_ok,
+    )
+    .await
+    .expect("budget transaction completion")
+    .expect("budget reservation query")
+}
+
 #[tokio::test]
 async fn school_and_teacher_authorization_matrix() {
     use sqlx::PgPool;
@@ -1752,6 +1788,107 @@ async fn school_and_teacher_authorization_matrix() {
     .await
     .expect("approved single PDF enqueued at exact revision");
     assert_eq!(queued_status, "queued");
+
+    // A school opt-in by itself does NOT grant permission to incur charges:
+    // the durable, operator-configured budget starts empty and denies all.
+    assert!(
+        !pdf_budget_reserve_as(
+            &pool, teacher_a_user, "Teacher", school_a,
+            submissions[0], queued_revision, pdf_approval, 12,
+        )
+        .await,
+        "unconfigured PDF budget must block model egress"
+    );
+    // Budget policies can be configured only by an unscoped schema operator.
+    sqlx::query(
+        "INSERT INTO edutalent_internal.ai_grading_pdf_budget_policy
+           (school_id,max_requests_per_utc_day,max_input_bytes_per_utc_day,
+            reserved_microusd_per_request,max_reserved_microusd_per_utc_day)
+         VALUES ($1,1,120,250000,250000)",
+    )
+    .bind(school_a)
+    .execute(&pool)
+    .await
+    .expect("operator sets a one-attempt PDF pilot budget");
+    {
+        use crate::rls_context::{AuthorizedActor, AuthorizedTx};
+        let tx = AuthorizedTx::begin(
+            &pool,
+            AuthorizedActor::new(teacher_a_user, "Teacher", Some(school_a))
+                .expect("Teacher budget policy guard actor"),
+        )
+        .await
+        .expect("begin denied Teacher budget policy mutation");
+        let scoped = tx.authorized_pool();
+        let denied = tx
+            .scope(
+                sqlx::query(
+                    "UPDATE edutalent_internal.ai_grading_pdf_budget_policy
+                     SET max_requests_per_utc_day=1000 WHERE school_id=$1",
+                )
+                .bind(school_a)
+                .execute(&scoped),
+                |_| false,
+            )
+            .await
+            .expect("finish denied runtime budget policy write");
+        assert!(denied.is_err(), "Teacher must not raise an operator budget");
+    }
+    for (actor, role, school, revision, rubric) in [
+        (teacher_peer_user, "Teacher", school_a, queued_revision, pdf_approval),
+        (teacher_b_user, "Teacher", school_b, queued_revision, pdf_approval),
+        (student_a_user, "Student", school_a, queued_revision, pdf_approval),
+        (teacher_a_user, "Teacher", school_a, Uuid::new_v4(), pdf_approval),
+        (teacher_a_user, "Teacher", school_a, queued_revision, Uuid::new_v4()),
+    ] {
+        assert!(
+            !pdf_budget_reserve_as(
+                &pool, actor, role, school,
+                submissions[0], revision, rubric, 12,
+            )
+            .await,
+            "unauthorized or stale budget reservation must be denied"
+        );
+    }
+
+    // The production Rust helper commits an independent Teacher-RLS budget
+    // reservation before outbound model I/O. It must remain charged even when
+    // the caller's longer model/suggestion transaction later fails.
+    crate::services::ai_grading_pdf_budget::reserve_pdf_budget_before_egress(
+        &pool, teacher_a_user, school_a,
+        submissions[0], queued_revision, pdf_approval, 12,
+    )
+    .await
+    .expect("first authorized school PDF budget reservation");
+    assert_eq!(
+        crate::services::ai_grading_pdf_budget::reserve_pdf_budget_before_egress(
+            &pool, teacher_a_user, school_a,
+            submissions[0], queued_revision, pdf_approval, 12,
+        )
+        .await,
+        Err(crate::services::ai_grading_pdf_budget::PdfBudgetError::Denied),
+        "second inference attempt must be denied by hard daily cap"
+    );
+    let usage: (i32, i64, i64) = sqlx::query_as(
+        "SELECT request_count, input_bytes, reserved_microusd
+         FROM edutalent_internal.ai_grading_pdf_budget_usage
+         WHERE school_id=$1 AND utc_day=(NOW() AT TIME ZONE 'UTC')::date",
+    )
+    .bind(school_a)
+    .fetch_one(&pool)
+    .await
+    .expect("durably committed school PDF budget");
+    assert_eq!(usage, (1, 12, 250000));
+    let school_b_budget_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM edutalent_internal.ai_grading_pdf_budget_usage
+         WHERE school_id=$1",
+    )
+    .bind(school_b)
+    .fetch_one(&pool)
+    .await
+    .expect("other school cannot spend A budget");
+    assert_eq!(school_b_budget_count, 0);
+
     let school_b_optin: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM public.ai_grading_pdf_school_optins \
          WHERE school_id=$1",
