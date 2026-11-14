@@ -1,7 +1,7 @@
 import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
 import { createHash, randomUUID } from 'node:crypto';
 import { enforceOfflineAllowlist, assertNoUnexpectedOrigins } from '../fixtures/network-policy';
-import { watchConsole, assertNoConsoleErrors } from '../fixtures/console-guard';
+import { watchConsole, assertNoConsoleErrors, allowHttpResponse } from '../fixtures/console-guard';
 
 // Real Dioxus application and real private Storage; no model provider calls.
 // Dedicated fixture per desktop/mobile project, school opt-in starts OFF.
@@ -134,7 +134,16 @@ test('student PDF and teacher-approved rubric cannot bypass disabled school infe
     name: locale === 'fa' ? 'تولید پیشنهاد نمره' : 'Generate AI suggestion',
   });
   await expect(generate).toBeVisible();
+  // The disabled-school decision is a deliberately rejected server function
+  // request. Allow only this exact route/status, not arbitrary HTTP errors.
+  const denialPath = '/api/ai-grading/suggestions/generate';
+  allowHttpResponse(denialPath, 500);
+  const denied = page.waitForResponse(response =>
+    new URL(response.url()).pathname === denialPath && response.status() === 500
+  );
   await generate.click();
+  const denial = await denied;
+  expect(await denial.text()).toContain('grading.pdf_school_disabled');
   await expect(panel.getByRole('status')).toContainText(
     locale === 'fa' ? 'عملیات تصحیح هوشمند انجام نشد' : 'The AI grading request could not be completed',
   );
