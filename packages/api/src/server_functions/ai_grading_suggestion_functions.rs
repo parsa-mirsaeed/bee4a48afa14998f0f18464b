@@ -269,6 +269,28 @@ pub(crate) async fn generate_authorized_teacher_suggestion(
         if pdf_metadata.as_ref() != Some(&original.metadata) {
             return Err(ServerFnError::new("grading.stale_submission"));
         }
+        // A separate Teacher-scoped transaction COMMITs the durable school
+        // request/byte/cost-envelope reservation before the provider call.
+        // Do not roll the reservation back with a later model error: an
+        // ambiguous timeout could already have incurred provider charges.
+        crate::services::ai_grading_pdf_budget::reserve_pdf_budget_for_grading_state(
+            state,
+            user_id,
+            source.school_id,
+            submission_id,
+            source.submission_revision,
+            approved.id,
+            original.metadata.byte_size,
+        )
+        .await
+        .map_err(|error| match error {
+            crate::services::ai_grading_pdf_budget::PdfBudgetError::Denied => {
+                ServerFnError::new("grading.pdf_budget_exhausted")
+            }
+            crate::services::ai_grading_pdf_budget::PdfBudgetError::Unavailable => {
+                ServerFnError::new("grading.suggestion_unavailable")
+            }
+        })?;
         llm.suggest_native_pdf_grade_for_school(&original, &approved.criteria, approved.grade_scale)
             .await
             .map_err(|_| ServerFnError::new("grading.unavailable"))?
@@ -469,6 +491,7 @@ mod tests {
             "if &current_pdf != expected_pdf",
             "school_pdf_grading_enabled",
             "grading.pdf_school_disabled",
+            "reserve_pdf_budget_for_grading_state",
             "ON CONFLICT (submission_id, submission_revision, rubric_approval_id) DO NOTHING",
         ] {
             assert!(production.contains(required));
