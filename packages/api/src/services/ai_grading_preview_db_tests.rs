@@ -1555,12 +1555,10 @@ async fn school_and_teacher_authorization_matrix() {
         // Privileged schema migration transaction: no runtime write RLS
         // policy exists, including for a database-owner-backed app session.
         let mut operator = pool.begin().await.expect("begin operator migration");
-        sqlx::query(
-            "ALTER TABLE public.ai_grading_pdf_school_optins NO FORCE ROW LEVEL SECURITY",
-        )
-        .execute(&mut *operator)
-        .await
-        .expect("operator temporarily removes FORCE inside a transaction");
+        sqlx::query("ALTER TABLE public.ai_grading_pdf_school_optins NO FORCE ROW LEVEL SECURITY")
+            .execute(&mut *operator)
+            .await
+            .expect("operator temporarily removes FORCE inside a transaction");
         sqlx::query(
             "INSERT INTO public.ai_grading_pdf_school_optins (school_id,enabled) \
              VALUES ($1,TRUE)",
@@ -1573,7 +1571,10 @@ async fn school_and_teacher_authorization_matrix() {
             .execute(&mut *operator)
             .await
             .expect("operator restores FORCE before commit");
-        operator.commit().await.expect("commit scoped opt-in migration");
+        operator
+            .commit()
+            .await
+            .expect("commit scoped opt-in migration");
     }
     let queued_revision: Uuid = sqlx::query_scalar(
         "UPDATE public.submissions SET revision=gen_random_uuid() \
@@ -1609,12 +1610,10 @@ async fn school_and_teacher_authorization_matrix() {
     // manual-grade acceptance assertions remain isolated.
     {
         let mut operator = pool.begin().await.expect("begin operator rollback");
-        sqlx::query(
-            "ALTER TABLE public.ai_grading_pdf_school_optins NO FORCE ROW LEVEL SECURITY",
-        )
-        .execute(&mut *operator)
-        .await
-        .expect("operator temporary migration-only opt-in change");
+        sqlx::query("ALTER TABLE public.ai_grading_pdf_school_optins NO FORCE ROW LEVEL SECURITY")
+            .execute(&mut *operator)
+            .await
+            .expect("operator temporary migration-only opt-in change");
         sqlx::query(
             "UPDATE public.ai_grading_pdf_school_optins SET enabled=FALSE,updated_at=NOW() \
              WHERE school_id=$1",
@@ -1627,7 +1626,10 @@ async fn school_and_teacher_authorization_matrix() {
             .execute(&mut *operator)
             .await
             .expect("operator restores FORCE on rollback");
-        operator.commit().await.expect("commit scoped opt-in rollback");
+        operator
+            .commit()
+            .await
+            .expect("commit scoped opt-in rollback");
     }
     sqlx::query(
         "UPDATE public.ai_grading_jobs SET status='cancelled',completed_at=NOW(), \
