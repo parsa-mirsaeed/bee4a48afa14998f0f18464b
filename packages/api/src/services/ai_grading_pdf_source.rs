@@ -79,8 +79,7 @@ WHERE s.id=$1 AND teacher_user.id=$2
   AND s.submitted_at IS NOT NULL
   AND ca.graded_at IS NULL AND s.grade IS NULL AND s.graded_by IS NULL
   AND (SELECT count(*) FROM public.submission_attachments other_attachment
-       WHERE other_attachment.submission_id=s.id
-         AND other_attachment.custom_assignment_id=ca.id
+       WHERE other_attachment.custom_assignment_id=ca.id
          AND other_attachment.student_id=ca.student_id
          AND other_attachment.school_id=cs.school_id
          AND other_attachment.status <> 'removed')=1
