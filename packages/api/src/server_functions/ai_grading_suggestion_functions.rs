@@ -15,7 +15,13 @@ use crate::ai_grading_contract::{validate_authoritative_rubric, ExpectedCriterio
 #[cfg(feature = "server")]
 use crate::rls_context::AuthorizedPool;
 #[cfg(feature = "server")]
-use crate::server_functions::ai_grading_functions::find_authorized_grading_source;
+use crate::server_functions::ai_grading_functions::{
+    find_authorized_grading_source, AuthorizedGradingSource,
+};
+#[cfg(feature = "server")]
+use crate::services::ai_grading_pdf_source::{
+    find_authorized_pdf_metadata, load_authorized_native_pdf, AuthorizedPdfMetadata,
+};
 #[cfg(feature = "server")]
 use crate::services::llm_service::ExternalLlmClient;
 #[cfg(feature = "server")]
@@ -36,6 +42,7 @@ struct ApprovedRubric {
     id: Uuid,
     school_id: Uuid,
     grade_scale: i16,
+    submission_revision: Uuid,
     fingerprint: String,
     criteria: Vec<ExpectedCriterion>,
 }
@@ -71,6 +78,7 @@ async fn current_approved_rubric(
     let row = sqlx::query(
         r#"
         SELECT approval.id, approval.school_id, approval.grade_scale,
+               s.revision AS submission_revision,
                approval.rubric_fingerprint, approval.criteria
         FROM public.ai_grading_rubric_approvals approval
         JOIN public.submissions s
@@ -98,6 +106,7 @@ async fn current_approved_rubric(
             id: row.get("id"),
             school_id: row.get("school_id"),
             grade_scale: row.get("grade_scale"),
+            submission_revision: row.get("submission_revision"),
             fingerprint: row.get("rubric_fingerprint"),
             criteria,
         })
@@ -170,20 +179,49 @@ pub(crate) async fn generate_authorized_teacher_suggestion(
     submission_id: Uuid,
     user_id: Uuid,
 ) -> Result<StoredGradingSuggestion, ServerFnError> {
-    let source = find_authorized_grading_source(&pool, submission_id, user_id)
-        .await
-        .map_err(|_| ServerFnError::new("grading.suggestion_unavailable"))?
-        .ok_or_else(|| ServerFnError::new("grading.not_found"))?;
-    if source.submission_revision.is_nil()
-        || source.submission_text.trim().is_empty()
-        || source.assignment_instructions.trim().is_empty()
-    {
-        return Err(ServerFnError::new("grading.text_required"));
-    }
-    let approved = current_approved_rubric(&pool, submission_id, user_id)
+    // The text-only source intentionally excludes finalized attachments.
+    // If and only if a current teacher-approved rubric exists, fall back to
+    // the independent exact-revision native PDF authorization query.
+    let approved = current_approved_rubric(pool, submission_id, user_id)
         .await
         .map_err(|_| ServerFnError::new("grading.suggestion_unavailable"))?
         .ok_or_else(|| ServerFnError::new("grading.rubric_approval_required"))?;
+    let text_source = find_authorized_grading_source(pool, submission_id, user_id)
+        .await
+        .map_err(|_| ServerFnError::new("grading.suggestion_unavailable"))?;
+    let pdf_metadata: Option<AuthorizedPdfMetadata> = if text_source.is_none() {
+        find_authorized_pdf_metadata(
+            pool,
+            submission_id,
+            user_id,
+            approved.submission_revision,
+            approved.id,
+        )
+        .await
+        .map_err(|_| ServerFnError::new("grading.suggestion_unavailable"))?
+    } else {
+        None
+    };
+    let source = match (text_source, pdf_metadata.as_ref()) {
+        (Some(source), None) => source,
+        (None, Some(meta)) => AuthorizedGradingSource {
+            school_id: meta.school_id,
+            submission_revision: meta.submission_revision,
+            grade_scale: approved.grade_scale,
+            assignment_instructions: meta.assignment_instructions.clone(),
+            submission_text: meta.submission_text.clone(),
+        },
+        _ => return Err(ServerFnError::new("grading.not_found")),
+    };
+    if source.submission_revision.is_nil()
+        || source.assignment_instructions.trim().is_empty()
+        || (pdf_metadata.is_none() && source.submission_text.trim().is_empty())
+    {
+        return Err(ServerFnError::new("grading.text_required"));
+    }
+    if approved.submission_revision != source.submission_revision {
+        return Err(ServerFnError::new("grading.stale_submission"));
+    }
     if approved.school_id != source.school_id || approved.grade_scale != source.grade_scale {
         return Err(ServerFnError::new("grading.rubric_conflict"));
     }
@@ -201,8 +239,34 @@ pub(crate) async fn generate_authorized_teacher_suggestion(
     }
 
     let llm = ExternalLlmClient::new().map_err(|_| ServerFnError::new("grading.unavailable"))?;
-    let suggestion = llm
-        .suggest_assignment_grade_for_school(
+    let suggestion = if pdf_metadata.is_some() {
+        // The application state only supplies server-owned private Storage
+        // credentials. The query itself runs under the live Teacher RLS pool.
+        let state = crate::app_state::APP_STATE
+            .get()
+            .ok_or_else(|| ServerFnError::new("grading.unavailable"))?;
+        let original = load_authorized_native_pdf(
+            pool,
+            state,
+            submission_id,
+            user_id,
+            source.submission_revision,
+            approved.id,
+        )
+        .await
+        .map_err(|_| ServerFnError::new("grading.stale_submission"))?;
+        if pdf_metadata.as_ref() != Some(&original.metadata) {
+            return Err(ServerFnError::new("grading.stale_submission"));
+        }
+        llm.suggest_native_pdf_grade_for_school(
+            &original,
+            &approved.criteria,
+            approved.grade_scale,
+        )
+        .await
+        .map_err(|_| ServerFnError::new("grading.unavailable"))?
+    } else {
+        llm.suggest_assignment_grade_for_school(
             source.school_id,
             source.submission_revision,
             &source.assignment_instructions,
@@ -211,17 +275,41 @@ pub(crate) async fn generate_authorized_teacher_suggestion(
             approved.grade_scale,
         )
         .await
-        .map_err(|_| ServerFnError::new("grading.unavailable"))?;
+        .map_err(|_| ServerFnError::new("grading.unavailable"))?
+    };
     suggestion
         .validate_against_rubric(source.submission_revision, &approved.criteria)
         .map_err(|_| ServerFnError::new("grading.invalid_suggestion"))?;
 
     // The model request may take seconds. Re-read both authoritative
     // resources and fail closed if the teacher, answer or rubric changed.
-    let latest = find_authorized_grading_source(&pool, submission_id, user_id)
+    let latest = if let Some(expected_pdf) = pdf_metadata.as_ref() {
+        let current_pdf = find_authorized_pdf_metadata(
+            pool,
+            submission_id,
+            user_id,
+            source.submission_revision,
+            approved.id,
+        )
         .await
         .map_err(|_| ServerFnError::new("grading.suggestion_unavailable"))?
         .ok_or_else(|| ServerFnError::new("grading.stale_submission"))?;
+        if &current_pdf != expected_pdf {
+            return Err(ServerFnError::new("grading.stale_submission"));
+        }
+        AuthorizedGradingSource {
+            school_id: current_pdf.school_id,
+            submission_revision: current_pdf.submission_revision,
+            grade_scale: approved.grade_scale,
+            assignment_instructions: current_pdf.assignment_instructions,
+            submission_text: current_pdf.submission_text,
+        }
+    } else {
+        find_authorized_grading_source(pool, submission_id, user_id)
+            .await
+            .map_err(|_| ServerFnError::new("grading.suggestion_unavailable"))?
+            .ok_or_else(|| ServerFnError::new("grading.stale_submission"))?
+    };
     let latest_approval = current_approved_rubric(&pool, submission_id, user_id)
         .await
         .map_err(|_| ServerFnError::new("grading.suggestion_unavailable"))?
@@ -232,6 +320,7 @@ pub(crate) async fn generate_authorized_teacher_suggestion(
         || source.submission_text != latest.submission_text
         || source.assignment_instructions != latest.assignment_instructions
         || approved.id != latest_approval.id
+        || approved.submission_revision != latest_approval.submission_revision
         || approved.fingerprint != latest_approval.fingerprint
         || approved.criteria != latest_approval.criteria
     {
@@ -303,27 +392,41 @@ pub async fn get_current_teacher_grading_suggestion(
         }
         let user_id =
             Uuid::parse_str(&user.id).map_err(|_| ServerFnError::new("grading.forbidden"))?;
-        let source = find_authorized_grading_source(&pool, submission_id, user_id)
-            .await
-            .map_err(|_| ServerFnError::new("grading.suggestion_unavailable"))?;
         let approved = current_approved_rubric(&pool, submission_id, user_id)
             .await
             .map_err(|_| ServerFnError::new("grading.suggestion_unavailable"))?;
-        match (source, approved) {
-            (Some(source), Some(approved))
-                if source.school_id == approved.school_id
-                    && source.grade_scale == approved.grade_scale =>
-            {
-                current_stored_suggestion(
-                    &pool,
-                    submission_id,
-                    source.submission_revision,
-                    approved.id,
-                )
-                .await
-            }
-            _ => Ok(None),
+        let Some(approved) = approved else {
+            return Ok(None);
+        };
+        let text_source = find_authorized_grading_source(&pool, submission_id, user_id)
+            .await
+            .map_err(|_| ServerFnError::new("grading.suggestion_unavailable"))?;
+        let authorized = if let Some(source) = text_source {
+            source.school_id == approved.school_id
+                && source.grade_scale == approved.grade_scale
+                && source.submission_revision == approved.submission_revision
+        } else {
+            find_authorized_pdf_metadata(
+                &pool,
+                submission_id,
+                user_id,
+                approved.submission_revision,
+                approved.id,
+            )
+            .await
+            .map_err(|_| ServerFnError::new("grading.suggestion_unavailable"))?
+            .is_some_and(|pdf| pdf.school_id == approved.school_id)
+        };
+        if !authorized {
+            return Ok(None);
         }
+        current_stored_suggestion(
+            &pool,
+            submission_id,
+            approved.submission_revision,
+            approved.id,
+        )
+        .await
     }
     #[cfg(not(feature = "server"))]
     {
