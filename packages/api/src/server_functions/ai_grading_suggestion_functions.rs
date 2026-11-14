@@ -20,7 +20,8 @@ use crate::server_functions::ai_grading_functions::{
 };
 #[cfg(feature = "server")]
 use crate::services::ai_grading_pdf_source::{
-    find_authorized_pdf_metadata, load_authorized_native_pdf, AuthorizedPdfMetadata,
+    find_authorized_pdf_metadata, load_authorized_native_pdf, school_pdf_grading_enabled,
+    AuthorizedPdfMetadata,
 };
 #[cfg(feature = "server")]
 use crate::services::llm_service::ExternalLlmClient;
@@ -290,7 +291,11 @@ pub(crate) async fn generate_authorized_teacher_suggestion(
         .await
         .map_err(|_| ServerFnError::new("grading.suggestion_unavailable"))?
         .ok_or_else(|| ServerFnError::new("grading.stale_submission"))?;
-        if &current_pdf != expected_pdf {
+        if &current_pdf != expected_pdf
+            || !school_pdf_grading_enabled(pool, expected_pdf.school_id)
+                .await
+                .map_err(|_| ServerFnError::new("grading.suggestion_unavailable"))?
+        {
             return Err(ServerFnError::new("grading.stale_submission"));
         }
         AuthorizedGradingSource {
@@ -452,6 +457,7 @@ mod tests {
             "validate_against_rubric",
             "latest_approval",
             "if &current_pdf != expected_pdf",
+            "school_pdf_grading_enabled",
             "ON CONFLICT (submission_id, submission_revision, rubric_approval_id) DO NOTHING",
         ] {
             assert!(production.contains(required));
