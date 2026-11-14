@@ -226,6 +226,16 @@ pub(crate) async fn generate_authorized_teacher_suggestion(
     if approved.school_id != source.school_id || approved.grade_scale != source.grade_scale {
         return Err(ServerFnError::new("grading.rubric_conflict"));
     }
+    // Existing suggestions are idempotent, but they must never bypass a
+    // revoked PDF school opt-in. Check *before* returning the cached result,
+    // and continue checking again after inference before writing evidence.
+    if pdf_metadata.is_some()
+        && !school_pdf_grading_enabled(pool, source.school_id)
+            .await
+            .map_err(|_| ServerFnError::new("grading.suggestion_unavailable"))?
+    {
+        return Err(ServerFnError::new("grading.pdf_school_disabled"));
+    }
     validate_authoritative_rubric(&approved.criteria, approved.grade_scale)
         .map_err(|_| ServerFnError::new("grading.invalid_rubric"))?;
     if let Some(previous) = current_stored_suggestion(
@@ -458,6 +468,7 @@ mod tests {
             "latest_approval",
             "if &current_pdf != expected_pdf",
             "school_pdf_grading_enabled",
+            "grading.pdf_school_disabled",
             "ON CONFLICT (submission_id, submission_revision, rubric_approval_id) DO NOTHING",
         ] {
             assert!(production.contains(required));
