@@ -553,6 +553,21 @@ INSERT INTO custom_assignments(id,assignment_id,student_id,due_at,status) VALUES
 INSERT INTO assignments(id,teacher_id,class_section_id,subject_id,title,body,due_at,status,published_at) VALUES('f0600000-0000-0000-0000-000000000290','c0000000-0000-0000-0000-0000000000c2','e0000000-0000-0000-0000-0000000000c1','d0000000-0000-0000-0000-0000000000a1','E2E Attachment 290','Submit your work.',NOW()+INTERVAL '14 days','Published',NOW()) ON CONFLICT DO NOTHING;
 INSERT INTO custom_assignments(id,assignment_id,student_id,due_at,status) VALUES('f1600000-0000-0000-0000-000000000290','f0600000-0000-0000-0000-000000000290','c0000000-0000-0000-0000-0000000000c3',NOW()+INTERVAL '14 days','Assigned') ON CONFLICT DO NOTHING;
 
+-- Dedicated PDF grading denial fixtures, separate from file-browser acceptance
+-- cases so the desktop/mobile projects do not share submission state.
+INSERT INTO assignments(id,teacher_id,class_section_id,subject_id,title,body,due_at,status,published_at) VALUES
+('f0600000-0000-0000-0000-000000000301','c0000000-0000-0000-0000-0000000000c2','e0000000-0000-0000-0000-0000000000c1','d0000000-0000-0000-0000-0000000000a1','E2E Native PDF Gate 301','Score a single PDF only after school approval.',NOW()+INTERVAL '14 days','Published',NOW())
+ON CONFLICT DO NOTHING;
+INSERT INTO custom_assignments(id,assignment_id,student_id,due_at,status) VALUES
+('f1600000-0000-0000-0000-000000000301','f0600000-0000-0000-0000-000000000301','c0000000-0000-0000-0000-0000000000c3',NOW()+INTERVAL '14 days','Assigned')
+ON CONFLICT DO NOTHING;
+INSERT INTO assignments(id,teacher_id,class_section_id,subject_id,title,body,due_at,status,published_at) VALUES
+('f0600000-0000-0000-0000-000000000401','c0000000-0000-0000-0000-0000000000c2','e0000000-0000-0000-0000-0000000000c1','d0000000-0000-0000-0000-0000000000a1','E2E Native PDF Gate 401','Score a single PDF only after school approval.',NOW()+INTERVAL '14 days','Published',NOW())
+ON CONFLICT DO NOTHING;
+INSERT INTO custom_assignments(id,assignment_id,student_id,due_at,status) VALUES
+('f1600000-0000-0000-0000-000000000401','f0600000-0000-0000-0000-000000000401','c0000000-0000-0000-0000-0000000000c3',NOW()+INTERVAL '14 days','Assigned')
+ON CONFLICT DO NOTHING;
+
 -- Attachment acceptance exercises submission/storage, not AI availability.
 -- Snapshot deterministic ready content so delivery truth does not block
 -- unrelated attachment journeys while the browser gateway is offline.
