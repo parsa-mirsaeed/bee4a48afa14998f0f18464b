@@ -28,7 +28,6 @@ async fn source_as(
     .expect("lookup grading context")
 }
 
-
 /// The PDF metadata source is independent of the existing text-only preview.
 /// Both are read inside the same real PostgreSQL Teacher RLS transaction.
 async fn pdf_source_as(
@@ -49,7 +48,11 @@ async fn pdf_source_as(
     let scoped = tx.authorized_pool();
     tx.scope(
         crate::services::ai_grading_pdf_source::find_authorized_pdf_metadata(
-            &scoped, submission_id, user_id, revision, approval_id,
+            &scoped,
+            submission_id,
+            user_id,
+            revision,
+            approval_id,
         ),
         Result::is_ok,
     )
@@ -1370,8 +1373,13 @@ async fn school_and_teacher_authorization_matrix() {
     // The new source must reject it even when its attachment still exists.
     assert!(
         pdf_source_as(
-            &pool, teacher_a_user, "Teacher", school_a,
-            submissions[0], pdf_revision, replacement_approval,
+            &pool,
+            teacher_a_user,
+            "Teacher",
+            school_a,
+            submissions[0],
+            pdf_revision,
+            replacement_approval,
         )
         .await
         .is_none(),
@@ -1393,8 +1401,13 @@ async fn school_and_teacher_authorization_matrix() {
     .expect("approve current PDF assessment")
     .expect("assigned teacher can explicitly approve a PDF rubric");
     let own_pdf = pdf_source_as(
-        &pool, teacher_a_user, "Teacher", school_a,
-        submissions[0], pdf_revision, pdf_approval,
+        &pool,
+        teacher_a_user,
+        "Teacher",
+        school_a,
+        submissions[0],
+        pdf_revision,
+        pdf_approval,
     )
     .await
     .expect("assigned Teacher can access exactly one finalized PDF metadata record");
@@ -1411,8 +1424,13 @@ async fn school_and_teacher_authorization_matrix() {
     ] {
         assert!(
             pdf_source_as(
-                &pool, user, role, school,
-                submissions[0], pdf_revision, pdf_approval,
+                &pool,
+                user,
+                role,
+                school,
+                submissions[0],
+                pdf_revision,
+                pdf_approval,
             )
             .await
             .is_none(),
@@ -1421,8 +1439,13 @@ async fn school_and_teacher_authorization_matrix() {
     }
     assert!(
         pdf_source_as(
-            &pool, teacher_a_user, "Teacher", school_a,
-            submissions[0], Uuid::new_v4(), pdf_approval,
+            &pool,
+            teacher_a_user,
+            "Teacher",
+            school_a,
+            submissions[0],
+            Uuid::new_v4(),
+            pdf_approval,
         )
         .await
         .is_none(),
@@ -1430,8 +1453,13 @@ async fn school_and_teacher_authorization_matrix() {
     );
     assert!(
         pdf_source_as(
-            &pool, teacher_a_user, "Teacher", school_a,
-            submissions[0], pdf_revision, Uuid::new_v4(),
+            &pool,
+            teacher_a_user,
+            "Teacher",
+            school_a,
+            submissions[0],
+            pdf_revision,
+            Uuid::new_v4(),
         )
         .await
         .is_none(),
@@ -1463,8 +1491,13 @@ async fn school_and_teacher_authorization_matrix() {
     );
     assert!(
         pdf_source_as(
-            &pool, teacher_a_user, "Teacher", school_a,
-            submissions[0], pdf_revision, pdf_approval,
+            &pool,
+            teacher_a_user,
+            "Teacher",
+            school_a,
+            submissions[0],
+            pdf_revision,
+            pdf_approval,
         )
         .await
         .is_none(),
