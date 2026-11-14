@@ -793,11 +793,14 @@ impl ExternalLlmClient {
         // configured public model/provider URL never enters app-side egress.
         let gateway_url = format!("{}/v1/grading/pdf", self.config.base_url);
         #[cfg(test)]
-        let gateway_url = self.test_chat_url.as_ref()
+        let gateway_url = self
+            .test_chat_url
+            .as_ref()
             .and_then(|url| url.strip_suffix("/v1/chat/completions"))
             .map(|base| format!("{base}/v1/grading/pdf"))
             .unwrap_or(gateway_url);
-        let response = self.client
+        let response = self
+            .client
             .post(gateway_url)
             .bearer_auth(&self.config.api_key)
             .header("x-edutalent-school-id", meta.school_id.to_string())
@@ -807,8 +810,10 @@ impl ExternalLlmClient {
             .await?;
         if !response.status().is_success() {
             let status = response.status();
-            let code = response.json::<GatewayErrorEnvelope>()
-                .await.ok()
+            let code = response
+                .json::<GatewayErrorEnvelope>()
+                .await
+                .ok()
                 .map(|body| body.error.code)
                 .unwrap_or_else(|| "native_pdf_gateway_error".to_string());
             return Err(LlmError::ApiError {
@@ -816,10 +821,9 @@ impl ExternalLlmClient {
                 message: code.chars().take(64).collect(),
             });
         }
-        let body = response.json::<GatewayChatResponse>().await
-            .map_err(|_| LlmError::InvalidResponse(
-                "Malformed native PDF gateway response".to_string(),
-            ))?;
+        let body = response.json::<GatewayChatResponse>().await.map_err(|_| {
+            LlmError::InvalidResponse("Malformed native PDF gateway response".to_string())
+        })?;
         if body.model != self.config.model || body.choices.len() != 1 {
             return Err(LlmError::InvalidResponse(
                 "Wrong model or choice count for native PDF grading".to_string(),
@@ -1341,15 +1345,12 @@ mod tests {
         ));
     }
 
-
     #[cfg(feature = "server")]
     #[tokio::test]
     async fn native_pdf_gateway_receives_exact_binary_with_teacher_rubric() {
         use crate::services::ai_grading_contract::ExpectedCriterion;
         use crate::services::ai_grading_native_pdf::NativePdfGradingInput;
-        use crate::services::ai_grading_pdf_source::{
-            AuthorizedNativePdf, AuthorizedPdfMetadata,
-        };
+        use crate::services::ai_grading_pdf_source::{AuthorizedNativePdf, AuthorizedPdfMetadata};
         use axum::{extract::Json, http::HeaderMap, routing::post, Router};
         use base64::{engine::general_purpose::STANDARD, Engine as _};
 
@@ -1360,9 +1361,12 @@ mod tests {
         let approval = Uuid::new_v4();
         let mut bytes = b"%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\n".to_vec();
         let start = bytes.len();
-        bytes.extend_from_slice(format!(
-            "xref\n0 1\n0000000000 65535 f \ntrailer\n<< /Size 1 >>\nstartxref\n{start}\n%%EOF"
-        ).as_bytes());
+        bytes.extend_from_slice(
+            format!(
+                "xref\n0 1\n0000000000 65535 f \ntrailer\n<< /Size 1 >>\nstartxref\n{start}\n%%EOF"
+            )
+            .as_bytes(),
+        );
         let digest = crate::services::submission_attachment_storage::hash(&bytes);
         let source = AuthorizedNativePdf {
             metadata: AuthorizedPdfMetadata {
@@ -1377,9 +1381,15 @@ mod tests {
                 submission_text: "Additional typed reasoning.".to_string(),
             },
             document: NativePdfGradingInput::from_private_original(
-                school, submission, revision, attachment,
-                "application/pdf", &digest, bytes.clone(),
-            ).expect("synthetic original PDF"),
+                school,
+                submission,
+                revision,
+                attachment,
+                "application/pdf",
+                &digest,
+                bytes.clone(),
+            )
+            .expect("synthetic original PDF"),
         };
         let expected = bytes.clone();
         let app = Router::new().route(
@@ -1388,7 +1398,11 @@ mod tests {
                 let expected = expected.clone();
                 async move {
                     assert_eq!(
-                        headers.get("x-edutalent-school-id").unwrap().to_str().unwrap(),
+                        headers
+                            .get("x-edutalent-school-id")
+                            .unwrap()
+                            .to_str()
+                            .unwrap(),
                         school.to_string()
                     );
                     assert_eq!(body["model"], "gpt-4o");
@@ -1396,15 +1410,20 @@ mod tests {
                     assert_eq!(body["submission_revision"], revision.to_string());
                     assert_eq!(body["attachment_id"], attachment.to_string());
                     assert_eq!(
-                        STANDARD.decode(body["pdf_base64"].as_str().unwrap()).unwrap(),
+                        STANDARD
+                            .decode(body["pdf_base64"].as_str().unwrap())
+                            .unwrap(),
                         expected
                     );
-                    let rubric: Value = serde_json::from_str(
-                        body["teacher_rubric_prompt"].as_str().unwrap()
-                    ).unwrap();
+                    let rubric: Value =
+                        serde_json::from_str(body["teacher_rubric_prompt"].as_str().unwrap())
+                            .unwrap();
                     assert_eq!(rubric["rubric"][0]["criterion_id"], "accuracy");
                     assert_eq!(rubric["submission_text"], "Additional typed reasoning.");
-                    assert!(body["system_instructions"].as_str().unwrap().contains("untrusted DATA"));
+                    assert!(body["system_instructions"]
+                        .as_str()
+                        .unwrap()
+                        .contains("untrusted DATA"));
                     let suggestion = json!({
                         "contract_version": 1,
                         "submission_revision": revision,
@@ -1430,10 +1449,13 @@ mod tests {
             }),
         );
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-            .await.expect("mock internal gateway");
+            .await
+            .expect("mock internal gateway");
         let port = listener.local_addr().unwrap().port();
         let handle = tokio::spawn(async move {
-            axum::serve(listener, app).await.expect("serve internal mock");
+            axum::serve(listener, app)
+                .await
+                .expect("serve internal mock");
         });
         let mut config = client().config.clone();
         config.profile = "openai-gpt4o-v1".to_string();
@@ -1456,14 +1478,16 @@ mod tests {
         handle.abort();
 
         assert!(matches!(
-            client().suggest_native_pdf_grade_for_school(
-                &source,
-                &[ExpectedCriterion {
-                    criterion_id: "accuracy".to_string(),
-                    possible_points: 20.0,
-                }],
-                20,
-            ).await,
+            client()
+                .suggest_native_pdf_grade_for_school(
+                    &source,
+                    &[ExpectedCriterion {
+                        criterion_id: "accuracy".to_string(),
+                        possible_points: 20.0,
+                    }],
+                    20,
+                )
+                .await,
             Err(LlmError::ConfigurationUnavailable)
         ));
     }
