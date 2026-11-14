@@ -149,11 +149,8 @@ async fn generate(
     .fetch_one(pool)
     .await?;
     if has_original
-        && !crate::services::ai_grading_pdf_source::school_pdf_grading_enabled(
-            pool,
-            job.school_id,
-        )
-        .await?
+        && !crate::services::ai_grading_pdf_source::school_pdf_grading_enabled(pool, job.school_id)
+            .await?
     {
         return Err(ExecutionError::Grading(ServerFnError::new(
             "grading.pdf_school_disabled",
@@ -163,11 +160,8 @@ async fn generate(
         .await
         .map_err(ExecutionError::Grading)?;
     if has_original
-        && !crate::services::ai_grading_pdf_source::school_pdf_grading_enabled(
-            pool,
-            job.school_id,
-        )
-        .await?
+        && !crate::services::ai_grading_pdf_source::school_pdf_grading_enabled(pool, job.school_id)
+            .await?
     {
         return Err(ExecutionError::Grading(ServerFnError::new(
             "grading.pdf_school_disabled",
