@@ -1514,6 +1514,156 @@ async fn school_and_teacher_authorization_matrix() {
     .expect("prior revision cancelled");
     assert_eq!(status, "cancelled");
 
+    // The migration starts with zero PDF-enabled schools. A Teacher-scoped
+    // transaction must not opt in a school, even when the database account
+    // is used to execute FORCE-RLS migrations.
+    {
+        use crate::rls_context::{AuthorizedActor, AuthorizedTx};
+        let actor = AuthorizedActor::new(teacher_a_user, "Teacher", Some(school_a))
+            .expect("valid teacher opt-in denial actor");
+        let tx = AuthorizedTx::begin(&pool, actor)
+            .await
+            .expect("start denied PDF opt-in transaction");
+        let scoped = tx.authorized_pool();
+        let attempt = tx
+            .scope(
+                sqlx::query(
+                    "INSERT INTO public.ai_grading_pdf_school_optins (school_id,enabled) \
+                     VALUES ($1,TRUE)",
+                )
+                .bind(school_a)
+                .execute(&scoped),
+                |_| false,
+            )
+            .await
+            .expect("finish denied opt-in");
+        assert!(attempt.is_err(), "Teacher must not opt in their own school");
+    }
+    let enabled_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM public.ai_grading_pdf_school_optins \
+         WHERE school_id=$1 AND enabled",
+    )
+    .bind(school_a)
+    .fetch_one(&pool)
+    .await
+    .expect("read initially disabled pilot");
+    assert_eq!(enabled_count, 0, "migration must not enable PDF inference");
+
+    // Simulate a separately approved migration-owner operator action. Only
+    // a subsequent finalized revision may enqueue, never retroactive work.
+    {
+        // Privileged schema migration transaction: no runtime write RLS
+        // policy exists, including for a database-owner-backed app session.
+        let mut operator = pool.begin().await.expect("begin operator migration");
+        sqlx::query("ALTER TABLE public.ai_grading_pdf_school_optins NO FORCE ROW LEVEL SECURITY")
+            .execute(&mut *operator)
+            .await
+            .expect("operator temporarily removes FORCE inside a transaction");
+        sqlx::query(
+            "INSERT INTO public.ai_grading_pdf_school_optins (school_id,enabled) \
+             VALUES ($1,TRUE)",
+        )
+        .bind(school_a)
+        .execute(&mut *operator)
+        .await
+        .expect("owner explicitly opts one school in");
+        sqlx::query("ALTER TABLE public.ai_grading_pdf_school_optins FORCE ROW LEVEL SECURITY")
+            .execute(&mut *operator)
+            .await
+            .expect("operator restores FORCE before commit");
+        operator
+            .commit()
+            .await
+            .expect("commit scoped opt-in migration");
+    }
+    // Even when a privileged operator has enabled a school, the runtime
+    // Teacher must not change or delete its opt-in via an owner DB connection.
+    for statement in [
+        "UPDATE public.ai_grading_pdf_school_optins SET enabled=FALSE WHERE school_id=$1",
+        "DELETE FROM public.ai_grading_pdf_school_optins WHERE school_id=$1",
+    ] {
+        use crate::rls_context::{AuthorizedActor, AuthorizedTx};
+        let actor = AuthorizedActor::new(teacher_a_user, "Teacher", Some(school_a))
+            .expect("Teacher opt-in mutation denied actor");
+        let tx = AuthorizedTx::begin(&pool, actor)
+            .await
+            .expect("begin denied PDF opt-in update");
+        let scoped = tx.authorized_pool();
+        let denied = tx
+            .scope(
+                sqlx::query(statement).bind(school_a).execute(&scoped),
+                |_| false,
+            )
+            .await
+            .expect("complete denied opt-in update");
+        assert!(denied.is_err(), "runtime Teacher bypassed PDF opt-in guard");
+    }
+    let queued_revision: Uuid = sqlx::query_scalar(
+        "UPDATE public.submissions SET revision=gen_random_uuid() \
+         WHERE id=$1 RETURNING revision",
+    )
+    .bind(submissions[0])
+    .fetch_one(&pool)
+    .await
+    .expect("finalize opt-in PDF revision");
+    let queued_status: String = sqlx::query_scalar(
+        "SELECT status FROM public.ai_grading_jobs \
+         WHERE submission_id=$1 AND submission_revision=$2 \
+           AND rubric_approval_id=$3",
+    )
+    .bind(submissions[0])
+    .bind(queued_revision)
+    .bind(pdf_approval)
+    .fetch_one(&pool)
+    .await
+    .expect("approved single PDF enqueued at exact revision");
+    assert_eq!(queued_status, "queued");
+    let school_b_optin: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM public.ai_grading_pdf_school_optins \
+         WHERE school_id=$1",
+    )
+    .bind(school_b)
+    .fetch_one(&pool)
+    .await
+    .expect("other school remains off");
+    assert_eq!(school_b_optin, 0);
+
+    // Return the fixture to a disabled and non-running state so subsequent
+    // manual-grade acceptance assertions remain isolated.
+    {
+        let mut operator = pool.begin().await.expect("begin operator rollback");
+        sqlx::query("ALTER TABLE public.ai_grading_pdf_school_optins NO FORCE ROW LEVEL SECURITY")
+            .execute(&mut *operator)
+            .await
+            .expect("operator temporary migration-only opt-in change");
+        sqlx::query(
+            "UPDATE public.ai_grading_pdf_school_optins SET enabled=FALSE,updated_at=NOW() \
+             WHERE school_id=$1",
+        )
+        .bind(school_a)
+        .execute(&mut *operator)
+        .await
+        .expect("operator disables pilot");
+        sqlx::query("ALTER TABLE public.ai_grading_pdf_school_optins FORCE ROW LEVEL SECURITY")
+            .execute(&mut *operator)
+            .await
+            .expect("operator restores FORCE on rollback");
+        operator
+            .commit()
+            .await
+            .expect("commit scoped opt-in rollback");
+    }
+    sqlx::query(
+        "UPDATE public.ai_grading_jobs SET status='cancelled',completed_at=NOW(), \
+         last_error_code='authorization_revoked' \
+         WHERE submission_id=$1 AND submission_revision=$2 AND status='queued'",
+    )
+    .bind(submissions[0])
+    .bind(queued_revision)
+    .execute(&pool)
+    .await
+    .expect("retire pilot job");
+
     // Exact-object teacher authorization and two-row manual-grade lifecycle
     // proof against real PostgreSQL/RLS, after AI-preview assertions are done.
     async fn manual_grade_as(
