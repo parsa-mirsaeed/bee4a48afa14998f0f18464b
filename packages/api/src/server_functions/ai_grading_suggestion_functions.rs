@@ -491,7 +491,7 @@ mod tests {
             "if &current_pdf != expected_pdf",
             "school_pdf_grading_enabled",
             "grading.pdf_school_disabled",
-            "reserve_pdf_budget_before_egress",
+            "reserve_pdf_budget_for_grading_state",
             "ON CONFLICT (submission_id, submission_revision, rubric_approval_id) DO NOTHING",
         ] {
             assert!(production.contains(required));
