@@ -127,6 +127,25 @@ pub async fn find_authorized_pdf_metadata(
     }))
 }
 
+/// Operator-controlled school consent to send any original PDF to an LLM.
+/// This is checked before storage/model egress and again after the model.
+/// The table starts empty and Teacher/Student actors cannot mutate it.
+pub async fn school_pdf_grading_enabled(
+    pool: &AuthorizedPool,
+    school_id: Uuid,
+) -> Result<bool, sqlx::Error> {
+    if school_id.is_nil() {
+        return Ok(false);
+    }
+    sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS (SELECT 1 FROM public.ai_grading_pdf_school_optins \
+         WHERE school_id=$1 AND enabled IS TRUE)",
+    )
+    .bind(school_id)
+    .fetch_one(pool)
+    .await
+}
+
 /// Returned bytes stay server-local, with an authenticated school identity.
 /// No Debug/Serialize to prevent accidental PDF or key leakage.
 pub struct AuthorizedNativePdf {
@@ -147,6 +166,13 @@ pub async fn load_authorized_native_pdf(
             .await
             .map_err(|_| AuthorizedPdfError::NotAuthorizedOrStale)?
             .ok_or(AuthorizedPdfError::NotAuthorizedOrStale)?;
+
+    if !school_pdf_grading_enabled(pool, source.school_id)
+        .await
+        .map_err(|_| AuthorizedPdfError::NotAuthorizedOrStale)?
+    {
+        return Err(AuthorizedPdfError::NotAuthorizedOrStale);
+    }
 
     // Storage service owns its private bucket and bounded, server-authorized
     // read. The key is derived solely from RLS-authorized metadata.
@@ -175,7 +201,11 @@ pub async fn load_authorized_native_pdf(
             .await
             .map_err(|_| AuthorizedPdfError::NotAuthorizedOrStale)?
             .ok_or(AuthorizedPdfError::NotAuthorizedOrStale)?;
-    if latest != source {
+    if latest != source
+        || !school_pdf_grading_enabled(pool, source.school_id)
+            .await
+            .map_err(|_| AuthorizedPdfError::NotAuthorizedOrStale)?
+    {
         return Err(AuthorizedPdfError::NotAuthorizedOrStale);
     }
     Ok(AuthorizedNativePdf {
