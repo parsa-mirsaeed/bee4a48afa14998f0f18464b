@@ -1,4 +1,4 @@
-//! Durable text-only AI grading executor. Disabled unless explicitly enabled
+//! Durable AI grading executor. Disabled unless explicitly enabled
 //! via AI_GRADING_WORKER_ENABLED=true. Queued work contains no student content:
 //! global scheduler transactions see only lease metadata; AI inputs and
 //! persisted suggestions are read/written under a fresh Teacher AuthorizedTx.
