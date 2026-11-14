@@ -448,10 +448,14 @@ mod tests {
             .unwrap_or(source);
         for required in [
             "find_authorized_grading_source",
+            "find_authorized_pdf_metadata",
+            "load_authorized_native_pdf",
+            "suggest_native_pdf_grade_for_school",
             "current_approved_rubric",
             "validate_authoritative_rubric",
             "validate_against_rubric",
             "latest_approval",
+            "if &current_pdf != expected_pdf",
             "ON CONFLICT (submission_id, submission_revision, rubric_approval_id) DO NOTHING",
         ] {
             assert!(production.contains(required));
