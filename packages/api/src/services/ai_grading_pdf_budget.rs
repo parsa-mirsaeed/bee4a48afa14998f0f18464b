@@ -15,6 +15,20 @@ pub enum PdfBudgetError {
     Unavailable,
 }
 
+fn valid_reservation_inputs(
+    teacher_user_id: Uuid,
+    school_id: Uuid,
+    submission_id: Uuid,
+    revision: Uuid,
+    approval_id: Uuid,
+    original_pdf_size: i64,
+) -> bool {
+    ![teacher_user_id, school_id, submission_id, revision, approval_id]
+        .iter()
+        .any(Uuid::is_nil)
+        && (1..=1_000_000).contains(&original_pdf_size)
+}
+
 pub async fn reserve_pdf_budget_before_egress(
     raw: &PgPool,
     teacher_user_id: Uuid,
@@ -24,11 +38,14 @@ pub async fn reserve_pdf_budget_before_egress(
     approval_id: Uuid,
     original_pdf_size: i64,
 ) -> Result<(), PdfBudgetError> {
-    if [teacher_user_id, school_id, submission_id, revision, approval_id]
-        .iter()
-        .any(Uuid::is_nil)
-        || !(1..=1_000_000).contains(&original_pdf_size)
-    {
+    if !valid_reservation_inputs(
+        teacher_user_id,
+        school_id,
+        submission_id,
+        revision,
+        approval_id,
+        original_pdf_size,
+    ) {
         return Err(PdfBudgetError::Denied);
     }
 
@@ -66,19 +83,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn missing_identity_or_oversized_document_is_denied_before_database_access() {
+    fn reservation_fails_closed_for_identity_and_document_limits() {
         let school = Uuid::new_v4();
         let teacher = Uuid::new_v4();
         let submission = Uuid::new_v4();
         let revision = Uuid::new_v4();
         let approval = Uuid::new_v4();
-        // Validates guards without opening any connection.
-        for (user, size) in [(Uuid::nil(), 100), (teacher, 0), (teacher, 1_000_001)] {
-            assert!(user.is_nil() || !(1..=1_000_000).contains(&size));
-        }
-        assert!(![school, teacher, submission, revision, approval].iter().any(Uuid::is_nil));
-        assert!(include_str!("ai_grading_pdf_budget.rs").contains(
-            "SELECT public.reserve_ai_grading_pdf_budget($1,$2,$3,$4,$5)"
+        assert!(valid_reservation_inputs(
+            teacher, school, submission, revision, approval, 100
+        ));
+        assert!(!valid_reservation_inputs(
+            Uuid::nil(), school, submission, revision, approval, 100
+        ));
+        assert!(!valid_reservation_inputs(
+            teacher, school, Uuid::nil(), revision, approval, 100
+        ));
+        assert!(!valid_reservation_inputs(
+            teacher, school, submission, revision, approval, 0
+        ));
+        assert!(!valid_reservation_inputs(
+            teacher, school, submission, revision, approval, 1_000_001
         ));
     }
 }
