@@ -1,4 +1,4 @@
-//! Durable text-only AI grading executor. Disabled unless explicitly enabled
+//! Durable AI grading executor. Disabled unless explicitly enabled
 //! via AI_GRADING_WORKER_ENABLED=true. Queued work contains no student content:
 //! global scheduler transactions see only lease metadata; AI inputs and
 //! persisted suggestions are read/written under a fresh Teacher AuthorizedTx.
@@ -212,7 +212,7 @@ async fn fail(raw: &PgPool, pool: &AuthorizedPool, worker: Uuid, job: ClaimedJob
     }
 }
 
-/// Start the text-only worker. Deployment must explicitly opt in after
+/// Start the grading worker. Deployment must explicitly opt in after
 /// reviewing model costs and quality; a failed gateway cannot publish grades.
 pub fn start_ai_grading_worker(
     raw: Arc<PgPool>,

@@ -1,9 +1,8 @@
 //! RLS-scoped, revision-bound original PDF for teacher-authorized grading.
 //!
 //! Student documents never cross this boundary as URLs or extracted text.
-//! This module is deliberately not yet wired to the worker: the application
-//! must keep the current text-only attachment exclusion until a full
-//! PDF→LLM→teacher suggestion integration has exact-head security proof.
+//! The Teacher-authorized suggestion path invokes this source for PDF work.
+//! Existing text-only grading continues to exclude finalized attachments.
 
 use crate::app_state::AppState;
 use crate::repositories::submission_attachment_repository::object_key;
