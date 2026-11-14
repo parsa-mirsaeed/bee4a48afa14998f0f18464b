@@ -1576,6 +1576,28 @@ async fn school_and_teacher_authorization_matrix() {
             .await
             .expect("commit scoped opt-in migration");
     }
+    // Even when a privileged operator has enabled a school, the runtime
+    // Teacher must not change or delete its opt-in via an owner DB connection.
+    for statement in [
+        "UPDATE public.ai_grading_pdf_school_optins SET enabled=FALSE WHERE school_id=$1",
+        "DELETE FROM public.ai_grading_pdf_school_optins WHERE school_id=$1",
+    ] {
+        use crate::rls_context::{AuthorizedActor, AuthorizedTx};
+        let actor = AuthorizedActor::new(teacher_a_user, "Teacher", Some(school_a))
+            .expect("Teacher opt-in mutation denied actor");
+        let tx = AuthorizedTx::begin(&pool, actor)
+            .await
+            .expect("begin denied PDF opt-in update");
+        let scoped = tx.authorized_pool();
+        let denied = tx
+            .scope(
+                sqlx::query(statement).bind(school_a).execute(&scoped),
+                |_| false,
+            )
+            .await
+            .expect("complete denied opt-in update");
+        assert!(denied.is_err(), "runtime Teacher bypassed PDF opt-in guard");
+    }
     let queued_revision: Uuid = sqlx::query_scalar(
         "UPDATE public.submissions SET revision=gen_random_uuid() \
          WHERE id=$1 RETURNING revision",
