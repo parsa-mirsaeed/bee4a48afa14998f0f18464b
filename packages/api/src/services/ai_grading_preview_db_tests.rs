@@ -1648,6 +1648,32 @@ async fn school_and_teacher_authorization_matrix() {
             .expect("finish denied opt-in");
         assert!(attempt.is_err(), "Teacher must not opt in their own school");
     }
+    let policy_row: (String, String, String) = sqlx::query_as(
+        "SELECT cmd, roles::text, qual
+         FROM pg_policies
+         WHERE schemaname='public'
+           AND tablename='ai_grading_pdf_school_optins'
+           AND policyname='ai_grading_pdf_optin_active_teacher_select'",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("constrained runtime Teacher RLS read policy installed");
+    assert_eq!(policy_row.0, "SELECT");
+    assert!(policy_row.2.contains("get_role()"));
+    assert!(policy_row.2.contains("Teacher"));
+    assert!(policy_row.2.contains("get_school_id()"));
+    assert!(policy_row.2.contains("get_user_id()"));
+    assert!(policy_row.2.contains("is_active"));
+    let writer_policies: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM pg_policies
+         WHERE schemaname='public'
+           AND tablename='ai_grading_pdf_school_optins'
+           AND cmd IN ('INSERT','UPDATE','DELETE','ALL')",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("verify no request actor writer policies");
+    assert_eq!(writer_policies, 0);
     let enabled_count: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM public.ai_grading_pdf_school_optins \
          WHERE school_id=$1 AND enabled",
