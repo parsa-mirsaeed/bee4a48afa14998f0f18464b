@@ -1529,7 +1529,7 @@ async fn school_and_teacher_authorization_matrix() {
             .scope(
                 sqlx::query(
                     "INSERT INTO public.ai_grading_pdf_school_optins (school_id,enabled) \
-                     VALUES ($1,TRUE)"
+                     VALUES ($1,TRUE)",
                 )
                 .bind(school_a)
                 .execute(&scoped),
@@ -1541,7 +1541,7 @@ async fn school_and_teacher_authorization_matrix() {
     }
     let enabled_count: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM public.ai_grading_pdf_school_optins \
-         WHERE school_id=$1 AND enabled"
+         WHERE school_id=$1 AND enabled",
     )
     .bind(school_a)
     .fetch_one(&pool)
@@ -1553,7 +1553,7 @@ async fn school_and_teacher_authorization_matrix() {
     // a subsequent finalized revision may enqueue, never retroactive work.
     sqlx::query(
         "INSERT INTO public.ai_grading_pdf_school_optins (school_id,enabled) \
-         VALUES ($1,TRUE)"
+         VALUES ($1,TRUE)",
     )
     .bind(school_a)
     .execute(&pool)
@@ -1561,7 +1561,7 @@ async fn school_and_teacher_authorization_matrix() {
     .expect("owner explicitly opts one school in");
     let queued_revision: Uuid = sqlx::query_scalar(
         "UPDATE public.submissions SET revision=gen_random_uuid() \
-         WHERE id=$1 RETURNING revision"
+         WHERE id=$1 RETURNING revision",
     )
     .bind(submissions[0])
     .fetch_one(&pool)
@@ -1570,7 +1570,7 @@ async fn school_and_teacher_authorization_matrix() {
     let queued_status: String = sqlx::query_scalar(
         "SELECT status FROM public.ai_grading_jobs \
          WHERE submission_id=$1 AND submission_revision=$2 \
-           AND rubric_approval_id=$3"
+           AND rubric_approval_id=$3",
     )
     .bind(submissions[0])
     .bind(queued_revision)
@@ -1581,7 +1581,7 @@ async fn school_and_teacher_authorization_matrix() {
     assert_eq!(queued_status, "queued");
     let school_b_optin: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM public.ai_grading_pdf_school_optins \
-         WHERE school_id=$1"
+         WHERE school_id=$1",
     )
     .bind(school_b)
     .fetch_one(&pool)
@@ -1593,7 +1593,7 @@ async fn school_and_teacher_authorization_matrix() {
     // manual-grade acceptance assertions remain isolated.
     sqlx::query(
         "UPDATE public.ai_grading_pdf_school_optins SET enabled=FALSE,updated_at=NOW() \
-         WHERE school_id=$1"
+         WHERE school_id=$1",
     )
     .bind(school_a)
     .execute(&pool)
@@ -1602,7 +1602,7 @@ async fn school_and_teacher_authorization_matrix() {
     sqlx::query(
         "UPDATE public.ai_grading_jobs SET status='cancelled',completed_at=NOW(), \
          last_error_code='authorization_revoked' \
-         WHERE submission_id=$1 AND submission_revision=$2 AND status='queued'"
+         WHERE submission_id=$1 AND submission_revision=$2 AND status='queued'",
     )
     .bind(submissions[0])
     .bind(queued_revision)
