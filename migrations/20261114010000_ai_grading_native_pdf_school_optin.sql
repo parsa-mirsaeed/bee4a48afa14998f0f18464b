@@ -43,7 +43,7 @@ CREATE OR REPLACE FUNCTION edutalent_internal.guard_ai_grading_pdf_school_optin_
 RETURNS TRIGGER
 LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, public
-AS $
+AS $pdf_guard$
 BEGIN
     IF public.get_user_id() IS NOT NULL
        OR public.get_role() IS NOT NULL
@@ -57,7 +57,7 @@ BEGIN
     END IF;
     RETURN NEW;
 END;
-$;
+$pdf_guard$;
 REVOKE ALL ON FUNCTION edutalent_internal.guard_ai_grading_pdf_school_optin_write()
 FROM PUBLIC;
 CREATE TRIGGER ai_grading_pdf_school_optin_runtime_guard
