@@ -61,6 +61,31 @@ async fn pdf_source_as(
     .expect("native PDF metadata lookup")
 }
 
+/// The PDF egress gate is checked with the same request-scoped Teacher RLS
+/// transaction that authorizes a grading suggestion.
+async fn pdf_egress_enabled_as(
+    raw: &sqlx::PgPool,
+    teacher_user_id: Uuid,
+    school_id: Uuid,
+) -> bool {
+    use crate::rls_context::{AuthorizedActor, AuthorizedTx};
+    let actor = AuthorizedActor::new(teacher_user_id, "Teacher", Some(school_id))
+        .expect("valid PDF school gate actor");
+    let tx = AuthorizedTx::begin(raw, actor)
+        .await
+        .expect("begin PDF gate RLS transaction");
+    let scoped = tx.authorized_pool();
+    tx.scope(
+        crate::services::ai_grading_pdf_source::school_pdf_grading_enabled(
+            &scoped, school_id,
+        ),
+        Result::is_ok,
+    )
+    .await
+    .expect("finish PDF gate RLS transaction")
+    .expect("read school PDF opt-in")
+}
+
 #[tokio::test]
 async fn school_and_teacher_authorization_matrix() {
     use sqlx::PgPool;
@@ -1417,6 +1442,53 @@ async fn school_and_teacher_authorization_matrix() {
     assert_eq!(own_pdf.byte_size, 12);
     assert_eq!(own_pdf.sha256, "a".repeat(64));
     assert_eq!(own_pdf.submission_text, "The answer is 42.");
+
+    // A separate unfinished upload (submission_id NULL) is part of the
+    // same student's answer. The native PDF source must never ignore it.
+    let pending_sibling = Uuid::new_v4();
+    sqlx::query(
+        r#"
+        INSERT INTO public.submission_attachments (
+            id, custom_assignment_id, student_id, school_id,
+            request_id, filename, media_type, byte_size, sha256, status
+        )
+        SELECT $1, s.custom_assignment_id, s.student_id, $2, $3,
+               'unfinished.png', 'image/png', 15, repeat('b',64), 'pending'
+        FROM public.submissions s WHERE s.id=$4
+        "#,
+    )
+    .bind(pending_sibling)
+    .bind(school_a)
+    .bind(Uuid::new_v4())
+    .bind(submissions[0])
+    .execute(&pool)
+    .await
+    .expect("create unfinished sibling upload");
+    assert!(
+        pdf_source_as(
+            &pool, teacher_a_user, "Teacher", school_a,
+            submissions[0], pdf_revision, pdf_approval,
+        )
+        .await
+        .is_none(),
+        "pending sibling with NULL submission ID must deny native PDF grading"
+    );
+    sqlx::query(
+        "UPDATE public.submission_attachments SET status='removed' WHERE id=$1",
+    )
+    .bind(pending_sibling)
+    .execute(&pool)
+    .await
+    .expect("remove unfinished sibling");
+    assert!(
+        pdf_source_as(
+            &pool, teacher_a_user, "Teacher", school_a,
+            submissions[0], pdf_revision, pdf_approval,
+        )
+        .await
+        .is_some(),
+        "removed unfinished upload must not block current eligible PDF"
+    );
     for (user, role, school) in [
         (teacher_peer_user, "Teacher", school_a),
         (teacher_b_user, "Teacher", school_b),
@@ -1548,6 +1620,10 @@ async fn school_and_teacher_authorization_matrix() {
     .await
     .expect("read initially disabled pilot");
     assert_eq!(enabled_count, 0, "migration must not enable PDF inference");
+    assert!(
+        !pdf_egress_enabled_as(&pool, teacher_a_user, school_a).await,
+        "direct teacher PDF inference must be disabled before operator opt-in"
+    );
 
     // Simulate a separately approved migration-owner operator action. Only
     // a subsequent finalized revision may enqueue, never retroactive work.
@@ -1576,6 +1652,14 @@ async fn school_and_teacher_authorization_matrix() {
             .await
             .expect("commit scoped opt-in migration");
     }
+    assert!(
+        pdf_egress_enabled_as(&pool, teacher_a_user, school_a).await,
+        "explicit operator opt-in must enable teacher-authorized native PDF egress"
+    );
+    assert!(
+        !pdf_egress_enabled_as(&pool, teacher_b_user, school_b).await,
+        "school B must remain disabled when school A is enabled"
+    );
     // Even when a privileged operator has enabled a school, the runtime
     // Teacher must not change or delete its opt-in via an owner DB connection.
     for statement in [
@@ -1653,6 +1737,10 @@ async fn school_and_teacher_authorization_matrix() {
             .await
             .expect("commit scoped opt-in rollback");
     }
+    assert!(
+        !pdf_egress_enabled_as(&pool, teacher_a_user, school_a).await,
+        "operator revocation must disable fresh PDF egress"
+    );
     sqlx::query(
         "UPDATE public.ai_grading_jobs SET status='cancelled',completed_at=NOW(), \
          last_error_code='authorization_revoked' \
