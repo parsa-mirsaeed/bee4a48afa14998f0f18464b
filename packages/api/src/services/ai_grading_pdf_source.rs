@@ -79,11 +79,10 @@ WHERE s.id=$1 AND teacher_user.id=$2
   AND s.submitted_at IS NOT NULL
   AND ca.graded_at IS NULL AND s.grade IS NULL AND s.graded_by IS NULL
   AND (SELECT count(*) FROM public.submission_attachments other_attachment
-       WHERE other_attachment.submission_id=s.id
-         AND other_attachment.custom_assignment_id=ca.id
+       WHERE other_attachment.custom_assignment_id=ca.id
          AND other_attachment.student_id=ca.student_id
          AND other_attachment.school_id=cs.school_id
-         AND other_attachment.status='submitted')=1
+         AND other_attachment.status <> 'removed')=1
 LIMIT 1
 "#;
 
@@ -127,6 +126,25 @@ pub async fn find_authorized_pdf_metadata(
     }))
 }
 
+/// Operator-controlled school consent to send any original PDF to an LLM.
+/// This is checked before storage/model egress and again after the model.
+/// The table starts empty and Teacher/Student actors cannot mutate it.
+pub async fn school_pdf_grading_enabled(
+    pool: &AuthorizedPool,
+    school_id: Uuid,
+) -> Result<bool, sqlx::Error> {
+    if school_id.is_nil() {
+        return Ok(false);
+    }
+    sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS (SELECT 1 FROM public.ai_grading_pdf_school_optins \
+         WHERE school_id=$1 AND enabled IS TRUE)",
+    )
+    .bind(school_id)
+    .fetch_one(pool)
+    .await
+}
+
 /// Returned bytes stay server-local, with an authenticated school identity.
 /// No Debug/Serialize to prevent accidental PDF or key leakage.
 pub struct AuthorizedNativePdf {
@@ -147,6 +165,13 @@ pub async fn load_authorized_native_pdf(
             .await
             .map_err(|_| AuthorizedPdfError::NotAuthorizedOrStale)?
             .ok_or(AuthorizedPdfError::NotAuthorizedOrStale)?;
+
+    if !school_pdf_grading_enabled(pool, source.school_id)
+        .await
+        .map_err(|_| AuthorizedPdfError::NotAuthorizedOrStale)?
+    {
+        return Err(AuthorizedPdfError::NotAuthorizedOrStale);
+    }
 
     // Storage service owns its private bucket and bounded, server-authorized
     // read. The key is derived solely from RLS-authorized metadata.
@@ -175,7 +200,11 @@ pub async fn load_authorized_native_pdf(
             .await
             .map_err(|_| AuthorizedPdfError::NotAuthorizedOrStale)?
             .ok_or(AuthorizedPdfError::NotAuthorizedOrStale)?;
-    if latest != source {
+    if latest != source
+        || !school_pdf_grading_enabled(pool, source.school_id)
+            .await
+            .map_err(|_| AuthorizedPdfError::NotAuthorizedOrStale)?
+    {
         return Err(AuthorizedPdfError::NotAuthorizedOrStale);
     }
     Ok(AuthorizedNativePdf {
@@ -205,7 +234,7 @@ mod tests {
             "attachment.status='submitted'",
             "attachment.media_type='application/pdf'",
             "attachment.byte_size BETWEEN 1 AND 1000000",
-            "other_attachment.status='submitted')=1",
+            "other_attachment.status <> 'removed')=1",
             "ca.graded_at IS NULL AND s.grade IS NULL",
         ] {
             assert!(
