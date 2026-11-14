@@ -83,7 +83,7 @@ WHERE s.id=$1 AND teacher_user.id=$2
          AND other_attachment.custom_assignment_id=ca.id
          AND other_attachment.student_id=ca.student_id
          AND other_attachment.school_id=cs.school_id
-         AND other_attachment.status='submitted')=1
+         AND other_attachment.status <> 'removed')=1
 LIMIT 1
 "#;
 
@@ -235,7 +235,7 @@ mod tests {
             "attachment.status='submitted'",
             "attachment.media_type='application/pdf'",
             "attachment.byte_size BETWEEN 1 AND 1000000",
-            "other_attachment.status='submitted')=1",
+            "other_attachment.status <> 'removed')=1",
             "ca.graded_at IS NULL AND s.grade IS NULL",
         ] {
             assert!(
