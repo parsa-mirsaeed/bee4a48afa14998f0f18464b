@@ -28,6 +28,39 @@ async fn source_as(
     .expect("lookup grading context")
 }
 
+/// The PDF metadata source is independent of the existing text-only preview.
+/// Both are read inside the same real PostgreSQL Teacher RLS transaction.
+async fn pdf_source_as(
+    pool: &sqlx::PgPool,
+    user_id: Uuid,
+    role: &str,
+    school_id: Uuid,
+    submission_id: Uuid,
+    revision: Uuid,
+    approval_id: Uuid,
+) -> Option<crate::services::ai_grading_pdf_source::AuthorizedPdfMetadata> {
+    use crate::rls_context::{AuthorizedActor, AuthorizedTx};
+    let actor = AuthorizedActor::new(user_id, role, Some(school_id))
+        .expect("valid RLS native PDF grading test actor");
+    let tx = AuthorizedTx::begin(pool, actor)
+        .await
+        .expect("begin authorized native PDF test transaction");
+    let scoped = tx.authorized_pool();
+    tx.scope(
+        crate::services::ai_grading_pdf_source::find_authorized_pdf_metadata(
+            &scoped,
+            submission_id,
+            user_id,
+            revision,
+            approval_id,
+        ),
+        Result::is_ok,
+    )
+    .await
+    .expect("complete native PDF authorization transaction")
+    .expect("native PDF metadata lookup")
+}
+
 #[tokio::test]
 async fn school_and_teacher_authorization_matrix() {
     use sqlx::PgPool;
@@ -1278,9 +1311,9 @@ async fn school_and_teacher_authorization_matrix() {
         "unfinalized work must never be sent to the grading gateway"
     );
 
-    // Restore finalization and attach a verified submitted PDF *alongside*
-    // nonempty text. Only the complete answer may be graded: without OCR,
-    // this mixed submission must fail closed before calling the LLM.
+    // Restore finalization and attach a verified submitted PDF alongside
+    // nonempty text. Existing text-only inference remains blocked, while
+    // the separate native-PDF source may authorize this exact revision.
     sqlx::query(
         "UPDATE custom_assignments SET submitted_at = NOW() \
          WHERE id = (SELECT custom_assignment_id FROM submissions WHERE id = $1)",
@@ -1330,6 +1363,109 @@ async fn school_and_teacher_authorization_matrix() {
         "another school's text-only submission remains eligible"
     );
 
+    let pdf_revision: Uuid =
+        sqlx::query_scalar("SELECT revision FROM public.submissions WHERE id=$1")
+            .bind(submissions[0])
+            .fetch_one(&pool)
+            .await
+            .expect("submitted PDF revision");
+    // The prior approval was explicitly revoked in the concurrency proof.
+    // The new source must reject it even when its attachment still exists.
+    assert!(
+        pdf_source_as(
+            &pool,
+            teacher_a_user,
+            "Teacher",
+            school_a,
+            submissions[0],
+            pdf_revision,
+            replacement_approval,
+        )
+        .await
+        .is_none(),
+        "revoked rubric may never authorize native PDF retrieval"
+    );
+    let pdf_approval = attempt_approval(
+        &pool,
+        teacher_a_user,
+        "Teacher",
+        school_a,
+        custom_id,
+        teacher_a,
+        serde_json::json!([
+            {"criterion_id": "استدلال", "possible_points": 12.0},
+            {"criterion_id": "accuracy", "possible_points": 8.0}
+        ]),
+    )
+    .await
+    .expect("approve current PDF assessment")
+    .expect("assigned teacher can explicitly approve a PDF rubric");
+    let own_pdf = pdf_source_as(
+        &pool,
+        teacher_a_user,
+        "Teacher",
+        school_a,
+        submissions[0],
+        pdf_revision,
+        pdf_approval,
+    )
+    .await
+    .expect("assigned Teacher can access exactly one finalized PDF metadata record");
+    assert_eq!(own_pdf.school_id, school_a);
+    assert_eq!(own_pdf.submission_revision, pdf_revision);
+    assert_eq!(own_pdf.rubric_approval_id, pdf_approval);
+    assert_eq!(own_pdf.byte_size, 12);
+    assert_eq!(own_pdf.sha256, "a".repeat(64));
+    assert_eq!(own_pdf.submission_text, "The answer is 42.");
+    for (user, role, school) in [
+        (teacher_peer_user, "Teacher", school_a),
+        (teacher_b_user, "Teacher", school_b),
+        (student_a_user, "Student", school_a),
+    ] {
+        assert!(
+            pdf_source_as(
+                &pool,
+                user,
+                role,
+                school,
+                submissions[0],
+                pdf_revision,
+                pdf_approval,
+            )
+            .await
+            .is_none(),
+            "wrong actor cannot retrieve native PDF metadata"
+        );
+    }
+    assert!(
+        pdf_source_as(
+            &pool,
+            teacher_a_user,
+            "Teacher",
+            school_a,
+            submissions[0],
+            Uuid::new_v4(),
+            pdf_approval,
+        )
+        .await
+        .is_none(),
+        "stale submission revision must be denied"
+    );
+    assert!(
+        pdf_source_as(
+            &pool,
+            teacher_a_user,
+            "Teacher",
+            school_a,
+            submissions[0],
+            pdf_revision,
+            Uuid::new_v4(),
+        )
+        .await
+        .is_none(),
+        "unapproved rubric must be denied"
+    );
+
     // A new finalized revision with a submitted PDF must cancel old queued
     // work without creating a new text-only grading job.
     let before: i64 =
@@ -1352,6 +1488,20 @@ async fn school_and_teacher_authorization_matrix() {
     assert_eq!(
         before, after,
         "attachments must never queue incomplete AI grading"
+    );
+    assert!(
+        pdf_source_as(
+            &pool,
+            teacher_a_user,
+            "Teacher",
+            school_a,
+            submissions[0],
+            pdf_revision,
+            pdf_approval,
+        )
+        .await
+        .is_none(),
+        "PDF grading source must reject the stale revision after resubmission"
     );
     let status: String = sqlx::query_scalar(
         "SELECT status FROM public.ai_grading_jobs \

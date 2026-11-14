@@ -42,3 +42,10 @@ Safety constraints: `AI_NATIVE_PDF_GATEWAY_ENABLED` defaults to false; only the 
 **Not yet a user-ready feature:** the application-side RLS-authorized finalized attachment read and worker/Teacher handoff are still absent, so the route is not invoked by the Student assignment flow. Do not enable this switch outside an isolated staging proof; it is not permission to auto-grade or publish student grades. The default text-only grading worker remains disabled.
 
 OpenAI official Chat Completions PDF file input requirements: https://developers.openai.com/api/docs/guides/file-inputs (PDF-only file content part, no external file URL).
+
+## Authorized source stage — #145 (application-side, still disconnected from worker)
+`ai_grading_pdf_source` implements a dedicated **Teacher-scoped RLS query** for an exact submitted assignment, submission UUID/revision, currently approved rubric UUID, and exactly **one** submitted PDF attachment under the same school and student. The query rejects stale/graded/unsubmitted assignments, inactive teachers or students, missing enrollment/teaching assignment and revoked rubric. It does not weaken the existing text-only attachment rejection.
+
+The private original is retrieved server-side only via the verified Supabase Storage bucket using a storage key **derived from authorized metadata** (never a client URL). The original file size must match recorded metadata, SHA-256 must match, framing must be valid, and the current authorized metadata must still match immediately after the asynchronous read. The gateway's initial 1 MB PDF limit applies. This stage returns an in-memory binary document and never serializes original bytes to a browser, logs contents or extracts text.
+
+**This is not end-to-end inference**: the text-only worker does not yet call this source. A separate worker/API PR must reauthorize submission revision and rubric **again after LLM inference**, and persist a teacher-review suggestion only after exact-authority verification. A disabled-by-default flag, operator cost limits, and full mock/browser E2E acceptance are prerequisites for a controlled pilot.
