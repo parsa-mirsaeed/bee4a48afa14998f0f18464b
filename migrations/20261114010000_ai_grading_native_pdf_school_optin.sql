@@ -28,34 +28,12 @@ USING (
          WHERE oid='public.ai_grading_pdf_school_optins'::regclass)
     )
 );
-CREATE POLICY ai_grading_pdf_optin_owner_insert
-ON public.ai_grading_pdf_school_optins FOR INSERT
-WITH CHECK (
-    current_user = pg_get_userbyid(
-        (SELECT relowner FROM pg_class
-         WHERE oid='public.ai_grading_pdf_school_optins'::regclass)
-    )
-    AND public.get_role() IS NULL
-    AND public.get_user_id() IS NULL
-);
-CREATE POLICY ai_grading_pdf_optin_owner_update
-ON public.ai_grading_pdf_school_optins FOR UPDATE
-USING (
-    current_user = pg_get_userbyid(
-        (SELECT relowner FROM pg_class
-         WHERE oid='public.ai_grading_pdf_school_optins'::regclass)
-    )
-    AND public.get_role() IS NULL
-    AND public.get_user_id() IS NULL
-)
-WITH CHECK (
-    current_user = pg_get_userbyid(
-        (SELECT relowner FROM pg_class
-         WHERE oid='public.ai_grading_pdf_school_optins'::regclass)
-    )
-    AND public.get_role() IS NULL
-    AND public.get_user_id() IS NULL
-);
+-- Intentionally NO INSERT, UPDATE or DELETE policy. FORCE RLS makes
+-- the school opt-in immutable to every runtime Teacher, Student, Parent,
+-- and even an application connection using the migration owner identity.
+-- An operator may only change this via a separate, audited DDL migration
+-- that temporarily drops FORCE *inside one transaction* and reinstates it
+-- before commit. No runtime opt-in endpoint exists.
 
 -- Reinstate all of the queue's existing revision/rubric/Teacher/enrollment
 -- rules, modifying only the alternative source eligibility predicate.
