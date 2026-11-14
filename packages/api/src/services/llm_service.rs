@@ -1387,7 +1387,10 @@ mod tests {
             post(move |headers: HeaderMap, Json(body): Json<Value>| {
                 let expected = expected.clone();
                 async move {
-                    assert_eq!(headers["x-edutalent-school-id"], school.to_string());
+                    assert_eq!(
+                        headers.get("x-edutalent-school-id").unwrap().to_str().unwrap(),
+                        school.to_string()
+                    );
                     assert_eq!(body["model"], "gpt-4o");
                     assert_eq!(body["submission_id"], submission.to_string());
                     assert_eq!(body["submission_revision"], revision.to_string());
