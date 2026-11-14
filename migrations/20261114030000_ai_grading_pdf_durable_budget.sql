@@ -22,6 +22,35 @@ CREATE TABLE edutalent_internal.ai_grading_pdf_budget_usage (
     PRIMARY KEY (school_id, utc_day)
 );
 
+-- A production app using the migration-owner login must still be
+-- unable to configure budget limits from a request-scoped Teacher context.
+-- This trigger is defense in depth against the same BYPASSRLS issue found
+-- in the native PDF school-opt-in migration.
+CREATE OR REPLACE FUNCTION edutalent_internal.guard_ai_grading_pdf_budget_policy()
+RETURNS TRIGGER
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, public
+AS $pdf_budget_guard$
+BEGIN
+    IF public.get_user_id() IS NOT NULL
+       OR public.get_role() IS NOT NULL
+       OR public.get_school_id() IS NOT NULL
+       OR public.get_elevated_operation() IS TRUE THEN
+        RAISE EXCEPTION 'application actor cannot set PDF spending policy'
+            USING ERRCODE = '42501';
+    END IF;
+    IF TG_OP = 'DELETE' THEN
+        RETURN OLD;
+    END IF;
+    RETURN NEW;
+END;
+$pdf_budget_guard$;
+REVOKE ALL ON FUNCTION edutalent_internal.guard_ai_grading_pdf_budget_policy()
+FROM PUBLIC;
+CREATE TRIGGER ai_grading_pdf_budget_policy_runtime_guard
+BEFORE INSERT OR UPDATE OR DELETE ON edutalent_internal.ai_grading_pdf_budget_policy
+FOR EACH ROW EXECUTE FUNCTION edutalent_internal.guard_ai_grading_pdf_budget_policy();
+
 REVOKE ALL ON edutalent_internal.ai_grading_pdf_budget_policy FROM PUBLIC;
 REVOKE ALL ON edutalent_internal.ai_grading_pdf_budget_usage FROM PUBLIC;
 DO $$
