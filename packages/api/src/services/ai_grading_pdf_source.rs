@@ -6,10 +6,10 @@
 //! PDF→LLM→teacher suggestion integration has exact-head security proof.
 
 use crate::app_state::AppState;
+use crate::repositories::submission_attachment_repository::object_key;
 use crate::rls_context::AuthorizedPool;
 use crate::services::ai_grading_native_pdf::{NativePdfGradingInput, NativePdfInputError};
 use crate::services::submission_attachment_storage;
-use crate::repositories::submission_attachment_repository::object_key;
 use sqlx::Row;
 use uuid::Uuid;
 
@@ -143,12 +143,11 @@ pub async fn load_authorized_native_pdf(
     revision: Uuid,
     approval_id: Uuid,
 ) -> Result<AuthorizedNativePdf, AuthorizedPdfError> {
-    let source = find_authorized_pdf_metadata(
-        pool, submission_id, teacher_user_id, revision, approval_id,
-    )
-    .await
-    .map_err(|_| AuthorizedPdfError::NotAuthorizedOrStale)?
-    .ok_or(AuthorizedPdfError::NotAuthorizedOrStale)?;
+    let source =
+        find_authorized_pdf_metadata(pool, submission_id, teacher_user_id, revision, approval_id)
+            .await
+            .map_err(|_| AuthorizedPdfError::NotAuthorizedOrStale)?
+            .ok_or(AuthorizedPdfError::NotAuthorizedOrStale)?;
 
     // Storage service owns its private bucket and bounded, server-authorized
     // read. The key is derived solely from RLS-authorized metadata.
@@ -172,12 +171,11 @@ pub async fn load_authorized_native_pdf(
 
     // Storage I/O is asynchronous: authorization can be revoked, or the
     // student can submit a different revision before the bytes arrive.
-    let latest = find_authorized_pdf_metadata(
-        pool, submission_id, teacher_user_id, revision, approval_id,
-    )
-    .await
-    .map_err(|_| AuthorizedPdfError::NotAuthorizedOrStale)?
-    .ok_or(AuthorizedPdfError::NotAuthorizedOrStale)?;
+    let latest =
+        find_authorized_pdf_metadata(pool, submission_id, teacher_user_id, revision, approval_id)
+            .await
+            .map_err(|_| AuthorizedPdfError::NotAuthorizedOrStale)?
+            .ok_or(AuthorizedPdfError::NotAuthorizedOrStale)?;
     if latest != source {
         return Err(AuthorizedPdfError::NotAuthorizedOrStale);
     }
@@ -211,7 +209,10 @@ mod tests {
             "other_attachment.status='submitted')=1",
             "ca.graded_at IS NULL AND s.grade IS NULL",
         ] {
-            assert!(AUTHORIZED_NATIVE_PDF_SOURCE.contains(clause), "missing clause: {clause}");
+            assert!(
+                AUTHORIZED_NATIVE_PDF_SOURCE.contains(clause),
+                "missing clause: {clause}"
+            );
         }
         assert!(MAX_GRADING_PDF_BYTES <= 1_000_000);
     }
