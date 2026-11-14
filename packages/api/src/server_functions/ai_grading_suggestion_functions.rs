@@ -258,13 +258,9 @@ pub(crate) async fn generate_authorized_teacher_suggestion(
         if pdf_metadata.as_ref() != Some(&original.metadata) {
             return Err(ServerFnError::new("grading.stale_submission"));
         }
-        llm.suggest_native_pdf_grade_for_school(
-            &original,
-            &approved.criteria,
-            approved.grade_scale,
-        )
-        .await
-        .map_err(|_| ServerFnError::new("grading.unavailable"))?
+        llm.suggest_native_pdf_grade_for_school(&original, &approved.criteria, approved.grade_scale)
+            .await
+            .map_err(|_| ServerFnError::new("grading.unavailable"))?
     } else {
         llm.suggest_assignment_grade_for_school(
             source.school_id,
