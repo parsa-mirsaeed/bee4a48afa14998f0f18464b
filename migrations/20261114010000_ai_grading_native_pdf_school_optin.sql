@@ -132,36 +132,27 @@ BEGIN
           a.body
       )) <= 16000
       AND (
-          -- Preserve the existing exact text-only eligibility and deny
-          -- unfinished/pending originals before model inference.
           (
               jsonb_typeof(s.content->'text') = 'string'
               AND btrim(s.content->>'text') <> ''
               AND octet_length(s.content->>'text') <= 32000
               AND NOT EXISTS (
-                  SELECT 1
-                  FROM public.submission_attachments attachment
+                  SELECT 1 FROM public.submission_attachments attachment
                   WHERE attachment.custom_assignment_id = ca.id
                     AND attachment.student_id = ca.student_id
                     AND attachment.school_id = cs.school_id
                     AND attachment.status <> 'removed'
               )
           )
-          OR
-          (
-              -- Native documents require explicit owner-controlled,
-              -- per-school enrollment. No school is enabled by migration.
+          OR (
+              -- An empty opt-in table keeps ALL schools disabled.
               EXISTS (
                   SELECT 1 FROM public.ai_grading_pdf_school_optins optin
-                  WHERE optin.school_id = cs.school_id
-                    AND optin.enabled IS TRUE
+                  WHERE optin.school_id = cs.school_id AND optin.enabled IS TRUE
               )
               AND octet_length(COALESCE(s.content->>'text', '')) <= 32000
-              -- Exactly one finalized original; pending/ready and images
-              -- cannot be silently omitted from the graded answer.
               AND (
-                  SELECT count(*)
-                  FROM public.submission_attachments attachment
+                  SELECT count(*) FROM public.submission_attachments attachment
                   WHERE attachment.custom_assignment_id = ca.id
                     AND attachment.student_id = ca.student_id
                     AND attachment.school_id = cs.school_id
@@ -177,18 +168,8 @@ BEGIN
                     AND attachment.status = 'submitted'
                     AND attachment.media_type = 'application/pdf'
                     AND attachment.byte_size BETWEEN 1 AND 1000000
-                    AND attachment.sha256 ~ '^[0-9a-f]{64}
-      AND NOT EXISTS (
-          SELECT 1 FROM public.ai_grading_suggestions suggestion
-          WHERE suggestion.submission_id = s.id
-            AND suggestion.submission_revision = s.revision
-            AND suggestion.rubric_approval_id = approval.id
-      )
-    ON CONFLICT (submission_id, submission_revision, rubric_approval_id)
-       DO NOTHING;
-END;
-$$;
-
+                    AND length(attachment.sha256) = 64
+                    AND attachment.sha256 !~ '[^0-9a-f]'
               )
           )
       )
@@ -202,7 +183,6 @@ $$;
        DO NOTHING;
 END;
 $$;
-
 REVOKE ALL ON FUNCTION
     edutalent_internal.enqueue_ai_grading_if_eligible(UUID, UUID) FROM PUBLIC;
 
