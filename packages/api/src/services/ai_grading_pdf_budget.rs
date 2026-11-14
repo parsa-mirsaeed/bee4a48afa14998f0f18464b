@@ -23,9 +23,15 @@ fn valid_reservation_inputs(
     approval_id: Uuid,
     original_pdf_size: i64,
 ) -> bool {
-    ![teacher_user_id, school_id, submission_id, revision, approval_id]
-        .iter()
-        .any(Uuid::is_nil)
+    ![
+        teacher_user_id,
+        school_id,
+        submission_id,
+        revision,
+        approval_id,
+    ]
+    .iter()
+    .any(Uuid::is_nil)
         && (1..=1_000_000).contains(&original_pdf_size)
 }
 
@@ -93,10 +99,20 @@ mod tests {
             teacher, school, submission, revision, approval, 100
         ));
         assert!(!valid_reservation_inputs(
-            Uuid::nil(), school, submission, revision, approval, 100
+            Uuid::nil(),
+            school,
+            submission,
+            revision,
+            approval,
+            100
         ));
         assert!(!valid_reservation_inputs(
-            teacher, school, Uuid::nil(), revision, approval, 100
+            teacher,
+            school,
+            Uuid::nil(),
+            revision,
+            approval,
+            100
         ));
         assert!(!valid_reservation_inputs(
             teacher, school, submission, revision, approval, 0
