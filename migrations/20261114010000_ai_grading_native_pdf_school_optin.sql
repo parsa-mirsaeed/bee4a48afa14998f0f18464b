@@ -35,6 +35,35 @@ USING (
 -- that temporarily drops FORCE *inside one transaction* and reinstates it
 -- before commit. No runtime opt-in endpoint exists.
 
+-- RLS alone cannot constrain a superuser/BYPASSRLS connection. A runtime
+-- transaction carrying any application identity must be rejected before any
+-- write, even if the connection also owns this relation or bypasses RLS.
+-- Privileged operator migrations use a separate unscoped connection.
+CREATE OR REPLACE FUNCTION edutalent_internal.guard_ai_grading_pdf_school_optin_write()
+RETURNS TRIGGER
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, public
+AS $
+BEGIN
+    IF public.get_user_id() IS NOT NULL
+       OR public.get_role() IS NOT NULL
+       OR public.get_school_id() IS NOT NULL
+       OR public.get_elevated_operation() IS TRUE THEN
+        RAISE EXCEPTION 'runtime actor cannot mutate PDF grading school opt-in'
+            USING ERRCODE = '42501';
+    END IF;
+    IF TG_OP = 'DELETE' THEN
+        RETURN OLD;
+    END IF;
+    RETURN NEW;
+END;
+$;
+REVOKE ALL ON FUNCTION edutalent_internal.guard_ai_grading_pdf_school_optin_write()
+FROM PUBLIC;
+CREATE TRIGGER ai_grading_pdf_school_optin_runtime_guard
+BEFORE INSERT OR UPDATE OR DELETE ON public.ai_grading_pdf_school_optins
+FOR EACH ROW EXECUTE FUNCTION edutalent_internal.guard_ai_grading_pdf_school_optin_write();
+
 -- Reinstate all of the queue's existing revision/rubric/Teacher/enrollment
 -- rules, modifying only the alternative source eligibility predicate.
 CREATE OR REPLACE FUNCTION edutalent_internal.enqueue_ai_grading_if_eligible(
