@@ -84,6 +84,29 @@ pub async fn reserve_pdf_budget_before_egress(
     }
 }
 
+/// Application entry point; the raw connection is encapsulated only here,
+/// and every query still runs in an independently committed Teacher AuthorizedTx.
+pub async fn reserve_pdf_budget_for_grading_state(
+    state: &crate::app_state::AppState,
+    teacher_user_id: Uuid,
+    school_id: Uuid,
+    submission_id: Uuid,
+    revision: Uuid,
+    approval_id: Uuid,
+    original_pdf_size: i64,
+) -> Result<(), PdfBudgetError> {
+    reserve_pdf_budget_before_egress(
+        state.services.raw_pool.as_ref(),
+        teacher_user_id,
+        school_id,
+        submission_id,
+        revision,
+        approval_id,
+        original_pdf_size,
+    )
+    .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
