@@ -44,3 +44,7 @@ All human/external approvals are consolidated in PR #2, which owns the pending m
 The first production architecture is self-hosted, single-node and **not highly available**. Only the gateway publishes host ports 80/443. PostgreSQL/Supabase internals, Qdrant and internal AI services remain private. The application uses a constrained `NOBYPASSRLS` database role with transaction-scoped authorization context. External AI is optional and mediated only through the AI Gateway; fully offline/local AI operation is separately supported by the appliance profile. Provider or AI-Gateway unavailability is not a core-login health dependency.
 
 Availability, RPO and RTO are not inferred from CI thresholds. They become contractual only when measured on the accepted school host/workload and written into the signed commercial schedule.
+
+## AI grading pilot release boundary
+
+[Native PDF AI grading staging acceptance and rollback](ai-grading-native-pdf-pilot-runbook.md) documents the default-OFF operator-controlled pilot, school consent, durable budget evidence, real-model teacher-scored benchmark, protected original privacy checks, exact-head E2E proof and rollback. The runbook is **NOT** a production approval and remains subject to manual/external acceptance in PR #2.
