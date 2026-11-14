@@ -63,11 +63,7 @@ async fn pdf_source_as(
 
 /// The PDF egress gate is checked with the same request-scoped Teacher RLS
 /// transaction that authorizes a grading suggestion.
-async fn pdf_egress_enabled_as(
-    raw: &sqlx::PgPool,
-    teacher_user_id: Uuid,
-    school_id: Uuid,
-) -> bool {
+async fn pdf_egress_enabled_as(raw: &sqlx::PgPool, teacher_user_id: Uuid, school_id: Uuid) -> bool {
     use crate::rls_context::{AuthorizedActor, AuthorizedTx};
     let actor = AuthorizedActor::new(teacher_user_id, "Teacher", Some(school_id))
         .expect("valid PDF school gate actor");
@@ -76,9 +72,7 @@ async fn pdf_egress_enabled_as(
         .expect("begin PDF gate RLS transaction");
     let scoped = tx.authorized_pool();
     tx.scope(
-        crate::services::ai_grading_pdf_source::school_pdf_grading_enabled(
-            &scoped, school_id,
-        ),
+        crate::services::ai_grading_pdf_source::school_pdf_grading_enabled(&scoped, school_id),
         Result::is_ok,
     )
     .await
@@ -1466,24 +1460,32 @@ async fn school_and_teacher_authorization_matrix() {
     .expect("create unfinished sibling upload");
     assert!(
         pdf_source_as(
-            &pool, teacher_a_user, "Teacher", school_a,
-            submissions[0], pdf_revision, pdf_approval,
+            &pool,
+            teacher_a_user,
+            "Teacher",
+            school_a,
+            submissions[0],
+            pdf_revision,
+            pdf_approval,
         )
         .await
         .is_none(),
         "pending sibling with NULL submission ID must deny native PDF grading"
     );
-    sqlx::query(
-        "UPDATE public.submission_attachments SET status='removed' WHERE id=$1",
-    )
-    .bind(pending_sibling)
-    .execute(&pool)
-    .await
-    .expect("remove unfinished sibling");
+    sqlx::query("UPDATE public.submission_attachments SET status='removed' WHERE id=$1")
+        .bind(pending_sibling)
+        .execute(&pool)
+        .await
+        .expect("remove unfinished sibling");
     assert!(
         pdf_source_as(
-            &pool, teacher_a_user, "Teacher", school_a,
-            submissions[0], pdf_revision, pdf_approval,
+            &pool,
+            teacher_a_user,
+            "Teacher",
+            school_a,
+            submissions[0],
+            pdf_revision,
+            pdf_approval,
         )
         .await
         .is_some(),
@@ -1724,13 +1726,11 @@ async fn school_and_teacher_authorization_matrix() {
         incomplete_count, 0,
         "opted-in school must never enqueue a PDF while a sibling upload is pending"
     );
-    sqlx::query(
-        "UPDATE public.submission_attachments SET status='removed' WHERE id=$1",
-    )
-    .bind(queue_pending_sibling)
-    .execute(&pool)
-    .await
-    .expect("remove unfinished sibling before fresh finalization");
+    sqlx::query("UPDATE public.submission_attachments SET status='removed' WHERE id=$1")
+        .bind(queue_pending_sibling)
+        .execute(&pool)
+        .await
+        .expect("remove unfinished sibling before fresh finalization");
 
     let queued_revision: Uuid = sqlx::query_scalar(
         "UPDATE public.submissions SET revision=gen_random_uuid() \
