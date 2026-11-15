@@ -1911,14 +1911,16 @@ async fn school_and_teacher_authorization_matrix() {
         assert!(accepted, "only an authorized Teacher decision publishes");
         assert_eq!(before_grade, None, "pending PDF evidence never auto-publishes");
         assert_eq!(decisions, 1, "teacher decisions must be audit recorded");
+        // The immutable suggestion row is not mutated to record decisions;
+        // the append-only ai_grading_decisions table is authoritative.
         if action == "accept" {
             assert_eq!(after_grade, Some(18.0));
             assert_eq!(grade_actor, Some(teacher_a));
-            assert_eq!(reviewed_status, "accepted");
+            assert_eq!(reviewed_status, "pending_review");
         } else {
             assert_eq!(after_grade, None, "rejection never publishes a grade");
             assert_eq!(grade_actor, None);
-            assert_eq!(reviewed_status, "rejected");
+            assert_eq!(reviewed_status, "pending_review");
         }
     }
     let post_review_grade: Option<f64> =
