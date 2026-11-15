@@ -24,6 +24,10 @@ function api(page: Page): Requests {
   };
 }
 async function login(page: Page, email: string) {
+  // Unmount the previous role's Dioxus view before changing the session.
+  // Otherwise its in-flight/private AI evidence refresh can run under the
+  // next actor's cookies and produce a real (correct) 403 after logout.
+  await page.goto('about:blank');
   const response = await api(page).post('/api/auth/login', {
     data: { email, password: 'e2e-password' },
   });
