@@ -1821,6 +1821,54 @@ async fn school_and_teacher_authorization_matrix() {
     // The native-PDF bytes/payload transport is proved separately in the
     // mock-first-party-provider gateway test. This test does NOT pretend to
     // run the whole student->gateway->parent browser journey.
+    let eligible_pdf: bool = sqlx::query_scalar(
+        "SELECT edutalent_internal.ai_grading_review_source_allowed($1,$2,$3,$4)",
+    )
+    .bind(submissions[0])
+    .bind(school_a)
+    .bind(custom_id)
+    .bind(student_a)
+    .fetch_one(&pool)
+    .await
+    .expect("one finalized PDF review source");
+    assert!(eligible_pdf, "one original PDF should be review-eligible only with live opt-in");
+
+    // A pending sibling has no submission_id but must still invalidate the
+    // model evidence and Teacher accept path. Verify the same server SQL
+    // helper that all three SECURITY DEFINER guards use.
+    let second_pending = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO public.submission_attachments
+         (id,custom_assignment_id,student_id,school_id,request_id,
+          filename,media_type,byte_size,sha256,status)
+         VALUES ($1,$2,$3,$4,$5,'unfinished.pdf','application/pdf',
+                 12,repeat('c',64),'pending')",
+    )
+    .bind(second_pending)
+    .bind(custom_id)
+    .bind(student_a)
+    .bind(school_a)
+    .bind(Uuid::new_v4())
+    .execute(&pool)
+    .await
+    .expect("stage unfinished sibling for PDF teacher review");
+    let with_sibling: bool = sqlx::query_scalar(
+        "SELECT edutalent_internal.ai_grading_review_source_allowed($1,$2,$3,$4)",
+    )
+    .bind(submissions[0])
+    .bind(school_a)
+    .bind(custom_id)
+    .bind(student_a)
+    .fetch_one(&pool)
+    .await
+    .expect("check unfinished sibling review gate");
+    assert!(!with_sibling, "unfinished sibling must block PDF teacher decision");
+    sqlx::query("UPDATE public.submission_attachments SET status='removed' WHERE id=$1")
+        .bind(second_pending)
+        .execute(&pool)
+        .await
+        .expect("remove unfinished sibling");
+
     let current_pdf_fingerprint: String = sqlx::query_scalar(
         "SELECT fingerprint FROM public.ai_grading_rubric_approvals WHERE id=$1",
     )
