@@ -1814,6 +1814,180 @@ async fn school_and_teacher_authorization_matrix() {
     .expect("approved single PDF enqueued at exact revision");
     assert_eq!(queued_status, "queued");
 
+    // PDF-positive decision boundary: emulate the already validated *model
+    // artifact* without calling any provider, then run the same SQL decision
+    // endpoint as the actual teacher-review server function. Roll back the
+    // entire experiment; its teacher approval, queue and fixture stay intact.
+    // The native-PDF bytes/payload transport is proved separately in the
+    // mock-first-party-provider gateway test. This test does NOT pretend to
+    // run the whole student->gateway->parent browser journey.
+    let eligible_pdf: bool = sqlx::query_scalar(
+        "SELECT edutalent_internal.ai_grading_review_source_allowed($1,$2,$3,$4)",
+    )
+    .bind(submissions[0])
+    .bind(school_a)
+    .bind(custom_id)
+    .bind(student_a)
+    .fetch_one(&pool)
+    .await
+    .expect("one finalized PDF review source");
+    assert!(
+        eligible_pdf,
+        "one original PDF should be review-eligible only with live opt-in"
+    );
+
+    // A pending sibling has no submission_id but must still invalidate the
+    // model evidence and Teacher accept path. Verify the same server SQL
+    // helper that all three SECURITY DEFINER guards use.
+    let second_pending = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO public.submission_attachments
+         (id,custom_assignment_id,student_id,school_id,request_id,
+          filename,media_type,byte_size,sha256,status)
+         VALUES ($1,$2,$3,$4,$5,'unfinished.pdf','application/pdf',
+                 12,repeat('c',64),'pending')",
+    )
+    .bind(second_pending)
+    .bind(custom_id)
+    .bind(student_a)
+    .bind(school_a)
+    .bind(Uuid::new_v4())
+    .execute(&pool)
+    .await
+    .expect("stage unfinished sibling for PDF teacher review");
+    let with_sibling: bool = sqlx::query_scalar(
+        "SELECT edutalent_internal.ai_grading_review_source_allowed($1,$2,$3,$4)",
+    )
+    .bind(submissions[0])
+    .bind(school_a)
+    .bind(custom_id)
+    .bind(student_a)
+    .fetch_one(&pool)
+    .await
+    .expect("check unfinished sibling review gate");
+    assert!(
+        !with_sibling,
+        "unfinished sibling must block PDF teacher decision"
+    );
+    sqlx::query("UPDATE public.submission_attachments SET status='removed' WHERE id=$1")
+        .bind(second_pending)
+        .execute(&pool)
+        .await
+        .expect("remove unfinished sibling");
+
+    let current_pdf_fingerprint: String = sqlx::query_scalar(
+        "SELECT rubric_fingerprint FROM public.ai_grading_rubric_approvals WHERE id=$1",
+    )
+    .bind(pdf_approval)
+    .fetch_one(&pool)
+    .await
+    .expect("current approved native PDF rubric fingerprint");
+    for action in ["accept", "reject"] {
+        use crate::rls_context::{AuthorizedActor, AuthorizedTx};
+        let actor = AuthorizedActor::new(teacher_a_user, "Teacher", Some(school_a))
+            .expect("assigned PDF teacher review actor");
+        let tx = AuthorizedTx::begin(&pool, actor)
+            .await
+            .expect("begin isolated native PDF decision test");
+        let scoped = tx.authorized_pool();
+        let (accepted, before_grade, after_grade, grade_actor, reviewed_status, decisions) = tx
+            .scope(
+                async {
+                    let criteria = serde_json::json!([
+                        {"criterion_id": "استدلال", "possible_points": 12.0,
+                         "awarded_points": 10.0, "evidence": "Synthetic rubric-based reasoning"},
+                        {"criterion_id": "accuracy", "possible_points": 8.0,
+                         "awarded_points": 8.0, "evidence": "Synthetic rubric-based accuracy"}
+                    ]);
+                    let mock_suggestion: Uuid = sqlx::query_scalar(
+                        r#"
+                        INSERT INTO public.ai_grading_suggestions (
+                            submission_id, submission_revision, rubric_approval_id,
+                            school_id, rubric_fingerprint, contract_version,
+                            grade_scale, suggested_grade, confidence, feedback, criteria
+                        ) VALUES ($1,$2,$3,$4,$5,1,20,18,0.85,
+                                  'Synthetic native PDF: review required',$6)
+                        RETURNING id
+                        "#,
+                    )
+                    .bind(submissions[0])
+                    .bind(queued_revision)
+                    .bind(pdf_approval)
+                    .bind(school_a)
+                    .bind(&current_pdf_fingerprint)
+                    .bind(criteria)
+                    .fetch_one(&scoped)
+                    .await?;
+                    // A persisted model suggestion is explicitly NOT a grade.
+                    let before_grade: Option<f64> =
+                        sqlx::query_scalar("SELECT grade::float8 FROM public.submissions WHERE id=$1")
+                            .bind(submissions[0])
+                            .fetch_one(&scoped)
+                            .await?;
+                    let accepted: bool =
+                        sqlx::query_scalar("SELECT public.decide_ai_grading_suggestion($1,$2)")
+                            .bind(mock_suggestion)
+                            .bind(action)
+                            .fetch_one(&scoped)
+                            .await?;
+                    let row = sqlx::query(
+                        "SELECT grade::float8 AS grade, graded_by FROM public.submissions WHERE id=$1",
+                    )
+                    .bind(submissions[0])
+                    .fetch_one(&scoped)
+                    .await?;
+                    let reviewed_status: String = sqlx::query_scalar(
+                        "SELECT status FROM public.ai_grading_suggestions WHERE id=$1",
+                    )
+                    .bind(mock_suggestion)
+                    .fetch_one(&scoped)
+                    .await?;
+                    let decisions: i64 = sqlx::query_scalar(
+                        "SELECT count(*) FROM public.ai_grading_decisions WHERE suggestion_id=$1",
+                    )
+                    .bind(mock_suggestion)
+                    .fetch_one(&scoped)
+                    .await?;
+                    Ok::<_, sqlx::Error>((
+                        accepted,
+                        before_grade,
+                        row.try_get::<Option<f64>, _>("grade")?,
+                        row.try_get::<Option<Uuid>, _>("graded_by")?,
+                        reviewed_status,
+                        decisions,
+                    ))
+                },
+                |_| false, // Roll back: never graduate the shared PDF fixture.
+            )
+            .await
+            .expect("roll back synthetic PDF decision test")
+            .expect("Teacher review of synthetic native PDF evidence");
+        assert!(accepted, "only an authorized Teacher decision publishes");
+        assert_eq!(
+            before_grade, None,
+            "pending PDF evidence never auto-publishes"
+        );
+        assert_eq!(decisions, 1, "teacher decisions must be audit recorded");
+        // The immutable suggestion row is not mutated to record decisions;
+        // the append-only ai_grading_decisions table is authoritative.
+        if action == "accept" {
+            assert_eq!(after_grade, Some(18.0));
+            assert_eq!(grade_actor, Some(teacher_a));
+            assert_eq!(reviewed_status, "pending_review");
+        } else {
+            assert_eq!(after_grade, None, "rejection never publishes a grade");
+            assert_eq!(grade_actor, None);
+            assert_eq!(reviewed_status, "pending_review");
+        }
+    }
+    let post_review_grade: Option<f64> =
+        sqlx::query_scalar("SELECT grade::float8 FROM public.submissions WHERE id=$1")
+            .bind(submissions[0])
+            .fetch_one(&pool)
+            .await
+            .expect("review fixture remains ungraded after rollback");
+    assert_eq!(post_review_grade, None);
+
     // A school opt-in by itself does NOT grant permission to incur charges:
     // the durable, operator-configured budget starts empty and denies all.
     assert!(
@@ -2004,6 +2178,20 @@ async fn school_and_teacher_authorization_matrix() {
     assert!(
         !pdf_egress_enabled_as(&pool, teacher_a_user, school_a).await,
         "operator revocation must disable fresh PDF egress"
+    );
+    let review_allowed_after_revocation: bool = sqlx::query_scalar(
+        "SELECT edutalent_internal.ai_grading_review_source_allowed($1,$2,$3,$4)",
+    )
+    .bind(submissions[0])
+    .bind(school_a)
+    .bind(custom_id)
+    .bind(student_a)
+    .fetch_one(&pool)
+    .await
+    .expect("evaluate PDF review after school opt-in revocation");
+    assert!(
+        !review_allowed_after_revocation,
+        "an old pending native PDF suggestion must not be publishable after opt-in revocation"
     );
     sqlx::query(
         "UPDATE public.ai_grading_jobs SET status='cancelled',completed_at=NOW(), \
