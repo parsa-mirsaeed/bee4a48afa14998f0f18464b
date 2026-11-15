@@ -1353,7 +1353,10 @@ mod tests {
         use crate::services::ai_grading_pdf_source::{AuthorizedNativePdf, AuthorizedPdfMetadata};
         use axum::{extract::Json, http::HeaderMap, routing::post, Router};
         use base64::{engine::general_purpose::STANDARD, Engine as _};
-        use std::sync::{atomic::{AtomicUsize, Ordering}, Arc};
+        use std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        };
 
         let school = Uuid::new_v4();
         let submission = Uuid::new_v4();
