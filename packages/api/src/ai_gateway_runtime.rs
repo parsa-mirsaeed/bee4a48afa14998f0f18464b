@@ -2671,6 +2671,50 @@ mod tests {
             1,
             "exactly one provider egress"
         );
+        // Prove that rejected requests cannot reach the mock provider via
+        // the same running HTTP handler after the successful two-hop path.
+        let gateway_url = format!("http://{gateway_addr}/v1/grading/pdf");
+        let http = reqwest::Client::builder()
+            .no_proxy()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .expect("loopback-only HTTP test client");
+        let request = pdf_request(&original);
+
+        let no_token = http
+            .post(&gateway_url)
+            .header(SCHOOL_HEADER.as_str(), school.to_string())
+            .json(&request)
+            .send()
+            .await
+            .expect("unauthenticated mock gateway request");
+        assert_eq!(no_token.status(), StatusCode::UNAUTHORIZED);
+
+        let no_school = http
+            .post(&gateway_url)
+            .bearer_auth("test-internal-token-abcdefghijklmnopqrstuvwxyz")
+            .json(&request)
+            .send()
+            .await
+            .expect("missing school header request");
+        assert_eq!(no_school.status(), StatusCode::BAD_REQUEST);
+
+        let mut corrupt = pdf_request(&original);
+        corrupt.pdf_sha256 = "0".repeat(64);
+        let corrupt_original = http
+            .post(&gateway_url)
+            .bearer_auth("test-internal-token-abcdefghijklmnopqrstuvwxyz")
+            .header(SCHOOL_HEADER.as_str(), school.to_string())
+            .json(&corrupt)
+            .send()
+            .await
+            .expect("tampered original rejection");
+        assert_eq!(corrupt_original.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "unauthorized or corrupt requests cannot reach PDF provider"
+        );
         gateway_handle.abort();
         provider_handle.abort();
     }
