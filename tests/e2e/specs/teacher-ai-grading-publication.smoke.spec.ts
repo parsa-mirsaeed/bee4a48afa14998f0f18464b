@@ -25,9 +25,12 @@ function api(page: Page): Requests {
 }
 async function login(page: Page, email: string) {
   // Unmount the previous role's Dioxus view before changing the session.
-  // Otherwise its in-flight/private AI evidence refresh can run under the
-  // next actor's cookies and produce a real (correct) 403 after logout.
-  await page.goto('about:blank');
+  // Use a same-origin, app-free endpoint: the locale init script requires
+  // localStorage, which is prohibited on an about:blank document.
+  // Otherwise the old Teacher's private evidence refresh can run after
+  // the next actor logs in and correctly yield a 403.
+  const neutral = await page.goto('/healthz');
+  expect(neutral?.ok(), 'neutral same-origin role boundary must load').toBeTruthy();
   const response = await api(page).post('/api/auth/login', {
     data: { email, password: 'e2e-password' },
   });
