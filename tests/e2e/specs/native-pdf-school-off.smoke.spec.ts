@@ -159,4 +159,30 @@ test('student PDF and teacher-approved rubric cannot bypass disabled school infe
   });
   expect(after.ok()).toBeTruthy();
   expect((await after.json()).grade).toBeNull();
+
+  // A linked Parent must not see an unpublished AI suggestion as a grade.
+  // This dedicated Parent belongs only to the attachment fixture school,
+  // keeping the existing school-A Parent grade expectations untouched.
+  await login(page, 'e2e-attachment-parent@example.test');
+  await page.goto('/dashboard/children');
+  const childCard = page.getByText('E2E Attachment Student', { exact: true })
+    .locator('xpath=ancestor::div[contains(@class, "et-ui-card")][1]');
+  await expect(childCard).toBeVisible();
+  const gradesResponse = page.waitForResponse(response =>
+    new URL(response.url()).pathname === '/api/parent/scoped/child/grades'
+  );
+  await childCard.getByRole('button', {
+    name: locale === 'fa' ? 'مشاهده نمرات' : 'View Grades',
+    exact: true,
+  }).click();
+  const parentGrades = await gradesResponse;
+  expect(parentGrades.ok()).toBeTruthy();
+  const rows = await parentGrades.json();
+  expect(Array.isArray(rows)).toBeTruthy();
+  const publishedPdfGrades = rows.filter((row: { assignment_title?: string; grade?: unknown }) =>
+    row.assignment_title === assignmentTitle && row.grade != null
+  );
+  expect(publishedPdfGrades, 'denied PDF inference must not publish a Parent-visible grade')
+    .toHaveLength(0);
+  await expect(page.getByRole('dialog')).not.toContainText(assignmentTitle);
 });
