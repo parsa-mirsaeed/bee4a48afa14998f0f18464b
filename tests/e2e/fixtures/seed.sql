@@ -599,4 +599,61 @@ SET status = 'succeeded',
     last_error_summary = NULL
 WHERE school_id = 'a0000000-0000-0000-0000-0000000000c1';
 
+
+-- Separate positive Teacher-review fixtures. The application never calls
+-- any model in this fixture: pending suggestions are synthetic, immutable,
+-- teacher/rubric/revision-bound DB artifacts. The full provider queue journey
+-- is proved separately and is not implied by these acceptance cases.
+-- Desktop reviews 501 (accept); mobile FA reviews 601 (reject).
+INSERT INTO assignments(id,teacher_id,class_section_id,subject_id,title,body,due_at,status,published_at) VALUES
+ ('f0600000-0000-0000-0000-000000000501','c0000000-0000-0000-0000-0000000000c2','e0000000-0000-0000-0000-0000000000c1','d0000000-0000-0000-0000-0000000000a1','E2E AI Review 501','Grade synthetic reasoning under a Teacher-approved rubric.',NOW()+INTERVAL '15 days','Published',NOW()),
+ ('f0600000-0000-0000-0000-000000000601','c0000000-0000-0000-0000-0000000000c2','e0000000-0000-0000-0000-0000000000c1','d0000000-0000-0000-0000-0000000000a1','E2E AI Review 601','Grade synthetic reasoning under a Teacher-approved rubric.',NOW()+INTERVAL '15 days','Published',NOW())
+ON CONFLICT DO NOTHING;
+INSERT INTO custom_assignments(id,assignment_id,student_id,due_at,status,submitted_at) VALUES
+ ('f1600000-0000-0000-0000-000000000501','f0600000-0000-0000-0000-000000000501','c0000000-0000-0000-0000-0000000000c3',NOW()+INTERVAL '15 days','Submitted',NOW()-INTERVAL '1 hour'),
+ ('f1600000-0000-0000-0000-000000000601','f0600000-0000-0000-0000-000000000601','c0000000-0000-0000-0000-0000000000c3',NOW()+INTERVAL '15 days','Submitted',NOW()-INTERVAL '1 hour')
+ON CONFLICT DO NOTHING;
+INSERT INTO submissions(id,custom_assignment_id,student_id,content,grade,grade_scale,submitted_at) VALUES
+ ('f2600000-0000-0000-0000-000000000501','f1600000-0000-0000-0000-000000000501','c0000000-0000-0000-0000-0000000000c3','{"text":"Synthetic math reasoning for an approved model suggestion."}'::jsonb,NULL,20,NOW()-INTERVAL '1 hour'),
+ ('f2600000-0000-0000-0000-000000000601','f1600000-0000-0000-0000-000000000601','c0000000-0000-0000-0000-0000000000c3','{"text":"Independent synthetic math reasoning for rejection."}'::jsonb,NULL,20,NOW()-INTERVAL '1 hour')
+ON CONFLICT (id) DO NOTHING;
+
+-- The same explicit Teacher actor used by production rubric approval. The
+-- PostgreSQL approval trigger computes and owns the authoritative fingerprint.
+SELECT set_config('app.user_id', 'b0000000-0000-0000-0000-0000000000c2', true);
+SELECT set_config('app.user_role', 'Teacher', true);
+SELECT set_config('app.school_id', 'a0000000-0000-0000-0000-0000000000c1', true);
+INSERT INTO public.ai_grading_rubric_approvals (
+  custom_assignment_id, school_id, teacher_id, grade_scale, criteria, rubric_fingerprint
+)
+SELECT ca.id, 'a0000000-0000-0000-0000-0000000000c1'::uuid,
+       'c0000000-0000-0000-0000-0000000000c2'::uuid, 20,
+       '[{"criterion_id":"accuracy","possible_points":20}]'::jsonb, repeat('0',64)
+FROM public.custom_assignments ca
+WHERE ca.id IN (
+  'f1600000-0000-0000-0000-000000000501',
+  'f1600000-0000-0000-0000-000000000601'
+)
+ON CONFLICT DO NOTHING;
+
+-- One valid suggestion per currently approved rubric and submission revision.
+-- Persisted evidence alone MUST NOT publish a grade or mark a submission graded.
+INSERT INTO public.ai_grading_suggestions (
+  submission_id, submission_revision, rubric_approval_id, school_id,
+  rubric_fingerprint, contract_version, grade_scale, suggested_grade,
+  confidence, feedback, criteria
+)
+SELECT s.id, s.revision, approved.id, approved.school_id,
+       approved.rubric_fingerprint, 1, 20, 18, 0.85,
+       'Synthetic AI model evidence: teacher review required.',
+       '[{"criterion_id":"accuracy","possible_points":20,"awarded_points":18,"evidence":"Synthetic reasoning meets 18/20 of the approved accuracy rubric."}]'::jsonb
+FROM public.submissions s
+JOIN public.ai_grading_rubric_approvals approved
+  ON approved.custom_assignment_id=s.custom_assignment_id
+WHERE s.id IN (
+  'f2600000-0000-0000-0000-000000000501',
+  'f2600000-0000-0000-0000-000000000601'
+)
+ON CONFLICT (submission_id, submission_revision, rubric_approval_id) DO NOTHING;
+
 COMMIT;
