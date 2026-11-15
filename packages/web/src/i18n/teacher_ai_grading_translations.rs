@@ -9,8 +9,8 @@ pub(crate) fn teacher_ai_grading_translation(
     match (locale, key) {
         (Locale::En, "ai_grading.heading") => Some("AI grading assistant"),
         (Locale::Fa, "ai_grading.heading") => Some("دستیار تصحیح هوشمند"),
-        (Locale::En, "ai_grading.description") => Some("AI suggestions are private until you accept and publish a grade. Text submissions only."),
-        (Locale::Fa, "ai_grading.description") => Some("نمره پیشنهادی هوش مصنوعی تا زمان تأیید شما خصوصی است. فعلاً فقط پاسخ متنی پشتیبانی می‌شود."),
+        (Locale::En, "ai_grading.description") => Some("AI suggestions are private until you accept and publish a grade. A single PDF requires explicit school approval and an available budget."),
+        (Locale::Fa, "ai_grading.description") => Some("نمره پیشنهادی هوش مصنوعی تا زمان تأیید شما خصوصی است. تصحیح یک فایل PDF به مجوز مدرسه و بودجه تأییدشده نیاز دارد."),
         (Locale::En, "ai_grading.rubric_label") => Some("Teacher rubric: one criterion per line (name | points)"),
         (Locale::Fa, "ai_grading.rubric_label") => Some("معیارهای معلم: هر سطر «عنوان | امتیاز»"),
         (Locale::En, "ai_grading.rubric_placeholder") => Some("Reasoning | 12\nAccuracy | 8"),
