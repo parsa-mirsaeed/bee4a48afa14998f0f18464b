@@ -115,8 +115,7 @@ test('teacher alone publishes synthetic AI suggestion; linked Parent and Student
   expect(answer.ok()).toBeTruthy();
   const student = await answer.json();
   if (action === 'accept') {
-    expect(student.grade).toBe(18);
-    expect(student.grade_scale).toBe(20);
+    expect(student.grade).toBe('18/20');
   } else {
     expect(student.grade).toBeNull();
   }
