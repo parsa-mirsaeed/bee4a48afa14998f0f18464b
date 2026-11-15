@@ -24,6 +24,7 @@ const publicJwk = publicKey.export({ format: 'jwk' });
 const USERS = new Map([
   ['e2e-attachment-teacher@example.test', 'b0000000-0000-0000-0000-0000000000c2'],
   ['e2e-attachment-student@example.test', 'b0000000-0000-0000-0000-0000000000c3'],
+  ['e2e-attachment-parent@example.test', 'b0000000-0000-0000-0000-0000000000c4'],
   ['e2e-admin@example.test', 'b0000000-0000-0000-0000-0000000000a0'],
   ['e2e-manager-a@example.test', 'b0000000-0000-0000-0000-0000000000a1'],
   ['e2e-manager-b@example.test', 'b0000000-0000-0000-0000-0000000000b1'],
