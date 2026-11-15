@@ -2170,6 +2170,20 @@ async fn school_and_teacher_authorization_matrix() {
         !pdf_egress_enabled_as(&pool, teacher_a_user, school_a).await,
         "operator revocation must disable fresh PDF egress"
     );
+    let review_allowed_after_revocation: bool = sqlx::query_scalar(
+        "SELECT edutalent_internal.ai_grading_review_source_allowed($1,$2,$3,$4)",
+    )
+    .bind(submissions[0])
+    .bind(school_a)
+    .bind(custom_id)
+    .bind(student_a)
+    .fetch_one(&pool)
+    .await
+    .expect("evaluate PDF review after school opt-in revocation");
+    assert!(
+        !review_allowed_after_revocation,
+        "an old pending native PDF suggestion must not be publishable after opt-in revocation"
+    );
     sqlx::query(
         "UPDATE public.ai_grading_jobs SET status='cancelled',completed_at=NOW(), \
          last_error_code='authorization_revoked' \
