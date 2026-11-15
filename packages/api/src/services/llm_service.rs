@@ -307,6 +307,13 @@ impl ExternalLlmClient {
         })
     }
 
+    /// Test-only loopback HTTP routing for a real local gateway fixture.
+    /// Production clients always retain the fixed internal gateway origin.
+    #[cfg(test)]
+    pub(crate) fn set_test_gateway_chat_url(&mut self, url: String) {
+        self.test_chat_url = Some(url);
+    }
+
     fn validate_config(config: &LlmConfig) -> Result<(), LlmError> {
         validate_internal_gateway_url(&config.base_url)?;
         let profile = resolve_llm_profile(&config.profile)

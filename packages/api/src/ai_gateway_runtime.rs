@@ -2512,6 +2512,169 @@ mod tests {
         );
     }
 
+    // A two-hop, loopback-only test: application PDF client -> authenticated
+    // first-party gateway -> provider-native file part -> validated suggestion.
+    // It does not provision a school or publish any student's grade.
+    #[cfg(feature = "server")]
+    #[tokio::test]
+    async fn native_pdf_two_hop_mock_gateway_preserves_original_and_rubric() {
+        use crate::services::{
+            ai_grading_contract::ExpectedCriterion,
+            ai_grading_native_pdf::NativePdfGradingInput,
+            ai_grading_pdf_source::{AuthorizedNativePdf, AuthorizedPdfMetadata},
+            llm_service::{ExternalLlmClient, LlmConfig},
+        };
+        use axum::{extract::Json, routing::post, Router};
+        use std::sync::Arc;
+
+        let school = Uuid::new_v4();
+        let submission = Uuid::new_v4();
+        let revision = Uuid::new_v4();
+        let attachment = Uuid::new_v4();
+        let original = synthetic_pdf();
+        let digest = crate::services::submission_attachment_storage::hash(&original);
+        let original_at_provider = original.clone();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let provider_calls = Arc::clone(&calls);
+
+        let provider_router = Router::new().route(
+            "/v1/chat/completions",
+            post(move |Json(payload): Json<Value>| {
+                let expected = original_at_provider.clone();
+                let calls = Arc::clone(&provider_calls);
+                async move {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    assert_eq!(payload["model"], "gpt-4o");
+                    assert_eq!(payload["messages"][1]["content"][1]["type"], "file");
+                    let base64_pdf = payload["messages"][1]["content"][1]["file"]["file_data"]
+                        .as_str()
+                        .expect("native PDF part")
+                        .strip_prefix("data:application/pdf;base64,")
+                        .expect("native PDF MIME");
+                    assert_eq!(
+                        STANDARD.decode(base64_pdf).expect("provider PDF base64"),
+                        expected
+                    );
+                    let rubric: Value = serde_json::from_str(
+                        payload["messages"][1]["content"][0]["text"]
+                            .as_str()
+                            .expect("rubric text"),
+                    )
+                    .expect("Teacher rubric JSON");
+                    assert_eq!(rubric["submission_revision"], revision.to_string());
+                    assert_eq!(rubric["rubric"][0]["criterion_id"], "accuracy");
+                    assert_eq!(rubric["assignment_instructions"], "Solve the equations.");
+                    let suggestion = serde_json::json!({
+                        "contract_version": 1,
+                        "submission_revision": revision,
+                        "grade_scale": 20,
+                        "suggested_grade": 18.0,
+                        "confidence": 0.85,
+                        "feedback": "Synthetic PDF demonstrates correct reasoning.",
+                        "criteria": [{
+                            "criterion_id": "accuracy",
+                            "awarded_points": 18.0,
+                            "possible_points": 20.0,
+                            "evidence": "Verified synthetic derivation."
+                        }]
+                    });
+                    Json(serde_json::json!({
+                        "model": "gpt-4o",
+                        "choices": [{
+                            "index": 0,
+                            "message": {
+                                "role": "assistant",
+                                "content": suggestion.to_string()
+                            },
+                            "finish_reason": "stop"
+                        }]
+                    }))
+                }
+            }),
+        );
+        let provider_listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind synthetic PDF provider");
+        let provider_addr = provider_listener.local_addr().unwrap();
+        let provider_handle = tokio::spawn(async move {
+            axum::serve(provider_listener, provider_router)
+                .await
+                .expect("serve synthetic PDF provider");
+        });
+
+        let mut gateway_config =
+            pdf_test_config(Url::parse(&format!("http://{provider_addr}/v1/")).unwrap());
+        gateway_config.native_pdf_enabled = true; // in-memory test state only
+        let gateway_router = Router::new()
+            .route("/v1/grading/pdf", post(native_pdf_grading))
+            .with_state(AppState::new(gateway_config).expect("test gateway state"));
+        let gateway_listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind local internal gateway");
+        let gateway_addr = gateway_listener.local_addr().unwrap();
+        let gateway_handle = tokio::spawn(async move {
+            axum::serve(gateway_listener, gateway_router)
+                .await
+                .expect("serve local internal gateway");
+        });
+
+        let document = NativePdfGradingInput::from_private_original(
+            school,
+            submission,
+            revision,
+            attachment,
+            "application/pdf",
+            &digest,
+            original.clone(),
+        )
+        .expect("verified private original");
+        let source = AuthorizedNativePdf {
+            metadata: AuthorizedPdfMetadata {
+                school_id: school,
+                submission_id: submission,
+                submission_revision: revision,
+                rubric_approval_id: Uuid::new_v4(),
+                attachment_id: attachment,
+                sha256: digest,
+                byte_size: original.len() as i64,
+                assignment_instructions: "Solve the equations.".to_string(),
+                submission_text: "My synthetic reasoning.".to_string(),
+            },
+            document,
+        };
+        let client_config = LlmConfig {
+            api_key: "test-internal-token-abcdefghijklmnopqrstuvwxyz".to_string(),
+            profile: "openai-gpt4o-v1".to_string(),
+            model: "gpt-4o".to_string(),
+            max_tokens: 512,
+            ..LlmConfig::default()
+        };
+        let mut client = ExternalLlmClient::with_config(client_config)
+            .expect("pinned first-party client profile");
+        client.set_test_gateway_chat_url(format!("http://{gateway_addr}/v1/chat/completions"));
+        let suggestion = client
+            .suggest_native_pdf_grade_for_school(
+                &source,
+                &[ExpectedCriterion {
+                    criterion_id: "accuracy".to_string(),
+                    possible_points: 20.0,
+                }],
+                20,
+            )
+            .await
+            .expect("validated provider-native PDF mock suggestion");
+        assert_eq!(suggestion.submission_revision, revision);
+        assert_eq!(suggestion.suggested_grade, 18.0);
+        assert_eq!(suggestion.criteria[0].criterion_id, "accuracy");
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "exactly one provider egress"
+        );
+        gateway_handle.abort();
+        provider_handle.abort();
+    }
+
     #[tokio::test]
     async fn native_pdf_forwards_exact_original_file_to_mock_first_party_provider() {
         use axum::{extract::Json, routing::post, Router};
