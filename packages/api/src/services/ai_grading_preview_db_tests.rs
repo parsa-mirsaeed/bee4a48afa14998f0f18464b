@@ -1876,7 +1876,7 @@ async fn school_and_teacher_authorization_matrix() {
         .expect("remove unfinished sibling");
 
     let current_pdf_fingerprint: String = sqlx::query_scalar(
-        "SELECT fingerprint FROM public.ai_grading_rubric_approvals WHERE id=$1",
+        "SELECT rubric_fingerprint FROM public.ai_grading_rubric_approvals WHERE id=$1",
     )
     .bind(pdf_approval)
     .fetch_one(&pool)
