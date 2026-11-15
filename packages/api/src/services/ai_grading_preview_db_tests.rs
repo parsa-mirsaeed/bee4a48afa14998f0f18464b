@@ -1831,7 +1831,10 @@ async fn school_and_teacher_authorization_matrix() {
     .fetch_one(&pool)
     .await
     .expect("one finalized PDF review source");
-    assert!(eligible_pdf, "one original PDF should be review-eligible only with live opt-in");
+    assert!(
+        eligible_pdf,
+        "one original PDF should be review-eligible only with live opt-in"
+    );
 
     // A pending sibling has no submission_id but must still invalidate the
     // model evidence and Teacher accept path. Verify the same server SQL
@@ -1862,7 +1865,10 @@ async fn school_and_teacher_authorization_matrix() {
     .fetch_one(&pool)
     .await
     .expect("check unfinished sibling review gate");
-    assert!(!with_sibling, "unfinished sibling must block PDF teacher decision");
+    assert!(
+        !with_sibling,
+        "unfinished sibling must block PDF teacher decision"
+    );
     sqlx::query("UPDATE public.submission_attachments SET status='removed' WHERE id=$1")
         .bind(second_pending)
         .execute(&pool)
@@ -1957,7 +1963,10 @@ async fn school_and_teacher_authorization_matrix() {
             .expect("roll back synthetic PDF decision test")
             .expect("Teacher review of synthetic native PDF evidence");
         assert!(accepted, "only an authorized Teacher decision publishes");
-        assert_eq!(before_grade, None, "pending PDF evidence never auto-publishes");
+        assert_eq!(
+            before_grade, None,
+            "pending PDF evidence never auto-publishes"
+        );
         assert_eq!(decisions, 1, "teacher decisions must be audit recorded");
         // The immutable suggestion row is not mutated to record decisions;
         // the append-only ai_grading_decisions table is authoritative.
