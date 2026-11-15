@@ -68,6 +68,8 @@ JOIN public.submission_attachments attachment
  AND attachment.student_id=ca.student_id
  AND attachment.school_id=cs.school_id
  AND attachment.status='submitted'
+ AND attachment.verified_at IS NOT NULL
+ AND attachment.finalized_at IS NOT NULL
  AND attachment.media_type='application/pdf'
  AND attachment.byte_size BETWEEN 1 AND 1000000
 WHERE s.id=$1 AND teacher_user.id=$2
@@ -228,6 +230,8 @@ mod tests {
             "JOIN public.enrollments",
             "approval.teacher_id=t.id",
             "approval.revoked_at IS NULL",
+            "attachment.verified_at IS NOT NULL",
+            "attachment.finalized_at IS NOT NULL",
             "s.revision=$3 AND approval.id=$4",
             "approval.school_id=cs.school_id",
             "attachment.school_id=cs.school_id",
