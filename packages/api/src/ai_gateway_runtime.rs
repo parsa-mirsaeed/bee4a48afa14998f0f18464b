@@ -2683,7 +2683,7 @@ mod tests {
 
         let no_token = http
             .post(&gateway_url)
-            .header(SCHOOL_HEADER.as_str(), school.to_string())
+            .header(SCHOOL_HEADER, school.to_string())
             .json(&request)
             .send()
             .await
@@ -2704,7 +2704,7 @@ mod tests {
         let corrupt_original = http
             .post(&gateway_url)
             .bearer_auth("test-internal-token-abcdefghijklmnopqrstuvwxyz")
-            .header(SCHOOL_HEADER.as_str(), school.to_string())
+            .header(SCHOOL_HEADER, school.to_string())
             .json(&corrupt)
             .send()
             .await
