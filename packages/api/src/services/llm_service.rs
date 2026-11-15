@@ -1353,6 +1353,7 @@ mod tests {
         use crate::services::ai_grading_pdf_source::{AuthorizedNativePdf, AuthorizedPdfMetadata};
         use axum::{extract::Json, http::HeaderMap, routing::post, Router};
         use base64::{engine::general_purpose::STANDARD, Engine as _};
+        use std::sync::{atomic::{AtomicUsize, Ordering}, Arc};
 
         let school = Uuid::new_v4();
         let submission = Uuid::new_v4();
@@ -1392,10 +1393,13 @@ mod tests {
             .expect("synthetic original PDF"),
         };
         let expected = bytes.clone();
+        let requests = Arc::new(AtomicUsize::new(0));
+        let mock_requests = Arc::clone(&requests);
         let app = Router::new().route(
             "/v1/grading/pdf",
             post(move |headers: HeaderMap, Json(body): Json<Value>| {
                 let expected = expected.clone();
+                let mock_requests = Arc::clone(&mock_requests);
                 async move {
                     assert_eq!(
                         headers
@@ -1424,7 +1428,8 @@ mod tests {
                         .as_str()
                         .unwrap()
                         .contains("untrusted DATA"));
-                    let suggestion = json!({
+                    let attempt = mock_requests.fetch_add(1, Ordering::SeqCst);
+                    let mut suggestion = json!({
                         "contract_version": 1,
                         "submission_revision": revision,
                         "grade_scale": 20,
@@ -1438,11 +1443,23 @@ mod tests {
                             "evidence": "Correct derivation"
                         }]
                     });
+                    // One successful request, followed by independently invalid
+                    // mock responses. None may become a graded suggestion.
+                    if attempt == 1 {
+                        suggestion["submission_revision"] = json!(Uuid::new_v4());
+                    } else if attempt == 2 {
+                        suggestion["criteria"][0]["criterion_id"] = json!("wrong-criterion");
+                    }
+                    let content = if attempt == 3 {
+                        "{not valid grading JSON".to_string()
+                    } else {
+                        suggestion.to_string()
+                    };
                     Json(json!({
-                        "model": "gpt-4o",
+                        "model": if attempt == 4 { "another-model" } else { "gpt-4o" },
                         "choices": [{
                             "index": 0,
-                            "message": { "role": "assistant", "content": suggestion.to_string() }
+                            "message": { "role": "assistant", "content": content }
                         }]
                     }))
                 }
@@ -1475,6 +1492,59 @@ mod tests {
             .expect("valid rubric-bound native PDF suggestion");
         assert_eq!(answer.suggested_grade, 18.0);
         assert_eq!(answer.submission_revision, revision);
+
+        // Test the same authenticated HTTP boundary, not just the pure
+        // suggestion JSON parser: stale revisions, different rubric criteria,
+        // malformed JSON and wrong model identity must all fail closed.
+        for rejected_case in 1..=4 {
+            let result = llm
+                .suggest_native_pdf_grade_for_school(
+                    &source,
+                    &[ExpectedCriterion {
+                        criterion_id: "accuracy".to_string(),
+                        possible_points: 20.0,
+                    }],
+                    20,
+                )
+                .await;
+            assert!(
+                matches!(result, Err(LlmError::InvalidResponse(_))),
+                "mock response case {rejected_case} was not rejected"
+            );
+        }
+        assert_eq!(requests.load(Ordering::SeqCst), 5);
+
+        // Even an internally supplied source with mismatched original digest
+        // must be denied before opening another HTTP request to the gateway.
+        let tampered = AuthorizedNativePdf {
+            metadata: AuthorizedPdfMetadata {
+                sha256: "0".repeat(64),
+                ..source.metadata.clone()
+            },
+            document: NativePdfGradingInput::from_private_original(
+                school,
+                submission,
+                revision,
+                attachment,
+                "application/pdf",
+                &digest,
+                bytes.clone(),
+            )
+            .expect("valid synthetic original"),
+        };
+        assert!(matches!(
+            llm.suggest_native_pdf_grade_for_school(
+                &tampered,
+                &[ExpectedCriterion {
+                    criterion_id: "accuracy".to_string(),
+                    possible_points: 20.0,
+                }],
+                20,
+            )
+            .await,
+            Err(LlmError::InvalidResponse(_))
+        ));
+        assert_eq!(requests.load(Ordering::SeqCst), 5);
         handle.abort();
 
         assert!(matches!(
