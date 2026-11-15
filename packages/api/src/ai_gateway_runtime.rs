@@ -2551,7 +2551,10 @@ mod tests {
                         .expect("native PDF part")
                         .strip_prefix("data:application/pdf;base64,")
                         .expect("native PDF MIME");
-                    assert_eq!(STANDARD.decode(base64_pdf).expect("provider PDF base64"), expected);
+                    assert_eq!(
+                        STANDARD.decode(base64_pdf).expect("provider PDF base64"),
+                        expected
+                    );
                     let rubric: Value = serde_json::from_str(
                         payload["messages"][1]["content"][0]["text"]
                             .as_str()
@@ -2648,9 +2651,7 @@ mod tests {
         };
         let mut client = ExternalLlmClient::with_config(client_config)
             .expect("pinned first-party client profile");
-        client.set_test_gateway_chat_url(format!(
-            "http://{gateway_addr}/v1/chat/completions"
-        ));
+        client.set_test_gateway_chat_url(format!("http://{gateway_addr}/v1/chat/completions"));
         let suggestion = client
             .suggest_native_pdf_grade_for_school(
                 &source,
@@ -2665,7 +2666,11 @@ mod tests {
         assert_eq!(suggestion.submission_revision, revision);
         assert_eq!(suggestion.suggested_grade, 18.0);
         assert_eq!(suggestion.criteria[0].criterion_id, "accuracy");
-        assert_eq!(calls.load(Ordering::SeqCst), 1, "exactly one provider egress");
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "exactly one provider egress"
+        );
         gateway_handle.abort();
         provider_handle.abort();
     }
