@@ -226,6 +226,35 @@ unresolved = [node for node in threads["nodes"] if not node["isResolved"]]
 assert not unresolved, f"unresolved review threads: {len(unresolved)}"
 PY
 
+  # Native-PDF AI grading is a release blocker even if its issue has no
+  # p0/release-blocker label. Do not infer approval from a missing label.
+  # The issue must remain open until independently qualified pilot evidence
+  # and the explicit release decision are recorded.
+  local grading_issue_file
+  grading_issue_file="$(mktemp)"
+  if ! retry_gh gh api "/repos/${REPOSITORY}/issues/138" >"$grading_issue_file"; then
+    rm -f "$grading_issue_file"
+    echo "Unable to verify native-PDF AI grading release blocker #138" >&2
+    return 1
+  fi
+  if ! python3 - "$grading_issue_file" <<'PY_GRADING'
+import json
+import sys
+
+issue = json.load(open(sys.argv[1], encoding="utf-8"))
+assert issue["number"] == 138, "wrong native PDF release issue"
+assert not issue.get("pull_request"), "native PDF release issue is not a PR"
+assert issue["state"] == "closed", (
+    "native PDF grading release blocker #138 is OPEN: require independent "
+    "integrated E2E, supplier cap, teacher-quality, privacy and operator proof"
+)
+PY_GRADING
+  then
+    rm -f "$grading_issue_file"
+    return 1
+  fi
+  rm -f "$grading_issue_file"
+
   if ! retry_gh gh api "/repos/${REPOSITORY}/pulls/2" >"$manual_file"; then
     return 1
   fi
