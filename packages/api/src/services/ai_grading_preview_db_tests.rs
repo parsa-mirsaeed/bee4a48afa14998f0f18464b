@@ -2123,9 +2123,12 @@ async fn school_and_teacher_authorization_matrix() {
         "concurrent PDF attempts must admit exactly one request"
     );
     assert_eq!(
-        outcomes.iter().filter(|outcome| {
-            **outcome == Err(crate::services::ai_grading_pdf_budget::PdfBudgetError::Denied)
-        }).count(),
+        outcomes
+            .iter()
+            .filter(|outcome| {
+                **outcome == Err(crate::services::ai_grading_pdf_budget::PdfBudgetError::Denied)
+            })
+            .count(),
         1,
         "the other concurrent attempt must be denied, not fail open or error"
     );
