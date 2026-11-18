@@ -70,7 +70,7 @@ class ReleaseDocsVerifierTests(unittest.TestCase):
                 self.assertEqual((root / "calls").read_text().splitlines(),
                                  ["frozen-head|dedicated-test-db"] * expected_passes)
 
-    def run_manual_acceptance_entry(self, number: int, title: str):
+    def run_manual_acceptance_entry(self, number: int, title: str, grading_issue_state: str = "closed"):
         with tempfile.TemporaryDirectory() as tmp:
             fixture = Path(tmp) / "manual-fixture.json"
             fixture.write_text(json.dumps({
@@ -80,12 +80,16 @@ class ReleaseDocsVerifierTests(unittest.TestCase):
                 "draft": True,
                 "merged_at": None,
             }))
+            grading_issue = Path(tmp) / "grading-issue.json"
+            grading_issue.write_text(json.dumps({"number": 138, "state": grading_issue_state}))
             script = r'''
 set -euo pipefail
 source scripts/release/final-release-run-utils.sh
 retry_gh() {
   if [[ "$*" == *"graphql"* ]]; then
     printf '%s\n' '{"data":{"repository":{"issues":{"pageInfo":{"hasNextPage":false},"nodes":[]},"pullRequest":{"reviewThreads":{"pageInfo":{"hasNextPage":false},"nodes":[]}}}}}'
+  elif [[ "$*" == *"/issues/138" ]]; then
+    cat "$GRADING_ISSUE_FIXTURE"
   elif [[ "$*" == *"/pulls/2" ]]; then
     cat "$MANUAL_PR_FIXTURE"
   else
@@ -99,6 +103,7 @@ check_release_entry "$EVIDENCE_DIR/state.json" "$EVIDENCE_DIR/manual.json"
                 ["bash", "-c", script],
                 cwd=MODULE_PATH.parents[2],
                 env={**os.environ, "MANUAL_PR_FIXTURE": str(fixture),
+                     "GRADING_ISSUE_FIXTURE": str(grading_issue),
                      "EVIDENCE_DIR": tmp, "REPOSITORY": "parsa-mirsaeed/bee4a48afa14998f0f18464b",
                      "PR_NUMBER": "65"},
                 capture_output=True, text=True,
@@ -115,6 +120,13 @@ check_release_entry "$EVIDENCE_DIR/state.json" "$EVIDENCE_DIR/manual.json"
             with self.subTest(number=number, title=title):
                 result = self.run_manual_acceptance_entry(number, title)
                 self.assertNotEqual(result.returncode, 0)
+
+    def test_unlabeled_native_pdf_release_issue_still_blocks_final_entry(self):
+        result = self.run_manual_acceptance_entry(
+            2, "Manual/external production acceptance evidence", grading_issue_state="open"
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("native PDF grading release blocker #138 is OPEN", result.stderr)
 
     def test_secret_patterns_reject_private_key_material(self) -> None:
         text = "-----BEGIN PRIVATE KEY-----"
