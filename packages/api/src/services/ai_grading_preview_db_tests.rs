@@ -1896,7 +1896,10 @@ async fn school_and_teacher_authorization_matrix() {
             .execute(&mut *operator)
             .await
             .expect("restore FORCE before revocation commit");
-        operator.commit().await.expect("commit PDF school revocation");
+        operator
+            .commit()
+            .await
+            .expect("commit PDF school revocation");
     }
     {
         use crate::rls_context::{AuthorizedActor, AuthorizedTx};
@@ -1933,7 +1936,10 @@ async fn school_and_teacher_authorization_matrix() {
     .fetch_one(&pool)
     .await
     .expect("count PDF suggestions after revoked opt-in");
-    assert_eq!(unbilled_suggestions, 0, "revocation cannot create pending evidence");
+    assert_eq!(
+        unbilled_suggestions, 0,
+        "revocation cannot create pending evidence"
+    );
     // Restore ONLY the test fixture's single school before the existing
     // positive PDF review and budget assertions; school B stays disabled.
     {
