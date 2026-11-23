@@ -2092,20 +2092,48 @@ async fn school_and_teacher_authorization_matrix() {
         );
     }
 
-    // The production Rust helper commits an independent Teacher-RLS budget
-    // reservation before outbound model I/O. It must remain charged even when
-    // the caller's longer model/suggestion transaction later fails.
-    crate::services::ai_grading_pdf_budget::reserve_pdf_budget_before_egress(
-        &pool,
-        teacher_a_user,
-        school_a,
-        submissions[0],
-        queued_revision,
-        pdf_approval,
-        12,
-    )
-    .await
-    .expect("first authorized school PDF budget reservation");
+    // The production helper commits a separate Teacher-RLS transaction
+    // BEFORE egress. Two workers on different connections may race for the
+    // final daily allowance; exactly one must reserve it, never both.
+    // tokio::join! polls both independent transactions concurrently.
+    let (first, second) = tokio::join!(
+        crate::services::ai_grading_pdf_budget::reserve_pdf_budget_before_egress(
+            &pool,
+            teacher_a_user,
+            school_a,
+            submissions[0],
+            queued_revision,
+            pdf_approval,
+            12,
+        ),
+        crate::services::ai_grading_pdf_budget::reserve_pdf_budget_before_egress(
+            &pool,
+            teacher_a_user,
+            school_a,
+            submissions[0],
+            queued_revision,
+            pdf_approval,
+            12,
+        )
+    );
+    let outcomes = [first, second];
+    assert_eq!(
+        outcomes.iter().filter(|outcome| outcome.is_ok()).count(),
+        1,
+        "concurrent PDF attempts must admit exactly one request"
+    );
+    assert_eq!(
+        outcomes
+            .iter()
+            .filter(|outcome| {
+                **outcome == Err(crate::services::ai_grading_pdf_budget::PdfBudgetError::Denied)
+            })
+            .count(),
+        1,
+        "the other concurrent attempt must be denied, not fail open or error"
+    );
+    // A failed/rolled-back outer inference transaction cannot refund the
+    // winner's durable reservation or admit a subsequent attempt.
     assert_eq!(
         crate::services::ai_grading_pdf_budget::reserve_pdf_budget_before_egress(
             &pool,
@@ -2118,7 +2146,7 @@ async fn school_and_teacher_authorization_matrix() {
         )
         .await,
         Err(crate::services::ai_grading_pdf_budget::PdfBudgetError::Denied),
-        "second inference attempt must be denied by hard daily cap"
+        "third inference attempt must remain blocked by committed daily cap"
     );
     let usage: (i32, i64, i64) = sqlx::query_as(
         "SELECT request_count, input_bytes, reserved_microusd
