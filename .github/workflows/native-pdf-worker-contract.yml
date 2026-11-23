@@ -1,0 +1,107 @@
+name: Native PDF Worker Contract Acceptance
+
+# Isolated, expensive synthetic proof: only explicit ci:browser PR escalation
+# or an operator's manual dispatch. Not part of every ordinary PR commit.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, ready_for_review]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-pdf-worker-contract-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  synthetic-worker:
+    name: Native PDF Student-to-Teacher worker contract proof
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'ci:browser')
+    runs-on: ubuntu-latest
+    timeout-minutes: 80
+    env:
+      CARGO_TERM_COLOR: never
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/edutalent_ci
+      E2E_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      E2E_GREP: '@native-pdf-positive'
+      E2E_NATIVE_PDF_POSITIVE: '1'
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: edutalent_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d edutalent_ci"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Verify exact head
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$E2E_HEAD_SHA"
+          PROOF_HEAD_SHA="$E2E_HEAD_SHA" bash scripts/ci/stage1_verify_proof_head.sh
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install pinned Dioxus CLI
+        run: |
+          set -euo pipefail
+          curl -L --proto '=https' --tlsv1.2 -sSf \
+            https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
+          cargo binstall "dioxus-cli@0.7.2" -y --force
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: native-pdf-worker-browser
+          cache-on-failure: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install pinned browser dependencies
+        working-directory: tests/e2e
+        run: npm install --no-audit --no-fund
+
+      - name: Restore pinned Chromium
+        id: chromium
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-1.49.1-${{ runner.os }}
+
+      - name: Install Chromium when absent
+        if: steps.chromium.outputs.cache-hit != 'true'
+        working-directory: tests/e2e
+        run: npx playwright install --with-deps chromium
+
+      - name: Run real worker with synthetic internal gateway contract
+        run: |
+          set -euo pipefail
+          bash scripts/ci/run_browser_e2e.sh 2>&1 | tee native-pdf-worker.log
+
+      - name: Upload evidence without private originals
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: native-pdf-worker-contract-evidence
+          path: |
+            native-pdf-worker.log
+            tests/e2e/evidence.json
+            tests/e2e/test-results/
+            tests/e2e/playwright-report/
+          if-no-files-found: warn
+          retention-days: 7
