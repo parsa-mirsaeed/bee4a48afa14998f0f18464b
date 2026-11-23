@@ -1872,6 +1872,91 @@ async fn school_and_teacher_authorization_matrix() {
             .expect("resolve PDF job's assigned Teacher");
         assert_eq!(resolved_teacher, Some(teacher_a_user));
     }
+    // A queued PDF may already hold a valid worker lease when the operator
+    // revokes school permission. The live Teacher-scoped generation path must
+    // refuse the document BEFORE any Storage read, budget reservation or LLM
+    // client construction, even with an approved rubric and active lease.
+    // Simulate an audited migration-owner revocation, always restoring FORCE
+    // RLS inside the same operator transaction.
+    {
+        let mut operator = pool.begin().await.expect("begin synthetic PDF revocation");
+        sqlx::query("ALTER TABLE public.ai_grading_pdf_school_optins NO FORCE ROW LEVEL SECURITY")
+            .execute(&mut *operator)
+            .await
+            .expect("operator temporarily removes FORCE");
+        sqlx::query(
+            "UPDATE public.ai_grading_pdf_school_optins SET enabled=FALSE,updated_at=NOW() \
+             WHERE school_id=$1",
+        )
+        .bind(school_a)
+        .execute(&mut *operator)
+        .await
+        .expect("operator revokes claimed PDF school");
+        sqlx::query("ALTER TABLE public.ai_grading_pdf_school_optins FORCE ROW LEVEL SECURITY")
+            .execute(&mut *operator)
+            .await
+            .expect("restore FORCE before revocation commit");
+        operator.commit().await.expect("commit PDF school revocation");
+    }
+    {
+        use crate::rls_context::{AuthorizedActor, AuthorizedTx};
+        let actor = AuthorizedActor::new(teacher_a_user, "Teacher", Some(school_a))
+            .expect("authorized PDF teacher after school revocation");
+        let tx = AuthorizedTx::begin(&pool, actor)
+            .await
+            .expect("begin revoked-school Teacher transaction");
+        let scoped = tx.authorized_pool();
+        let denied = tx
+            .scope(
+                crate::server_functions::ai_grading_suggestion_functions::
+                    generate_authorized_teacher_suggestion(
+                        &scoped,
+                        submissions[0],
+                        teacher_a_user,
+                    ),
+                |_| false,
+            )
+            .await
+            .expect("roll back revoked-school attempt");
+        assert!(
+            matches!(denied, Err(ref error) if error.to_string().contains("grading.pdf_school_disabled")),
+            "claimed PDF job must not bypass a revoked school opt-in"
+        );
+    }
+    let unbilled_suggestions: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM public.ai_grading_suggestions \\
+         WHERE submission_id=$1 AND submission_revision=$2 AND rubric_approval_id=$3",
+    )
+    .bind(submissions[0])
+    .bind(queued_revision)
+    .bind(pdf_approval)
+    .fetch_one(&pool)
+    .await
+    .expect("count PDF suggestions after revoked opt-in");
+    assert_eq!(unbilled_suggestions, 0, "revocation cannot create pending evidence");
+    // Restore ONLY the test fixture's single school before the existing
+    // positive PDF review and budget assertions; school B stays disabled.
+    {
+        let mut operator = pool.begin().await.expect("begin PDF test restore");
+        sqlx::query("ALTER TABLE public.ai_grading_pdf_school_optins NO FORCE ROW LEVEL SECURITY")
+            .execute(&mut *operator)
+            .await
+            .expect("operator temporarily removes FORCE for fixture restore");
+        sqlx::query(
+            "UPDATE public.ai_grading_pdf_school_optins SET enabled=TRUE,updated_at=NOW() \
+             WHERE school_id=$1",
+        )
+        .bind(school_a)
+        .execute(&mut *operator)
+        .await
+        .expect("restore synthetic opt-in");
+        sqlx::query("ALTER TABLE public.ai_grading_pdf_school_optins FORCE ROW LEVEL SECURITY")
+            .execute(&mut *operator)
+            .await
+            .expect("restore FORCE before commit");
+        operator.commit().await.expect("commit PDF fixture restore");
+    }
+
     // This is a QUEUE HANDOFF proof, not fake model inference. The job is
     // intentionally cancelled without a model call, suggestion or grade;
     // separate provider and review proofs must still be connected in a
