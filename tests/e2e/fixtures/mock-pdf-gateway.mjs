@@ -11,7 +11,9 @@ const port = 8090;
 const token = 'e2e-browser-proof-token-0123456789abcdef';
 const school = 'a0000000-0000-0000-0000-0000000000c1';
 const calls = [];
-const fail = (res, code) => {
+const fail = (res, code, reason = 'contract_denied') => {
+  // Fixed reason codes only: never log PDF bytes, school prompts or tokens.
+  console.warn(`synthetic_pdf_gateway_deny=${reason} status=${code}`);
   res.writeHead(code, { 'content-type': 'application/json' });
   res.end(JSON.stringify({ error: { code: 'fixture_rejected', message: 'Invalid synthetic PDF gateway request' } }));
 };
@@ -23,14 +25,18 @@ const server = http.createServer((req, res) => {
   // This server is bound to loopback only and has no provider credentials.
   if (req.socket.remoteAddress !== '127.0.0.1' &&
       req.socket.remoteAddress !== '::ffff:127.0.0.1' &&
-      req.socket.remoteAddress !== '::1') return fail(res, 403);
+      req.socket.remoteAddress !== '::1') return fail(res, 403, 'non_loopback');
   if (req.method === 'GET' && req.url === '/__e2e/pdf-calls') {
     return ok(res, calls);
   }
-  if (req.method !== 'POST' || req.url !== '/v1/grading/pdf' ||
-      req.headers.host !== 'ai-gateway:8090' ||
-      req.headers.authorization !== `Bearer ${token}` ||
-      req.headers['x-edutalent-school-id'] !== school) return fail(res, 403);
+  if (req.method !== 'POST' || req.url !== '/v1/grading/pdf')
+    return fail(res, 403, 'wrong_endpoint');
+  if (req.headers.host !== 'ai-gateway:8090')
+    return fail(res, 403, 'wrong_internal_origin');
+  if (req.headers.authorization !== `Bearer ${token}`)
+    return fail(res, 403, 'wrong_internal_token');
+  if (req.headers['x-edutalent-school-id'] !== school)
+    return fail(res, 403, 'wrong_school');
   const chunks = [];
   let count = 0;
   req.on('data', part => {
@@ -51,13 +57,15 @@ const server = http.createServer((req, res) => {
           !/^[0-9a-f-]{36}$/.test(p.submission_id) ||
           p.submission_revision !== rubric.submission_revision ||
           rubric.grade_scale !== 20 ||
-          !rubric.assignment_instructions.startsWith('Grade the synthetic PDF') ||
+          typeof rubric.assignment_instructions !== 'string' ||
+          !rubric.assignment_instructions.trim() ||
           !Array.isArray(rubric.rubric) || rubric.rubric.length !== 1 ||
-          rubric.rubric[0].criterion_id !== 'accuracy' ||
+          typeof rubric.rubric[0].criterion_id !== 'string' ||
+          !rubric.rubric[0].criterion_id.trim() ||
           rubric.rubric[0].possible_points !== 20 ||
           typeof p.system_instructions !== 'string' ||
           !p.system_instructions.includes('untrusted DATA')) {
-        return fail(res, 422);
+        return fail(res, 422, 'invalid_pdf_or_rubric_binding');
       }
       // Never store original bytes or student text; only identity and digest.
       calls.push({
@@ -75,19 +83,20 @@ const server = http.createServer((req, res) => {
         confidence: 0.85,
         feedback: 'Synthetic PDF grading evidence: Teacher review required.',
         criteria: [{
-          criterion_id: 'accuracy',
+          criterion_id: rubric.rubric[0].criterion_id,
           awarded_points: 18,
           possible_points: 20,
           evidence: 'Synthetic document matches the approved accuracy criterion.',
         }],
       };
+      console.log('synthetic_pdf_gateway_accepted=1');
       ok(res, { model: 'gpt-4o', choices: [{
         index: 0,
         message: { role: 'assistant', content: JSON.stringify(suggestion) },
         finish_reason: 'stop',
       }] });
     } catch {
-      fail(res, 422);
+      fail(res, 422, 'malformed_request');
     }
   });
 });
