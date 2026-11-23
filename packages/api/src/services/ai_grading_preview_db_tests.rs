@@ -1820,7 +1820,7 @@ async fn school_and_teacher_authorization_matrix() {
     // Make this fixture the oldest available item so the scheduler's
     // ordinary ordering cannot select an unrelated text-only fixture.
     sqlx::query(
-        "UPDATE public.ai_grading_jobs SET available_at=NOW()-INTERVAL '1 day' \\
+        "UPDATE public.ai_grading_jobs SET available_at=NOW()-INTERVAL '1 day' \
          WHERE submission_id=$1 AND submission_revision=$2 AND rubric_approval_id=$3",
     )
     .bind(submissions[0])
