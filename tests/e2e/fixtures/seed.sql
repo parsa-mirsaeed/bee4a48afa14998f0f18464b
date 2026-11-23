@@ -656,4 +656,17 @@ WHERE s.id IN (
 )
 ON CONFLICT (submission_id, submission_revision, rubric_approval_id) DO NOTHING;
 
+-- Native-PDF positive worker/browser fixtures, DISABLED in normal browser mode.
+-- An isolated CI-only script explicitly opts in this synthetic school and
+-- provisions its bounded budget; ordinary E2E/production remain default deny.
+-- Distinct desktop 701 and mobile 801 submissions preserve serial evidence.
+INSERT INTO assignments(id,teacher_id,class_section_id,subject_id,title,body,due_at,status,published_at) VALUES
+ ('f0600000-0000-0000-0000-000000000701','c0000000-0000-0000-0000-0000000000c2','e0000000-0000-0000-0000-0000000000c1','d0000000-0000-0000-0000-0000000000a1','E2E Native PDF Positive 701','Grade the synthetic PDF according to the approved accuracy rubric.',NOW()+INTERVAL '14 days','Published',NOW()),
+ ('f0600000-0000-0000-0000-000000000801','c0000000-0000-0000-0000-0000000000c2','e0000000-0000-0000-0000-0000000000c1','d0000000-0000-0000-0000-0000000000a1','E2E Native PDF Positive 801','Grade the synthetic PDF according to the approved accuracy rubric.',NOW()+INTERVAL '14 days','Published',NOW())
+ON CONFLICT DO NOTHING;
+INSERT INTO custom_assignments(id,assignment_id,student_id,due_at,status) VALUES
+ ('f1600000-0000-0000-0000-000000000701','f0600000-0000-0000-0000-000000000701','c0000000-0000-0000-0000-0000000000c3',NOW()+INTERVAL '14 days','Assigned'),
+ ('f1600000-0000-0000-0000-000000000801','f0600000-0000-0000-0000-000000000801','c0000000-0000-0000-0000-0000000000c3',NOW()+INTERVAL '14 days','Assigned')
+ON CONFLICT DO NOTHING;
+
 COMMIT;
