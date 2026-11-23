@@ -89,9 +89,13 @@ jobs:
         working-directory: tests/e2e
         run: npx playwright install --with-deps chromium
 
-      - name: Compile debug-only real gateway with isolated CI HTTPS provider transport
+      - name: Compile debug-only real gateway against real migrated PostgreSQL
         run: |
           set -euo pipefail
+          # SQLx macro type-checking requires the actual schema at compile time.
+          # The browser harness independently resets and replays this fixture
+          # after compilation, preserving its existing fail-closed isolation.
+          bash scripts/ci/apply_migrations.sh
           cargo build --locked -p api --features server,ci-native-pdf-provider --bin ai_gateway
           test -x target/debug/ai_gateway
 
