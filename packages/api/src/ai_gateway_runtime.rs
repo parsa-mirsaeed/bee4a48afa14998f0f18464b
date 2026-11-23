@@ -49,6 +49,11 @@ use tokio::{
 };
 use uuid::Uuid;
 
+// Only debug CI builds may include loopback first-party provider routing.
+// A release build with this feature must fail at compile time, not runtime.
+#[cfg(all(feature = "ci-native-pdf-provider", not(debug_assertions)))]
+compile_error!("ci-native-pdf-provider is forbidden in release builds");
+
 const SCHOOL_HEADER: &str = "x-edutalent-school-id";
 const REQUEST_HEADER: &str = "x-edutalent-request-id";
 const OPENAI_BASE_URL: &str = "https://api.openai.com/v1/";
@@ -590,6 +595,42 @@ fn provider_client(config: &Config) -> Result<reqwest::Client, StartupError> {
         .user_agent("edutalent-ai-gateway/1");
     if embedding_client_requires_direct_connect(config) {
         builder = builder.no_proxy();
+    }
+
+    // CI-only, compile-time-gated transport: exercise the REAL authenticated
+    // gateway, exact approved OpenAI origin, native PDF JSON/file payload, TLS
+    // validation, and response contract against a one-off HTTPS mock provider.
+    // Do not add an env-based provider URL override to production. DNS is
+    // overridden only for this exact hostname, not all external requests.
+    #[cfg(feature = "ci-native-pdf-provider")]
+    if std::env::var("EDUTALENT_CI_PDF_PROVIDER").ok().as_deref() == Some("1") {
+        let approved = std::env::var("CI").ok().as_deref() == Some("true")
+            && config.listen_addr == "127.0.0.1:8090".parse::<SocketAddr>().unwrap()
+            && config.native_pdf_enabled
+            && config.llm_mode == LlmMode::Connected
+            && config.llm_profile == OPENAI_GPT4O_V1
+            && config
+                .llm_provider
+                .as_ref()
+                .is_some_and(|provider| provider.base_url.as_str() == OPENAI_BASE_URL);
+        if !approved {
+            return Err(StartupError::InvalidConfig(
+                "CI PDF mock transport requires exact loopback/protected profile".into(),
+            ));
+        }
+        let path = std::env::var("EDUTALENT_CI_PDF_CERT").map_err(|_| {
+            StartupError::InvalidConfig("CI PDF mock certificate is required".into())
+        })?;
+        let certificate_bytes = std::fs::read(path)
+            .map_err(|_| StartupError::InvalidConfig("CI PDF mock certificate missing".into()))?;
+        let certificate = reqwest::Certificate::from_pem(&certificate_bytes)?;
+        builder = builder
+            .no_proxy()
+            .resolve(
+                "api.openai.com",
+                "127.0.0.1:9443".parse::<SocketAddr>().unwrap(),
+            )
+            .add_root_certificate(certificate);
     }
     Ok(builder.build()?)
 }
