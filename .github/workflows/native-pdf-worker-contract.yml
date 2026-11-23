@@ -92,11 +92,15 @@ jobs:
       - name: Compile debug-only real gateway against real migrated PostgreSQL
         run: |
           set -euo pipefail
-          # SQLx macro type-checking requires the actual schema at compile time.
-          # The browser harness independently resets and replays this fixture
-          # after compilation, preserving its existing fail-closed isolation.
-          bash scripts/ci/apply_migrations.sh
-          cargo build --locked -p api --features server,ci-native-pdf-provider --bin ai_gateway
+          # SQLx macro type-checking requires the migrated database. Use a
+          # SEPARATE disposable compile database: the browser reset deliberately
+          # clears only public schema and must not inherit internal policies.
+          psql 'postgresql://postgres:postgres@localhost:5432/postgres' \
+            -v ON_ERROR_STOP=1 -c 'CREATE DATABASE edutalent_compile_ci'
+          compile_db='postgresql://postgres:postgres@localhost:5432/edutalent_compile_ci'
+          DATABASE_URL="${compile_db}" bash scripts/ci/apply_migrations.sh
+          DATABASE_URL="${compile_db}" \
+            cargo build --locked -p api --features server,ci-native-pdf-provider --bin ai_gateway
           test -x target/debug/ai_gateway
 
       - name: Run Student-to-real-gateway-to-HTTPS-provider-to-Teacher proof
