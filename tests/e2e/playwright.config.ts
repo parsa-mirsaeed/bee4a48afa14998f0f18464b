@@ -40,7 +40,9 @@ export default defineConfig({
     {
       name: 'mobile-chromium',
       use: { ...devices['Pixel 7'] },
-      grep: /@final|@mobile/,
+      grep: process.env.E2E_NATIVE_PDF_POSITIVE === '1'
+        ? /@native-pdf-positive/
+        : /@final|@mobile/,
     },
   ],
   metadata: {
