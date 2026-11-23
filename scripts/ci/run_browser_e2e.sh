@@ -25,10 +25,46 @@ bash scripts/ci/apply_migrations.sh
 psql "${DATABASE_URL}" -v ON_ERROR_STOP=1 -f tests/e2e/fixtures/seed.sql
 psql "${DATABASE_URL}" -v ON_ERROR_STOP=1 -f tests/e2e/fixtures/runtime-rls-provenance.sql
 
+# Explicitly selected, isolated synthetic PDF positive acceptance only. It
+# cannot be enabled in ordinary @smoke/@final tests or a deployment runner.
+PDF_GATEWAY_PID=""
+if [[ "${E2E_NATIVE_PDF_POSITIVE:-0}" == "1" ]]; then
+  [[ "${CI:-}" == "true" ]] || { echo 'synthetic PDF positive requires CI=true' >&2; exit 1; }
+  [[ "${E2E_GREP}" == "@native-pdf-positive" ]] || {
+    echo 'synthetic PDF positive requires isolated Playwright selector' >&2; exit 1;
+  }
+  [[ "${DATABASE_URL}" == */edutalent_ci ]] || {
+    echo 'refusing PDF opt-in outside the disposable CI database' >&2; exit 1;
+  }
+  psql "${DATABASE_URL}" -v ON_ERROR_STOP=1 \
+    -f tests/e2e/fixtures/native-pdf-operator-synthetic.sql
+  # The real app's destination remains pinned to http://ai-gateway:8090.
+  # Bind only a synthetic loopback contract fixture; never relax production
+  # URL validation or run the real gateway against an external provider.
+  if ! getent ahostsv4 ai-gateway | awk 'NR == 1 {exit ($1 == "127.0.0.1" ? 0 : 1)}'; then
+    if [[ "$(id -u)" -eq 0 ]]; then
+      printf '127.0.0.1 ai-gateway\\n' >> /etc/hosts
+    else
+      printf '127.0.0.1 ai-gateway\\n' | sudo tee -a /etc/hosts >/dev/null
+    fi
+  fi
+  getent ahostsv4 ai-gateway | awk 'NR == 1 {exit ($1 == "127.0.0.1" ? 0 : 1)}'
+  node tests/e2e/fixtures/mock-pdf-gateway.mjs &
+  PDF_GATEWAY_PID=$!
+  export AI_GRADING_WORKER_ENABLED=true
+  export AI_GRADING_WORKER_POLL_MS=500
+  export LLM_PROFILE=openai-gpt4o-v1
+  export LLM_MODEL=gpt-4o
+  export LLM_MAX_TOKENS=512
+fi
+
 node tests/e2e/fixtures/mock-idp.mjs &
 MOCK_IDP_PID=$!
 SERVER_PID=""
 cleanup() {
+  if [[ -n "${PDF_GATEWAY_PID}" ]]; then
+    kill "${PDF_GATEWAY_PID}" 2>/dev/null || true
+  fi
   kill "${MOCK_IDP_PID}" 2>/dev/null || true
   if [[ -n "${SERVER_PID}" ]]; then
     kill "${SERVER_PID}" 2>/dev/null || true
@@ -66,6 +102,8 @@ export SUPABASE_SECRET_KEY="e2e-server-only"
 # the queued job in PostgreSQL without making any provider/network request.
 export AI_GATEWAY_URL="http://ai-gateway:8090"
 export AI_GATEWAY_INTERNAL_TOKEN="e2e-browser-proof-token-0123456789abcdef"
+# Even the synthetic positive path never starts the provider-native AI gateway.
+export AI_NATIVE_PDF_GATEWAY_ENABLED=false
 export EMBEDDING_PROFILE="local-bge-v1"
 export EMBEDDING_MODEL="BAAI/bge-small-en-v1.5"
 export EMBEDDING_VECTOR_SIZE="384"
