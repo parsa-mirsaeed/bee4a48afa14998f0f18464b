@@ -43,9 +43,9 @@ if [[ "${E2E_NATIVE_PDF_POSITIVE:-0}" == "1" ]]; then
   # URL validation or run the real gateway against an external provider.
   if ! getent ahostsv4 ai-gateway | awk 'NR == 1 {exit ($1 == "127.0.0.1" ? 0 : 1)}'; then
     if [[ "$(id -u)" -eq 0 ]]; then
-      printf '127.0.0.1 ai-gateway\\n' >> /etc/hosts
+      printf '127.0.0.1 ai-gateway\n' >> /etc/hosts
     else
-      printf '127.0.0.1 ai-gateway\\n' | sudo tee -a /etc/hosts >/dev/null
+      printf '127.0.0.1 ai-gateway\n' | sudo tee -a /etc/hosts >/dev/null
     fi
   fi
   getent ahostsv4 ai-gateway | awk 'NR == 1 {exit ($1 == "127.0.0.1" ? 0 : 1)}'
