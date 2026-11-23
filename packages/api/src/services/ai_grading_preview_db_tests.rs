@@ -1814,6 +1814,96 @@ async fn school_and_teacher_authorization_matrix() {
     .expect("approved single PDF enqueued at exact revision");
     assert_eq!(queued_status, "queued");
 
+    // Native PDF-specific queue handoff on a real migrated database.
+    // Claim only the already-opted-in, current-revision synthetic PDF job;
+    // the global queue actor learns metadata, never original PDF bytes.
+    // Make this fixture the oldest available item so the scheduler's
+    // ordinary ordering cannot select an unrelated text-only fixture.
+    sqlx::query(
+        "UPDATE public.ai_grading_jobs SET available_at=NOW()-INTERVAL '1 day' \
+         WHERE submission_id=$1 AND submission_revision=$2 AND rubric_approval_id=$3",
+    )
+    .bind(submissions[0])
+    .bind(queued_revision)
+    .bind(pdf_approval)
+    .execute(&pool)
+    .await
+    .expect("prioritize synthetic PDF fixture for worker handoff");
+    let pdf_worker = Uuid::new_v4();
+    let pdf_claimed_job: Uuid;
+    {
+        use crate::rls_context::{AuthorizedActor, AuthorizedTx};
+        let tx = AuthorizedTx::begin(&pool, AuthorizedActor::system_queue(pdf_worker))
+            .await
+            .expect("begin native PDF system queue claim");
+        let scoped = tx.authorized_pool();
+        let row = tx
+            .scope(
+                sqlx::query("SELECT * FROM public.claim_next_ai_grading_job($1)")
+                    .bind(pdf_worker)
+                    .fetch_one(&scoped),
+                Result::is_ok,
+            )
+            .await
+            .expect("commit native PDF queue claim")
+            .expect("eligible PDF queue claim");
+        pdf_claimed_job = row.get("job_id");
+        assert_eq!(row.get::<Uuid, _>("submission_id"), submissions[0]);
+        assert_eq!(row.get::<Uuid, _>("submission_revision"), queued_revision);
+        assert_eq!(row.get::<Uuid, _>("rubric_approval_id"), pdf_approval);
+        assert_eq!(row.get::<Uuid, _>("school_id"), school_a);
+    }
+    {
+        use crate::rls_context::{AuthorizedActor, AuthorizedTx};
+        let tx = AuthorizedTx::begin(&pool, AuthorizedActor::system_queue(pdf_worker))
+            .await
+            .expect("begin native PDF teacher resolution");
+        let scoped = tx.authorized_pool();
+        let resolved_teacher: Option<Uuid> = tx
+            .scope(
+                sqlx::query_scalar("SELECT public.resolve_ai_grading_job_teacher($1,$2)")
+                    .bind(pdf_worker)
+                    .bind(pdf_claimed_job)
+                    .fetch_one(&scoped),
+                Result::is_ok,
+            )
+            .await
+            .expect("commit native PDF teacher resolution")
+            .expect("resolve PDF job's assigned Teacher");
+        assert_eq!(resolved_teacher, Some(teacher_a_user));
+    }
+    // This is a QUEUE HANDOFF proof, not fake model inference. The job is
+    // intentionally cancelled without a model call, suggestion or grade;
+    // separate provider and review proofs must still be connected in a
+    // single continuous staging acceptance before release.
+    {
+        use crate::rls_context::{AuthorizedActor, AuthorizedTx};
+        let tx = AuthorizedTx::begin(&pool, AuthorizedActor::system_queue(pdf_worker))
+            .await
+            .expect("begin synthetic PDF queue cleanup");
+        let scoped = tx.authorized_pool();
+        let cancelled: bool = tx
+            .scope(
+                sqlx::query_scalar("SELECT public.cancel_ai_grading_job($1,$2,$3)")
+                    .bind(pdf_worker)
+                    .bind(pdf_claimed_job)
+                    .bind("authorization_revoked")
+                    .fetch_one(&scoped),
+                Result::is_ok,
+            )
+            .await
+            .expect("commit synthetic PDF cancellation")
+            .expect("cancel claimed synthetic PDF job");
+        assert!(cancelled, "current PDF lease owner can cancel its job");
+    }
+    let unchanged_pdf_grade: Option<f64> =
+        sqlx::query_scalar("SELECT grade::float8 FROM public.submissions WHERE id=$1")
+            .bind(submissions[0])
+            .fetch_one(&pool)
+            .await
+            .expect("PDF queue handoff leaves academic grade untouched");
+    assert_eq!(unchanged_pdf_grade, None);
+
     // PDF-positive decision boundary: emulate the already validated *model
     // artifact* without calling any provider, then run the same SQL decision
     // endpoint as the actual teacher-review server function. Roll back the
