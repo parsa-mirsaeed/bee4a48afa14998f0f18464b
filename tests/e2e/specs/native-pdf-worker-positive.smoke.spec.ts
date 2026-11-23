@@ -5,10 +5,9 @@ import { watchConsole, assertNoConsoleErrors } from '../fixtures/console-guard';
 
 // Explicitly isolated synthetic-positive CI mode. The release Dioxus app,
 // PostgreSQL queue/worker/Teacher RLS, real private Storage, and budget are
-// exercised together. The local gateway is a STRICT CONTRACT FIXTURE rather
-// than the production gateway; the real gateway->mock-provider transport is
-// separately tested by native_pdf_two_hop_mock_gateway_preserves_original_and_rubric.
-// Do not count this alone as complete native-PDF production release acceptance.
+// exercised together. In the explicit REAL_GATEWAY CI tier, the real gateway
+// transmits the original to a TLS-verified local first-party provider fixture.
+// Never treat synthetic provider success as production pedagogical quality.
 const origin = new URL(process.env.E2E_BASE_URL ?? 'http://127.0.0.1:8080');
 
 function api(page: Page) {
@@ -142,21 +141,38 @@ test('synthetic original PDF flows through real queue/worker and Teacher decisio
     return suggestion?.status === 'pending_review' ? 'ready' : 'not-ready';
   }, { timeout: 100_000, intervals: [500, 1000, 1500] }).toBe('ready');
 
-  const proof = await page.context().request.get('http://127.0.0.1:8090/__e2e/pdf-calls');
+  const realGateway = process.env.E2E_NATIVE_PDF_REAL_GATEWAY === '1';
+  const evidenceUrl = realGateway
+    ? 'http://127.0.0.1:9444/__e2e/pdf-calls'
+    : 'http://127.0.0.1:8090/__e2e/pdf-calls';
+  const proof = await page.context().request.get(evidenceUrl);
   expect(proof.ok()).toBeTruthy();
   const calls = (await proof.json()) as Array<{
-    submission_id: string; revision: string; attachment_id: string;
-    sha256: string; input_bytes: number;
+    submission_id?: string; revision: string; attachment_id?: string;
+    sha256: string; input_bytes: number; provider_model?: string;
   }>;
-  const matching = calls.filter(call => call.submission_id === submission.id);
-  expect(matching, 'exactly one durable budget-approved gateway attempt').toHaveLength(1);
-  expect(matching[0]).toEqual({
-    submission_id: submission.id,
-    revision: submission.revision,
-    attachment_id: attachmentId,
-    sha256,
-    input_bytes: original.length,
-  });
+  const matching = calls.filter(call => realGateway
+    ? call.revision === submission.revision
+    : call.submission_id === submission.id);
+  expect(matching, 'exactly one budget-approved native PDF provider attempt').toHaveLength(1);
+  if (realGateway) {
+    // The FIRST-PARTY HTTPS provider sees the real PDF file bytes and the
+    // revision-bound rubric, but never the internal attachment/student IDs.
+    expect(matching[0]).toEqual({
+      revision: submission.revision,
+      sha256,
+      input_bytes: original.length,
+      provider_model: 'gpt-4o',
+    });
+  } else {
+    expect(matching[0]).toEqual({
+      submission_id: submission.id,
+      revision: submission.revision,
+      attachment_id: attachmentId,
+      sha256,
+      input_bytes: original.length,
+    });
+  }
 
   panel = await openReview();
   await expect(panel).toContainText('18.00 / 20');
