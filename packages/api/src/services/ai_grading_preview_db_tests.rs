@@ -1924,7 +1924,7 @@ async fn school_and_teacher_authorization_matrix() {
         );
     }
     let unbilled_suggestions: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM public.ai_grading_suggestions \\
+        "SELECT count(*) FROM public.ai_grading_suggestions \
          WHERE submission_id=$1 AND submission_revision=$2 AND rubric_approval_id=$3",
     )
     .bind(submissions[0])
