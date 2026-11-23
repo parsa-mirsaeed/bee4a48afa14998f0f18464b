@@ -1896,13 +1896,12 @@ async fn school_and_teacher_authorization_matrix() {
             .expect("cancel claimed synthetic PDF job");
         assert!(cancelled, "current PDF lease owner can cancel its job");
     }
-    let unchanged_pdf_grade: Option<f64> = sqlx::query_scalar(
-        "SELECT grade::float8 FROM public.submissions WHERE id=$1",
-    )
-    .bind(submissions[0])
-    .fetch_one(&pool)
-    .await
-    .expect("PDF queue handoff leaves academic grade untouched");
+    let unchanged_pdf_grade: Option<f64> =
+        sqlx::query_scalar("SELECT grade::float8 FROM public.submissions WHERE id=$1")
+            .bind(submissions[0])
+            .fetch_one(&pool)
+            .await
+            .expect("PDF queue handoff leaves academic grade untouched");
     assert_eq!(unchanged_pdf_grade, None);
 
     // PDF-positive decision boundary: emulate the already validated *model
