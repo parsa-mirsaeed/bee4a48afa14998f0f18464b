@@ -568,10 +568,11 @@ def main() -> None:
     pdf_enabled = pdf_flag in {"true", "1"}
     if (worker_enabled or pdf_enabled) and not effective_llm_connected:
         fail("enabled AI grading requires connected LLM")
-    if pdf_enabled and selected_llm_contract != (
-        "openai-gpt4o-v1", "gpt-4o", "https://api.openai.com/v1/"
-    ):
-        fail("native PDF grading requires the exact approved first-party GPT-4o profile")
+    if pdf_enabled and selected_llm_contract not in {
+        ("openai-gpt4o-v1", "gpt-4o", "https://api.openai.com/v1/"),
+        ("custom-v1:gpt-6-luna", "gpt-6-luna", "https://api.gapgpt.ir/v1/"),
+    }:
+        fail("native PDF grading requires an approved exact provider/model pair")
 
     print("Rendered production Compose security and independent AI capability invariants verified.")
 
