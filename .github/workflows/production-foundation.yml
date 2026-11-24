@@ -154,10 +154,9 @@ jobs:
             echo "Native PDF grading with unsupported profile was accepted" >&2
             exit 1
           fi
-          grep -Fq 'Native PDF grading requires the exact approved first-party GPT-4o profile' "${RUNNER_TEMP}/grading-wrong-profile.log"
+          grep -Fq 'Native PDF grading requires an approved exact provider/model pair' "${RUNNER_TEMP}/grading-wrong-profile.log"
 
-          # Preferred/backup GapGPT profiles use the existing custom text
-          # contract. Prove both deployment selections, not vendor inference.
+          # Both text profiles are valid; Luna additionally accepts native PDF.
           for model in gpt-6-luna claude-haiku-5-5; do
             sed -i \
               -e 's|^AI_LLM_BASE_URL=.*|AI_LLM_BASE_URL=https://api.gapgpt.ir/v1/|' \
@@ -166,11 +165,15 @@ jobs:
               -e 's|^AI_NATIVE_PDF_GATEWAY_ENABLED=.*|AI_NATIVE_PDF_GATEWAY_ENABLED=false|' "${env_file}"
             bash edutalent production-validate
             sed -i -e 's|^AI_NATIVE_PDF_GATEWAY_ENABLED=.*|AI_NATIVE_PDF_GATEWAY_ENABLED=true|' "${env_file}"
+            if [[ "${model}" == gpt-6-luna ]]; then
+              bash edutalent production-validate
+              sed -i -e 's|^AI_LLM_BASE_URL=.*|AI_LLM_BASE_URL=https://api.other-provider.com/v1/|' "${env_file}"
+            fi
             if bash edutalent production-validate > "${RUNNER_TEMP}/grading-custom-pdf.log" 2>&1; then
-              echo "Unverified native PDF capability was accepted for ${model}" >&2
+              echo "Unsupported native PDF provider/model pair accepted for ${model}" >&2
               exit 1
             fi
-            grep -Fq 'Native PDF grading requires the exact approved first-party GPT-4o profile' "${RUNNER_TEMP}/grading-custom-pdf.log"
+            grep -Fq 'Native PDF grading requires an approved exact provider/model pair' "${RUNNER_TEMP}/grading-custom-pdf.log"
           done
 
       - name: Confirm strict runtime boundaries
