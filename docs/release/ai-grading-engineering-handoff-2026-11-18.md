@@ -29,6 +29,54 @@ the previous installation's default-OFF behavior and allow operators to
 explicitly select the new capabilities; upgrading the image does not
 automatically authorize external processing.
 
+### Operator-selected chat provider: GapGPT
+
+For this update the preferred text-assessment provider is GapGPT at
+`https://api.gapgpt.ir/v1/`, using the existing operator-owned custom
+profile contract. The app continues to call only its authenticated internal
+gateway; the gateway sends requests to `/v1/chat/completions`. No new
+provider adapter, model registry or automatic failover is required.
+
+Configure the existing private `deploy/production/.env.edutalent`:
+
+```dotenv
+AI_LLM_MODE=connected
+AI_LLM_BASE_URL=https://api.gapgpt.ir/v1/
+LLM_PROFILE=custom-v1:gpt-6-luna
+LLM_MODEL=gpt-6-luna
+AI_GRADING_WORKER_ENABLED=true
+AI_NATIVE_PDF_GATEWAY_ENABLED=false
+```
+
+Set `LLM_API_KEY` separately to a newly issued secret. Never commit it.
+For an operator-selected text-only backup, change **both** profile and model:
+
+```dotenv
+LLM_PROFILE=custom-v1:claude-haiku-5-5
+LLM_MODEL=claude-haiku-5-5
+```
+
+Keep the endpoint, managed key and native-PDF switch as above. The active
+profile is installation-wide, including other chat features. The backup
+is a deliberate configuration switch/restart, not silent failover.
+Preserve the previous profile and model for rollback. Provider acceptance
+requires a synthetic rubric-grading call with a valid JSON suggestion,
+exact requested model in the response and correct Teacher review; a plain
+greeting response or a successful Compose render is not inference proof.
+
+**Native PDF capability limit:** The supplied GapGPT model descriptions
+advertise text/image input for GPT-6 Luna and text input for Haiku, not
+original PDF file input. Neither is approved for the native-PDF gateway
+route. Do not infer support for PDF from vision capability, route PDFs via
+a text-only backup, or silently convert originals to text/images. The
+already verified first-party GPT-4o native-PDF path remains a separate
+operator-selected profile, not a simultaneous second model in this release.
+If native PDF through GapGPT is required, obtain the provider's explicit
+supported file-input contract and verify it with approved synthetic data
+before enabling; do not weaken the current capability check.
+
+### Existing native-PDF profile (separate selection)
+
 For an approved installation, the relevant entries in its existing private
 `deploy/production/.env.edutalent` are:
 
