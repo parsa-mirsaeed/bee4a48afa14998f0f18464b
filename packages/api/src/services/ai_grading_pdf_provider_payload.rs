@@ -73,7 +73,10 @@ pub fn openai_chat_pdf_payload(
     document: &NativePdfGradingInput,
     max_tokens: u32,
 ) -> Result<Value, NativePdfPayloadError> {
-    if !matches!(model, NativePdfModel::OpenAiGpt4o | NativePdfModel::GapGptLuna) {
+    if !matches!(
+        model,
+        NativePdfModel::OpenAiGpt4o | NativePdfModel::GapGptLuna
+    ) {
         return Err(NativePdfPayloadError::UnsupportedProviderModel);
     }
     validate_native_pdf_prompt(system_instructions, teacher_rubric_prompt, max_tokens)?;
