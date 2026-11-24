@@ -34,7 +34,8 @@ automatically authorize external processing.
 For this update the preferred text and native-PDF assessment provider is GapGPT at
 `https://api.gapgpt.ir/v1/`, using the existing operator-owned custom
 profile contract. The app continues to call only its authenticated internal
-gateway; the gateway sends requests to `/v1/chat/completions`. The existing native PDF file adapter is extended only for this exact provider/model pair; no automatic failover.
+gateway; the gateway sends requests to `/v1/chat/completions`. The existing native PDF file adapter is extended only for this exact
+provider/model pair; no automatic failover.
 
 Configure the existing private `deploy/production/.env.edutalent`:
 
@@ -48,7 +49,7 @@ AI_NATIVE_PDF_GATEWAY_ENABLED=true
 ```
 
 Set `LLM_API_KEY` separately to a newly issued secret. Never commit it.
-For an operator-selected text-only backup, change **both** profile and model:
+For an operator-selected text-only backup, change both model settings and disable the PDF gateway:
 
 ```dotenv
 LLM_PROFILE=custom-v1:claude-haiku-5-5
@@ -64,16 +65,15 @@ requires a synthetic rubric-grading call with a valid JSON suggestion,
 exact requested model in the response and correct Teacher review; a plain
 greeting response or a successful Compose render is not inference proof.
 
-**Native PDF capability limit:** The supplied GapGPT model descriptions
-advertise text/image input for GPT-6 Luna and text input for Haiku, not
-original PDF file input. Neither is approved for the native-PDF gateway
-route. Do not infer support for PDF from vision capability, route PDFs via
-a text-only backup, or silently convert originals to text/images. The
-already verified first-party GPT-4o native-PDF path remains a separate
-operator-selected profile, not a simultaneous second model in this release.
-If native PDF through GapGPT is required, obtain the provider's explicit
-supported file-input contract and verify it with approved synthetic data
-before enabling; do not weaken the current capability check.
+**Native PDF capability evidence:** GapGPT's OpenAI-compatible API documentation
+and the operator's successful synthetic original-PDF retrieval through
+`gpt-6-luna` confirm basic file input. The new exact-origin route uses the
+same file content part, bounded completion tokens, strict JSON validation,
+immutable revision and durable budget controls. Dedicated CI tests exercise
+the local TLS mock for the selected provider; real rubric-scoring compatibility
+and provider response-model identity remain a separate operator acceptance
+check. Haiku remains text-only. Do not bypass existing school opt-in,
+budget or Teacher review; do not silently switch models or convert PDFs.
 
 ### Existing native-PDF profile (separate selection)
 
