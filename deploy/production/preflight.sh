@@ -149,7 +149,7 @@ llm_origin="$(read_env "${APP_ENV}" AI_LLM_BASE_URL)"
 llm_mode="$(read_env "${APP_ENV}" AI_LLM_MODE)"
 llm_key="$(read_env "${APP_ENV}" LLM_API_KEY)"
 case "${llm_profile}|${llm_model}|${llm_origin}" in
-  "deepseek-chat-v1|deepseek-chat|https://api.deepseek.com/v1/" | "deepseek-v41-flash-v1|deepseek-v4.1-flash|https://api.gapgpt.app/v1/")
+  "deepseek-chat-v1|deepseek-chat|https://api.deepseek.com/v1/" | "deepseek-v41-flash-v1|deepseek-v4.1-flash|https://api.gapgpt.app/v1/" | "openai-gpt4o-v1|gpt-4o|https://api.openai.com/v1/")
     ;;
   *)
     if [[ "${llm_profile}" != custom-v1:* || "${llm_profile}" != "custom-v1:${llm_model}" || ! "${llm_model}" =~ ^[A-Za-z0-9][A-Za-z0-9._:/-]{0,95}$ ]]; then
@@ -206,6 +206,30 @@ case "${llm_mode}" in
   disabled) ;;
   *) echo "AI_LLM_MODE must be blank, connected, or disabled." >&2; exit 1 ;;
 esac
+
+# Preserve default-OFF behavior for existing installations without these keys.
+grading_worker="$(read_env "${APP_ENV}" AI_GRADING_WORKER_ENABLED)"
+pdf_gateway="$(read_env "${APP_ENV}" AI_NATIVE_PDF_GATEWAY_ENABLED)"
+grading_worker="${grading_worker:-false}"
+pdf_gateway="${pdf_gateway:-false}"
+for flag in "${grading_worker}" "${pdf_gateway}"; do
+  case "${flag}" in
+    false|0|true|1) ;;
+    *) echo "AI grading switches must be true, false, 1, or 0." >&2; exit 1 ;;
+  esac
+done
+if [[ "${grading_worker}" == true || "${grading_worker}" == 1 || "${pdf_gateway}" == true || "${pdf_gateway}" == 1 ]]; then
+  if [[ "${llm_mode}" == disabled || -z "${llm_key}" ]]; then
+    echo "Enabled AI grading requires a connected LLM with a configured gateway-only key." >&2
+    exit 1
+  fi
+fi
+if [[ "${pdf_gateway}" == true || "${pdf_gateway}" == 1 ]]; then
+  case "${llm_profile}|${llm_model}|${llm_origin}" in
+    "openai-gpt4o-v1|gpt-4o|https://api.openai.com/v1/" | "custom-v1:gpt-6-luna|gpt-6-luna|https://api.gapgpt.ir/v1/") ;;
+    *) echo "Native PDF grading requires an approved exact provider/model pair." >&2; exit 1 ;;
+  esac
+fi
 
 for key in POSTGRES_PASSWORD JWT_SECRET SUPABASE_PUBLISHABLE_KEY SUPABASE_SECRET_KEY DASHBOARD_PASSWORD SECRET_KEY_BASE REALTIME_DB_ENC_KEY VAULT_ENC_KEY PG_META_CRYPTO_KEY; do
   value="$(read_env "${SUPABASE_ENV}" "${key}")"

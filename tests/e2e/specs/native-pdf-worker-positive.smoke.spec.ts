@@ -156,13 +156,13 @@ test('synthetic original PDF flows through real queue/worker and Teacher decisio
     : call.submission_id === submission.id);
   expect(matching, 'exactly one budget-approved native PDF provider attempt').toHaveLength(1);
   if (realGateway) {
-    // The FIRST-PARTY HTTPS provider sees the real PDF file bytes and the
+    // The synthetic GapGPT HTTPS provider sees the real PDF file bytes and the
     // revision-bound rubric, but never the internal attachment/student IDs.
     expect(matching[0]).toEqual({
       revision: submission.revision,
       sha256,
       input_bytes: original.length,
-      provider_model: 'gpt-4o',
+      provider_model: 'gpt-6-luna',
     });
   } else {
     expect(matching[0]).toEqual({

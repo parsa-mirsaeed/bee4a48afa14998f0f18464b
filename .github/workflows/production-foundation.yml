@@ -101,6 +101,81 @@ jobs:
           set -o pipefail
           bash edutalent production-validate 2>&1 | tee production-preflight.log
 
+      - name: Verify AI assessment activation without provider egress
+        shell: bash
+        run: |
+          set -euo pipefail
+          env_file=deploy/production/.env.edutalent
+          saved="$(mktemp)"
+          cp "${env_file}" "${saved}"
+          trap 'cp "${saved}" "${env_file}"; rm -f "${saved}"' EXIT
+          # Only config rendering: no real key, provider traffic or school opt-in.
+          sed -i \
+            -e 's|^AI_LLM_MODE=.*|AI_LLM_MODE=connected|' \
+            -e 's|^AI_LLM_BASE_URL=.*|AI_LLM_BASE_URL=https://api.openai.com/v1/|' \
+            -e 's|^LLM_PROFILE=.*|LLM_PROFILE=openai-gpt4o-v1|' \
+            -e 's|^LLM_MODEL=.*|LLM_MODEL=gpt-4o|' \
+            -e 's|^LLM_API_KEY=.*|LLM_API_KEY=ci-grading-render-only-abcdefghijklmnopqrstuvwxyz|' \
+            -e 's|^AI_GRADING_WORKER_ENABLED=.*|AI_GRADING_WORKER_ENABLED=true|' \
+            -e 's|^AI_NATIVE_PDF_GATEWAY_ENABLED=.*|AI_NATIVE_PDF_GATEWAY_ENABLED=true|' \
+            "${env_file}"
+          bash edutalent production-validate
+          export EDUTALENT_PRODUCTION_DIR="${PWD}/deploy/production"
+          supabase_dir="${EDUTALENT_PRODUCTION_DIR}/runtime/supabase"
+          docker compose --project-name edutalent --project-directory "${supabase_dir}" \
+            --env-file "${supabase_dir}/.env" --env-file "${env_file}" \
+            -f "${supabase_dir}/docker-compose.yml" \
+            -f deploy/production/compose.production.yaml --profile local-embedding \
+            config --format json | python3 -c '
+          import json, sys
+          services = json.load(sys.stdin)["services"]
+          app = services["app"]["environment"]
+          gateway = services["ai-gateway"]["environment"]
+          assert str(app["AI_GRADING_WORKER_ENABLED"]) == "true"
+          assert str(gateway["AI_NATIVE_PDF_GATEWAY_ENABLED"]) == "true"
+          assert app["LLM_PROFILE"] == gateway["LLM_PROFILE"] == "openai-gpt4o-v1"
+          assert "LLM_API_KEY" not in app
+          assert "AI_NATIVE_PDF_GATEWAY_ENABLED" not in app
+          assert "AI_GRADING_WORKER_ENABLED" not in gateway
+          print("Approved grading activation reaches both owning runtimes.")
+          '
+          sed -i -e 's|^AI_LLM_MODE=.*|AI_LLM_MODE=disabled|' "${env_file}"
+          if bash edutalent production-validate > "${RUNNER_TEMP}/grading-disabled.log" 2>&1; then
+            echo "Enabled grading with disabled LLM was accepted" >&2
+            exit 1
+          fi
+          grep -Fq 'Enabled AI grading requires a connected LLM' "${RUNNER_TEMP}/grading-disabled.log"
+          sed -i \
+            -e 's|^AI_LLM_MODE=.*|AI_LLM_MODE=connected|' \
+            -e 's|^AI_LLM_BASE_URL=.*|AI_LLM_BASE_URL=https://api.deepseek.com/v1/|' \
+            -e 's|^LLM_PROFILE=.*|LLM_PROFILE=deepseek-chat-v1|' \
+            -e 's|^LLM_MODEL=.*|LLM_MODEL=deepseek-chat|' "${env_file}"
+          if bash edutalent production-validate > "${RUNNER_TEMP}/grading-wrong-profile.log" 2>&1; then
+            echo "Native PDF grading with unsupported profile was accepted" >&2
+            exit 1
+          fi
+          grep -Fq 'Native PDF grading requires an approved exact provider/model pair' "${RUNNER_TEMP}/grading-wrong-profile.log"
+
+          # Both text profiles are valid; Luna additionally accepts native PDF.
+          for model in gpt-6-luna claude-haiku-5-5; do
+            sed -i \
+              -e 's|^AI_LLM_BASE_URL=.*|AI_LLM_BASE_URL=https://api.gapgpt.ir/v1/|' \
+              -e "s|^LLM_PROFILE=.*|LLM_PROFILE=custom-v1:${model}|" \
+              -e "s|^LLM_MODEL=.*|LLM_MODEL=${model}|" \
+              -e 's|^AI_NATIVE_PDF_GATEWAY_ENABLED=.*|AI_NATIVE_PDF_GATEWAY_ENABLED=false|' "${env_file}"
+            bash edutalent production-validate
+            sed -i -e 's|^AI_NATIVE_PDF_GATEWAY_ENABLED=.*|AI_NATIVE_PDF_GATEWAY_ENABLED=true|' "${env_file}"
+            if [[ "${model}" == gpt-6-luna ]]; then
+              bash edutalent production-validate
+              sed -i -e 's|^AI_LLM_BASE_URL=.*|AI_LLM_BASE_URL=https://api.other-provider.com/v1/|' "${env_file}"
+            fi
+            if bash edutalent production-validate > "${RUNNER_TEMP}/grading-custom-pdf.log" 2>&1; then
+              echo "Unsupported native PDF provider/model pair accepted for ${model}" >&2
+              exit 1
+            fi
+            grep -Fq 'Native PDF grading requires an approved exact provider/model pair' "${RUNNER_TEMP}/grading-custom-pdf.log"
+          done
+
       - name: Confirm strict runtime boundaries
         shell: bash
         run: |

@@ -15,6 +15,7 @@ const PDF_DATA_PREFIX: &str = "data:application/pdf;base64,";
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NativePdfModel {
     OpenAiGpt4o,
+    GapGptLuna,
     AnthropicClaudeSonnet45,
 }
 
@@ -29,6 +30,7 @@ impl NativePdfModel {
     fn name(self) -> &'static str {
         match self {
             Self::OpenAiGpt4o => "gpt-4o",
+            Self::GapGptLuna => "gpt-6-luna",
             Self::AnthropicClaudeSonnet45 => "claude-sonnet-4-5",
         }
     }
@@ -37,6 +39,7 @@ impl NativePdfModel {
     pub fn from_provider_model(provider: &str, model: &str) -> Result<Self, NativePdfPayloadError> {
         match (provider, model) {
             ("openai", "gpt-4o") => Ok(Self::OpenAiGpt4o),
+            ("gapgpt", "gpt-6-luna") => Ok(Self::GapGptLuna),
             ("anthropic", "claude-sonnet-4-5") => Ok(Self::AnthropicClaudeSonnet45),
             _ => Err(NativePdfPayloadError::UnsupportedProviderModel),
         }
@@ -70,11 +73,14 @@ pub fn openai_chat_pdf_payload(
     document: &NativePdfGradingInput,
     max_tokens: u32,
 ) -> Result<Value, NativePdfPayloadError> {
-    if model != NativePdfModel::OpenAiGpt4o {
+    if !matches!(
+        model,
+        NativePdfModel::OpenAiGpt4o | NativePdfModel::GapGptLuna
+    ) {
         return Err(NativePdfPayloadError::UnsupportedProviderModel);
     }
     validate_native_pdf_prompt(system_instructions, teacher_rubric_prompt, max_tokens)?;
-    Ok(json!({
+    let mut payload = json!({
         "model": model.name(),
         "max_tokens": max_tokens,
         "messages": [
@@ -97,7 +103,14 @@ pub fn openai_chat_pdf_payload(
             }
         ],
         "response_format": {"type": "json_object"}
-    }))
+    });
+    // GPT-6 uses the Chat Completions completion-token limit.
+    if model == NativePdfModel::GapGptLuna {
+        let object = payload.as_object_mut().expect("object payload");
+        object.remove("max_tokens");
+        object.insert("max_completion_tokens".to_string(), json!(max_tokens));
+    }
+    Ok(payload)
 }
 
 /// Anthropic Messages API native PDF `document` block. Its system instructions
@@ -193,6 +206,33 @@ mod tests {
     }
 
     #[test]
+    fn gapgpt_luna_receives_original_and_bounded_completion_tokens() {
+        let (doc, original) = source();
+        assert_eq!(
+            NativePdfModel::from_provider_model("gapgpt", "gpt-6-luna"),
+            Ok(NativePdfModel::GapGptLuna)
+        );
+        let payload = openai_chat_pdf_payload(
+            NativePdfModel::GapGptLuna,
+            "Untrusted document data",
+            "Approved rubric",
+            &doc,
+            512,
+        )
+        .unwrap();
+        assert_eq!(payload["model"], "gpt-6-luna");
+        assert_eq!(payload["max_completion_tokens"], 512);
+        assert!(payload.get("max_tokens").is_none());
+        let encoded = payload["messages"][1]["content"][1]["file"]["file_data"]
+            .as_str()
+            .unwrap()
+            .strip_prefix(PDF_DATA_PREFIX)
+            .unwrap();
+        assert_eq!(STANDARD.decode(encoded).unwrap(), original);
+        assert_eq!(payload["response_format"]["type"], "json_object");
+    }
+
+    #[test]
     fn claude_receives_unmodified_original_as_document_block() {
         let (document, original) = source();
         let request = anthropic_messages_pdf_payload(
@@ -236,6 +276,8 @@ mod tests {
         for (provider, model) in [
             ("deepseek", "deepseek-chat"),
             ("custom", "gpt-4o"),
+            ("custom", "gpt-6-luna"),
+            ("gapgpt", "claude-haiku-5-5"),
             ("openai", "gpt-4o-mini"),
             ("openai", "gpt-4o-attacker"),
             ("anthropic", "gpt-4o"),

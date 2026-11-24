@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// CI-only synthetic HTTPS first-party provider for the REAL native-PDF gateway.
-// Binds to loopback, presents ephemeral api.openai.com SAN certificate, rejects
+// CI-only synthetic HTTPS GapGPT provider for the REAL native-PDF gateway.
+// Binds to loopback, presents ephemeral api.gapgpt.ir SAN certificate, rejects
 // wrong model/route/token/bytes, stores only SHA/length/revision, not private PDF.
 import https from 'node:https';
 import http from 'node:http';
@@ -30,7 +30,7 @@ const provider = https.createServer({ key, cert }, (req, res) => {
       req.socket.remoteAddress !== '::1') return deny(res, 'non_loopback');
   if (req.method === 'GET' && req.url === '/v1/healthz') return respond(res, 200, { status: 'ok' });
   if (req.method !== 'POST' || req.url !== '/v1/chat/completions' ||
-      req.headers.host !== 'api.openai.com' ||
+      req.headers.host !== 'api.gapgpt.ir' ||
       req.headers.authorization !== `Bearer ${keyToken}`) return deny(res, 'route_or_credentials');
 
   const chunks = [];
@@ -46,8 +46,9 @@ const provider = https.createServer({ key, cert }, (req, res) => {
       const encoded = payload.messages?.[1]?.content?.[1]?.file?.file_data;
       const context = payload.messages?.[1]?.content?.[0];
       const system = payload.messages?.[0]?.content;
-      if (payload.model !== 'gpt-4o' ||
+      if (payload.model !== 'gpt-6-luna' ||
           payload.response_format?.type !== 'json_object' ||
+          payload.max_completion_tokens !== 512 || 'max_tokens' in payload ||
           context?.type !== 'text' || typeof context?.text !== 'string' ||
           payload.messages?.[1]?.content?.[1]?.type !== 'file' ||
           payload.messages[1].content[1].file?.filename !== 'submission.pdf' ||
@@ -88,7 +89,7 @@ const provider = https.createServer({ key, cert }, (req, res) => {
         }],
       };
       respond(res, 200, {
-        model: 'gpt-4o',
+        model: 'gpt-6-luna',
         choices: [{
           index: 0,
           message: { role: 'assistant', content: JSON.stringify(suggestion) },

@@ -597,42 +597,49 @@ fn provider_client(config: &Config) -> Result<reqwest::Client, StartupError> {
         builder = builder.no_proxy();
     }
 
-    // CI-only, compile-time-gated transport: exercise the REAL authenticated
-    // gateway, exact approved OpenAI origin, native PDF JSON/file payload, TLS
-    // validation, and response contract against a one-off HTTPS mock provider.
-    // Do not add an env-based provider URL override to production. DNS is
-    // overridden only for this exact hostname, not all external requests.
     #[cfg(feature = "ci-native-pdf-provider")]
-    if std::env::var("EDUTALENT_CI_PDF_PROVIDER").ok().as_deref() == Some("1") {
-        let approved = std::env::var("CI").ok().as_deref() == Some("true")
-            && config.listen_addr == "127.0.0.1:8090".parse::<SocketAddr>().unwrap()
-            && config.native_pdf_enabled
-            && config.llm_mode == LlmMode::Connected
-            && config.llm_profile == OPENAI_GPT4O_V1
-            && config
-                .llm_provider
-                .as_ref()
-                .is_some_and(|provider| provider.base_url.as_str() == OPENAI_BASE_URL);
-        if !approved {
-            return Err(StartupError::InvalidConfig(
-                "CI PDF mock transport requires exact loopback/protected profile".into(),
-            ));
-        }
-        let path = std::env::var("EDUTALENT_CI_PDF_CERT").map_err(|_| {
-            StartupError::InvalidConfig("CI PDF mock certificate is required".into())
-        })?;
-        let certificate_bytes = std::fs::read(path)
-            .map_err(|_| StartupError::InvalidConfig("CI PDF mock certificate missing".into()))?;
-        let certificate = reqwest::Certificate::from_pem(&certificate_bytes)?;
-        builder = builder
-            .no_proxy()
-            .resolve(
-                "api.openai.com",
-                "127.0.0.1:9443".parse::<SocketAddr>().unwrap(),
-            )
-            .add_root_certificate(certificate);
+    if config.llm_profile.provider != LlmProviderKind::Custom {
+        builder = ci_pdf_provider_transport(builder, config)?;
     }
     Ok(builder.build()?)
+}
+
+// Debug CI only: exact selected provider hostname, ephemeral trusted TLS,
+// no real provider traffic. Never compiled into release images.
+#[cfg(feature = "ci-native-pdf-provider")]
+fn ci_pdf_provider_transport(
+    builder: reqwest::ClientBuilder,
+    config: &Config,
+) -> Result<reqwest::ClientBuilder, StartupError> {
+    if std::env::var("EDUTALENT_CI_PDF_PROVIDER").ok().as_deref() != Some("1") {
+        return Ok(builder);
+    }
+    let provider = config.llm_provider.as_ref().ok_or_else(|| {
+        StartupError::InvalidConfig("CI PDF mock requires configured provider".into())
+    })?;
+    let approved = std::env::var("CI").ok().as_deref() == Some("true")
+        && config.listen_addr == "127.0.0.1:8090".parse::<SocketAddr>().unwrap()
+        && config.native_pdf_enabled
+        && native_pdf_model(config, &provider.model).is_some()
+        && validate_llm_origin_profile(&provider.base_url, &config.llm_profile).is_ok();
+    if !approved {
+        return Err(StartupError::InvalidConfig(
+            "CI PDF mock transport requires exact loopback/protected profile".into(),
+        ));
+    }
+    let path = std::env::var("EDUTALENT_CI_PDF_CERT")
+        .map_err(|_| StartupError::InvalidConfig("CI PDF mock certificate is required".into()))?;
+    let certificate_bytes = std::fs::read(path)
+        .map_err(|_| StartupError::InvalidConfig("CI PDF mock certificate missing".into()))?;
+    let certificate = reqwest::Certificate::from_pem(&certificate_bytes)?;
+    let host = provider
+        .base_url
+        .host_str()
+        .ok_or_else(|| StartupError::InvalidConfig("CI PDF mock requires provider host".into()))?;
+    Ok(builder
+        .no_proxy()
+        .resolve(host, "127.0.0.1:9443".parse::<SocketAddr>().unwrap())
+        .add_root_certificate(certificate))
 }
 
 #[derive(Clone)]
@@ -663,18 +670,18 @@ impl AppState {
             let host = provider.base_url.host_str().ok_or_else(|| {
                 StartupError::InvalidConfig("Custom LLM host is missing".to_string())
             })?;
-            Some(
-                reqwest::Client::builder()
-                    .connect_timeout(config.connect_timeout)
-                    .timeout(config.request_timeout)
-                    .redirect(RedirectPolicy::none())
-                    .user_agent("edutalent-ai-gateway/1")
-                    .no_proxy()
-                    .dns_resolver(Arc::new(PublicLlmResolver {
-                        host: host.to_ascii_lowercase(),
-                    }))
-                    .build()?,
-            )
+            let builder = reqwest::Client::builder()
+                .connect_timeout(config.connect_timeout)
+                .timeout(config.request_timeout)
+                .redirect(RedirectPolicy::none())
+                .user_agent("edutalent-ai-gateway/1")
+                .no_proxy()
+                .dns_resolver(Arc::new(PublicLlmResolver {
+                    host: host.to_ascii_lowercase(),
+                }));
+            #[cfg(feature = "ci-native-pdf-provider")]
+            let builder = ci_pdf_provider_transport(builder, &config)?;
+            Some(builder.build()?)
         } else {
             None
         };
@@ -810,15 +817,12 @@ impl AppState {
         if !self.config.native_pdf_enabled {
             return Err(unavailable("native_pdf_disabled"));
         }
-        if self.config.llm_profile != OPENAI_GPT4O_V1
-            || self.config.llm_provider.as_ref().map(|p| p.model.as_str()) != Some("gpt-4o")
-            || request.model != "gpt-4o"
-        {
-            return Err(bad_request(
+        let native_model = native_pdf_model(&self.config, &request.model).ok_or_else(|| {
+            bad_request(
                 "native_pdf_provider_unsupported",
-                "Native PDF requires the approved OpenAI GPT-4o profile",
-            ));
-        }
+                "Native PDF requires an approved exact provider/model pair",
+            )
+        })?;
         if request.pdf_base64.is_empty()
             || request.pdf_base64.len() > 4 * ((MAX_NATIVE_PDF_BYTES + 2) / 3)
         {
@@ -854,11 +858,9 @@ impl AppState {
                     "PDF original failed integrity validation",
                 )
             })?;
-        use crate::services::ai_grading_pdf_provider_payload::{
-            openai_chat_pdf_payload, NativePdfModel,
-        };
+        use crate::services::ai_grading_pdf_provider_payload::openai_chat_pdf_payload;
         let payload = openai_chat_pdf_payload(
-            NativePdfModel::OpenAiGpt4o,
+            native_model,
             &request.system_instructions,
             &request.teacher_rubric_prompt,
             &document,
@@ -1320,6 +1322,26 @@ async fn forward_embeddings(
     Err(ProviderFailure::Unavailable)
 }
 
+fn chat_provider_payload(
+    profile: &LlmProfile,
+    request: &GatewayChatRequest,
+) -> Result<Value, ProviderFailure> {
+    let mut payload =
+        serde_json::to_value(request).map_err(|_| ProviderFailure::InvalidResponse)?;
+    if profile.id == "custom-v1:gpt-6-luna" {
+        let object = payload
+            .as_object_mut()
+            .ok_or(ProviderFailure::InvalidResponse)?;
+        object.remove("max_tokens");
+        object.remove("temperature");
+        object.insert(
+            "max_completion_tokens".to_string(),
+            serde_json::json!(request.max_tokens),
+        );
+    }
+    Ok(payload)
+}
+
 async fn forward_chat(
     state: &AppState,
     request: &GatewayChatRequest,
@@ -1338,11 +1360,12 @@ async fn forward_chat(
         .map_err(|_| ProviderFailure::Unavailable)?;
 
     let client = state.custom_llm_client.as_ref().unwrap_or(&state.client);
+    let payload = chat_provider_payload(&state.config.llm_profile, request)?;
     for attempt in 0..=state.config.max_retries {
         match client
             .post(url.clone())
             .bearer_auth(api_key)
-            .json(request)
+            .json(&payload)
             .send()
             .await
         {
@@ -1372,6 +1395,32 @@ async fn forward_chat(
     Err(ProviderFailure::Unavailable)
 }
 
+// Capability is independent of generic custom chat support. The app can
+// select only the deployment model; the gateway binds the exact HTTPS origin.
+fn native_pdf_model(
+    config: &Config,
+    requested_model: &str,
+) -> Option<crate::services::ai_grading_pdf_provider_payload::NativePdfModel> {
+    use crate::services::ai_grading_pdf_provider_payload::NativePdfModel;
+    let provider = config.llm_provider.as_ref()?;
+    if config.llm_mode != LlmMode::Connected || provider.model != requested_model {
+        return None;
+    }
+    if config.llm_profile == OPENAI_GPT4O_V1 && requested_model == "gpt-4o" {
+        // Production startup already pins this fixed profile's origin.
+        return Some(NativePdfModel::OpenAiGpt4o);
+    }
+    if config.llm_profile.id == "custom-v1:gpt-6-luna"
+        && config.llm_profile.model == "gpt-6-luna"
+        && config.llm_profile.provider == LlmProviderKind::Custom
+        && requested_model == "gpt-6-luna"
+        && provider.base_url.as_str() == "https://api.gapgpt.ir/v1/"
+    {
+        return Some(NativePdfModel::GapGptLuna);
+    }
+    None
+}
+
 async fn forward_native_pdf(
     state: &AppState,
     payload: &Value,
@@ -1390,8 +1439,8 @@ async fn forward_native_pdf(
         .map_err(|_| ProviderFailure::Unavailable)?;
     // No automatic network retry: PDF inference may be expensive and repeated
     // POST requests can charge the school twice on ambiguous timeouts.
-    let response = state
-        .client
+    let client = state.custom_llm_client.as_ref().unwrap_or(&state.client);
+    let response = client
         .post(url)
         .bearer_auth(api_key)
         .json(payload)
@@ -2488,6 +2537,27 @@ mod tests {
                 .code,
             "native_pdf_provider_unsupported"
         );
+    }
+
+    #[test]
+    fn native_pdf_luna_is_exactly_bound_to_gapgpt_and_rejects_backup() {
+        use crate::services::ai_grading_pdf_provider_payload::NativePdfModel;
+        let mut config = pdf_test_config(Url::parse("https://api.gapgpt.ir/v1/").unwrap());
+        config.llm_profile = resolve_llm_profile("custom-v1:gpt-6-luna").unwrap();
+        config.llm_provider.as_mut().unwrap().model = "gpt-6-luna".to_string();
+        assert_eq!(
+            native_pdf_model(&config, "gpt-6-luna"),
+            Some(NativePdfModel::GapGptLuna)
+        );
+        assert_eq!(native_pdf_model(&config, "gpt-4o"), None);
+        config.llm_provider.as_mut().unwrap().base_url =
+            Url::parse("https://api.other-provider.com/v1/").unwrap();
+        assert_eq!(native_pdf_model(&config, "gpt-6-luna"), None);
+        config.llm_provider.as_mut().unwrap().base_url =
+            Url::parse("https://api.gapgpt.ir/v1/").unwrap();
+        config.llm_profile = resolve_llm_profile("custom-v1:claude-haiku-5-5").unwrap();
+        config.llm_provider.as_mut().unwrap().model = "claude-haiku-5-5".to_string();
+        assert_eq!(native_pdf_model(&config, "claude-haiku-5-5"), None);
     }
 
     #[tokio::test]

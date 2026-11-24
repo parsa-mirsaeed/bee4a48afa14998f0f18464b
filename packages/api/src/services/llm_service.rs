@@ -738,7 +738,10 @@ impl ExternalLlmClient {
         use crate::services::ai_grading_pdf_source::MAX_GRADING_PDF_BYTES;
         use base64::{engine::general_purpose::STANDARD, Engine as _};
 
-        if self.config.profile != "openai-gpt4o-v1" || self.config.model != "gpt-4o" {
+        if !matches!(
+            (self.config.profile.as_str(), self.config.model.as_str()),
+            ("openai-gpt4o-v1", "gpt-4o") | ("custom-v1:gpt-6-luna", "gpt-6-luna")
+        ) {
             return Err(LlmError::ConfigurationUnavailable);
         }
         let meta = &source.metadata;
@@ -786,7 +789,7 @@ impl ExternalLlmClient {
             return Err(LlmError::PromptTooLarge);
         }
         let request = GatewayNativePdfRequest {
-            model: "gpt-4o".to_string(),
+            model: self.config.model.clone(),
             submission_id: meta.submission_id,
             submission_revision: meta.submission_revision,
             attachment_id: meta.attachment_id,
