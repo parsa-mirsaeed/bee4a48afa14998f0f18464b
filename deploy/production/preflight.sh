@@ -225,10 +225,10 @@ if [[ "${grading_worker}" == true || "${grading_worker}" == 1 || "${pdf_gateway}
   fi
 fi
 if [[ "${pdf_gateway}" == true || "${pdf_gateway}" == 1 ]]; then
-  if [[ "${llm_profile}|${llm_model}|${llm_origin}" != "openai-gpt4o-v1|gpt-4o|https://api.openai.com/v1/" ]]; then
-    echo "Native PDF grading requires the exact approved first-party GPT-4o profile." >&2
-    exit 1
-  fi
+  case "${llm_profile}|${llm_model}|${llm_origin}" in
+    "openai-gpt4o-v1|gpt-4o|https://api.openai.com/v1/" | "custom-v1:gpt-6-luna|gpt-6-luna|https://api.gapgpt.ir/v1/") ;;
+    *) echo "Native PDF grading requires an approved exact provider/model pair." >&2; exit 1 ;;
+  esac
 fi
 
 for key in POSTGRES_PASSWORD JWT_SECRET SUPABASE_PUBLISHABLE_KEY SUPABASE_SECRET_KEY DASHBOARD_PASSWORD SECRET_KEY_BASE REALTIME_DB_ENC_KEY VAULT_ENC_KEY PG_META_CRYPTO_KEY; do
