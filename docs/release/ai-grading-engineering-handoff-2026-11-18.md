@@ -22,7 +22,7 @@ not real-model grading quality or supplier charges.
 
 **Next-update deployment contract:** an installation with a configured
 connected chat provider can use Teacher-initiated text grading. Native PDF
-grading additionally requires the pinned OpenAI profile, gateway switch and
+grading additionally requires an exact approved provider/model pair, gateway switch and
 the existing approved school-specific opt-in/budget. Automatic processing
 requires the application worker switch. The deployment templates preserve
 the previous installation's default-OFF behavior and allow operators to
@@ -31,11 +31,10 @@ automatically authorize external processing.
 
 ### Operator-selected chat provider: GapGPT
 
-For this update the preferred text-assessment provider is GapGPT at
+For this update the preferred text and native-PDF assessment provider is GapGPT at
 `https://api.gapgpt.ir/v1/`, using the existing operator-owned custom
 profile contract. The app continues to call only its authenticated internal
-gateway; the gateway sends requests to `/v1/chat/completions`. No new
-provider adapter, model registry or automatic failover is required.
+gateway; the gateway sends requests to `/v1/chat/completions`. The existing native PDF file adapter is extended only for this exact provider/model pair; no automatic failover.
 
 Configure the existing private `deploy/production/.env.edutalent`:
 
@@ -45,7 +44,7 @@ AI_LLM_BASE_URL=https://api.gapgpt.ir/v1/
 LLM_PROFILE=custom-v1:gpt-6-luna
 LLM_MODEL=gpt-6-luna
 AI_GRADING_WORKER_ENABLED=true
-AI_NATIVE_PDF_GATEWAY_ENABLED=false
+AI_NATIVE_PDF_GATEWAY_ENABLED=true
 ```
 
 Set `LLM_API_KEY` separately to a newly issued secret. Never commit it.
@@ -54,9 +53,10 @@ For an operator-selected text-only backup, change **both** profile and model:
 ```dotenv
 LLM_PROFILE=custom-v1:claude-haiku-5-5
 LLM_MODEL=claude-haiku-5-5
+AI_NATIVE_PDF_GATEWAY_ENABLED=false
 ```
 
-Keep the endpoint, managed key and native-PDF switch as above. The active
+Keep the endpoint and managed key as above; disable native PDF for the backup. The active
 profile is installation-wide, including other chat features. The backup
 is a deliberate configuration switch/restart, not silent failover.
 Preserve the previous profile and model for rollback. Provider acceptance
