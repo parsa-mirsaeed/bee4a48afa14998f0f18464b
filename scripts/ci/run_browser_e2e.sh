@@ -28,6 +28,12 @@ psql "${DATABASE_URL}" -v ON_ERROR_STOP=1 -f tests/e2e/fixtures/runtime-rls-prov
 # Explicitly selected, isolated synthetic PDF positive acceptance only. It
 # cannot be enabled in ordinary @smoke/@final tests or a deployment runner.
 PDF_GATEWAY_PID=""
+PDF_PROVIDER_PID=""
+PDF_TLS_DIR=""
+if [[ "${E2E_NATIVE_PDF_REAL_GATEWAY:-0}" == "1" && "${E2E_NATIVE_PDF_POSITIVE:-0}" != "1" ]]; then
+  echo 'real gateway fixture requires the isolated PDF positive mode' >&2
+  exit 1
+fi
 if [[ "${E2E_NATIVE_PDF_POSITIVE:-0}" == "1" ]]; then
   [[ "${CI:-}" == "true" ]] || { echo 'synthetic PDF positive requires CI=true' >&2; exit 1; }
   [[ "${E2E_GREP}" == "@native-pdf-positive" ]] || {
@@ -49,8 +55,63 @@ if [[ "${E2E_NATIVE_PDF_POSITIVE:-0}" == "1" ]]; then
     fi
   fi
   getent ahostsv4 ai-gateway | awk 'NR == 1 {exit ($1 == "127.0.0.1" ? 0 : 1)}'
-  node tests/e2e/fixtures/mock-pdf-gateway.mjs &
-  PDF_GATEWAY_PID=$!
+  if [[ "${E2E_NATIVE_PDF_REAL_GATEWAY:-0}" == "1" ]]; then
+    # The real gateway runs as a DEBUG binary compiled with a CI-only feature.
+    # Production release builds fail to compile if that feature is included.
+    test -x target/debug/ai_gateway
+    PDF_TLS_DIR="$(mktemp -d)"
+    openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 1 \
+      -keyout "${PDF_TLS_DIR}/provider.key" -out "${PDF_TLS_DIR}/provider.crt" \
+      -subj '/CN=api.openai.com' \
+      -addext 'subjectAltName=DNS:api.openai.com' \
+      -addext 'basicConstraints=critical,CA:TRUE' >/dev/null 2>&1
+    node tests/e2e/fixtures/mock-native-pdf-https-provider.mjs \
+      "${PDF_TLS_DIR}/provider.key" "${PDF_TLS_DIR}/provider.crt" &
+    PDF_PROVIDER_PID=$!
+    provider_ready=false
+    for _ in $(seq 1 30); do
+      if curl --silent --fail --noproxy '*' \
+        --cacert "${PDF_TLS_DIR}/provider.crt" \
+        --resolve 'api.openai.com:9443:127.0.0.1' \
+        https://api.openai.com:9443/v1/healthz >/dev/null; then
+        provider_ready=true
+        break
+      fi
+      sleep 1
+    done
+    [[ "${provider_ready}" == "true" ]] || {
+      echo 'synthetic HTTPS provider unavailable' >&2; exit 1;
+    }
+    CI=true \
+      EDUTALENT_CI_PDF_PROVIDER=1 \
+      EDUTALENT_CI_PDF_CERT="${PDF_TLS_DIR}/provider.crt" \
+      AI_GATEWAY_MODE=offline \
+      AI_LLM_MODE=connected \
+      AI_LLM_BASE_URL=https://api.openai.com/v1/ \
+      AI_GATEWAY_LISTEN_ADDR=127.0.0.1:8090 \
+      AI_GATEWAY_INTERNAL_TOKEN=e2e-browser-proof-token-0123456789abcdef \
+      AI_NATIVE_PDF_GATEWAY_ENABLED=true \
+      LLM_API_KEY=ci-real-gateway-provider-key-abcdefghijklmnopqrstuvwxyz \
+      LLM_PROFILE=openai-gpt4o-v1 \
+      LLM_MODEL=gpt-4o \
+      EMBEDDING_PROFILE=local-bge-v1 \
+      target/debug/ai_gateway &
+    PDF_GATEWAY_PID=$!
+    gateway_ready=false
+    for _ in $(seq 1 30); do
+      if curl --silent --fail --noproxy '*' http://127.0.0.1:8090/healthz >/dev/null; then
+        gateway_ready=true
+        break
+      fi
+      sleep 1
+    done
+    [[ "${gateway_ready}" == "true" ]] || {
+      echo 'real synthetic HTTPS gateway unavailable' >&2; exit 1;
+    }
+  else
+    node tests/e2e/fixtures/mock-pdf-gateway.mjs &
+    PDF_GATEWAY_PID=$!
+  fi
   export AI_GRADING_WORKER_ENABLED=true
   export AI_GRADING_WORKER_POLL_MS=500
   export LLM_PROFILE=openai-gpt4o-v1
@@ -62,6 +123,12 @@ node tests/e2e/fixtures/mock-idp.mjs &
 MOCK_IDP_PID=$!
 SERVER_PID=""
 cleanup() {
+  if [[ -n "${PDF_PROVIDER_PID}" ]]; then
+    kill "${PDF_PROVIDER_PID}" 2>/dev/null || true
+  fi
+  if [[ -n "${PDF_TLS_DIR}" ]]; then
+    rm -rf -- "${PDF_TLS_DIR}"
+  fi
   if [[ -n "${PDF_GATEWAY_PID}" ]]; then
     kill "${PDF_GATEWAY_PID}" 2>/dev/null || true
   fi

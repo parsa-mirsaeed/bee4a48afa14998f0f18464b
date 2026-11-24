@@ -1,4 +1,4 @@
-name: Native PDF Worker Contract Acceptance
+name: Native PDF Real Gateway Acceptance
 
 # Isolated, expensive synthetic proof: only explicit ci:browser PR escalation
 # or an operator's manual dispatch. Not part of every ordinary PR commit.
@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   synthetic-worker:
-    name: Native PDF Student-to-Teacher worker contract proof
+    name: Native PDF Student-to-provider-to-Teacher proof
     if: github.event_name == 'workflow_dispatch' || contains(github.event.pull_request.labels.*.name, 'ci:browser')
     runs-on: ubuntu-latest
     timeout-minutes: 80
@@ -26,6 +26,7 @@ jobs:
       E2E_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
       E2E_GREP: '@native-pdf-positive'
       E2E_NATIVE_PDF_POSITIVE: '1'
+      E2E_NATIVE_PDF_REAL_GATEWAY: '1'
     services:
       postgres:
         image: postgres:17-alpine
@@ -88,7 +89,21 @@ jobs:
         working-directory: tests/e2e
         run: npx playwright install --with-deps chromium
 
-      - name: Run real worker with synthetic internal gateway contract
+      - name: Compile debug-only real gateway against real migrated PostgreSQL
+        run: |
+          set -euo pipefail
+          # SQLx macro type-checking requires the migrated database. Use a
+          # SEPARATE disposable compile database: the browser reset deliberately
+          # clears only public schema and must not inherit internal policies.
+          psql 'postgresql://postgres:postgres@localhost:5432/postgres' \
+            -v ON_ERROR_STOP=1 -c 'CREATE DATABASE edutalent_compile_ci'
+          compile_db='postgresql://postgres:postgres@localhost:5432/edutalent_compile_ci'
+          DATABASE_URL="${compile_db}" bash scripts/ci/apply_migrations.sh
+          DATABASE_URL="${compile_db}" \
+            cargo build --locked -p api --features server,ci-native-pdf-provider --bin ai_gateway
+          test -x target/debug/ai_gateway
+
+      - name: Run Student-to-real-gateway-to-HTTPS-provider-to-Teacher proof
         run: |
           set -euo pipefail
           bash scripts/ci/run_browser_e2e.sh 2>&1 | tee native-pdf-worker.log
@@ -97,7 +112,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: native-pdf-worker-contract-evidence
+          name: native-pdf-real-gateway-evidence
           path: |
             native-pdf-worker.log
             tests/e2e/evidence.json

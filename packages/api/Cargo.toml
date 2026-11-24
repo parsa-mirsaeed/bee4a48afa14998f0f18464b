@@ -68,6 +68,9 @@ image = { version = "=0.25.8", default-features = false, features = ["png", "jpe
 pdf-extract = { version = "0.12", optional = true }
 
 [features]
+# Explicit debug-only CI fixture. The release binary must never be built with
+# this capability; checked by compile_error! in ai_gateway_runtime.
+ci-native-pdf-provider = []
 # Add all optional dependencies here
 server = [
     "dioxus/server",
