@@ -627,15 +627,15 @@ fn ci_pdf_provider_transport(
             "CI PDF mock transport requires exact loopback/protected profile".into(),
         ));
     }
-    let path = std::env::var("EDUTALENT_CI_PDF_CERT").map_err(|_| {
-        StartupError::InvalidConfig("CI PDF mock certificate is required".into())
-    })?;
+    let path = std::env::var("EDUTALENT_CI_PDF_CERT")
+        .map_err(|_| StartupError::InvalidConfig("CI PDF mock certificate is required".into()))?;
     let certificate_bytes = std::fs::read(path)
         .map_err(|_| StartupError::InvalidConfig("CI PDF mock certificate missing".into()))?;
     let certificate = reqwest::Certificate::from_pem(&certificate_bytes)?;
-    let host = provider.base_url.host_str().ok_or_else(|| {
-        StartupError::InvalidConfig("CI PDF mock requires provider host".into())
-    })?;
+    let host = provider
+        .base_url
+        .host_str()
+        .ok_or_else(|| StartupError::InvalidConfig("CI PDF mock requires provider host".into()))?;
     Ok(builder
         .no_proxy()
         .resolve(host, "127.0.0.1:9443".parse::<SocketAddr>().unwrap())
@@ -1329,7 +1329,9 @@ fn chat_provider_payload(
     let mut payload =
         serde_json::to_value(request).map_err(|_| ProviderFailure::InvalidResponse)?;
     if profile.id == "custom-v1:gpt-6-luna" {
-        let object = payload.as_object_mut().ok_or(ProviderFailure::InvalidResponse)?;
+        let object = payload
+            .as_object_mut()
+            .ok_or(ProviderFailure::InvalidResponse)?;
         object.remove("max_tokens");
         object.remove("temperature");
         object.insert(
