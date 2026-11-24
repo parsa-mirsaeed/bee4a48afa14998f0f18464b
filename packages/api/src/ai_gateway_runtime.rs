@@ -810,15 +810,12 @@ impl AppState {
         if !self.config.native_pdf_enabled {
             return Err(unavailable("native_pdf_disabled"));
         }
-        if self.config.llm_profile != OPENAI_GPT4O_V1
-            || self.config.llm_provider.as_ref().map(|p| p.model.as_str()) != Some("gpt-4o")
-            || request.model != "gpt-4o"
-        {
-            return Err(bad_request(
+        let native_model = native_pdf_model(&self.config, &request.model).ok_or_else(|| {
+            bad_request(
                 "native_pdf_provider_unsupported",
-                "Native PDF requires the approved OpenAI GPT-4o profile",
-            ));
-        }
+                "Native PDF requires an approved exact provider/model pair",
+            )
+        })?;
         if request.pdf_base64.is_empty()
             || request.pdf_base64.len() > 4 * ((MAX_NATIVE_PDF_BYTES + 2) / 3)
         {
@@ -854,11 +851,9 @@ impl AppState {
                     "PDF original failed integrity validation",
                 )
             })?;
-        use crate::services::ai_grading_pdf_provider_payload::{
-            openai_chat_pdf_payload, NativePdfModel,
-        };
+        use crate::services::ai_grading_pdf_provider_payload::openai_chat_pdf_payload;
         let payload = openai_chat_pdf_payload(
-            NativePdfModel::OpenAiGpt4o,
+            native_model,
             &request.system_instructions,
             &request.teacher_rubric_prompt,
             &document,
@@ -1372,6 +1367,32 @@ async fn forward_chat(
     Err(ProviderFailure::Unavailable)
 }
 
+// Capability is independent of generic custom chat support. The app can
+// select only the deployment model; the gateway binds the exact HTTPS origin.
+fn native_pdf_model(
+    config: &Config,
+    requested_model: &str,
+) -> Option<crate::services::ai_grading_pdf_provider_payload::NativePdfModel> {
+    use crate::services::ai_grading_pdf_provider_payload::NativePdfModel;
+    let provider = config.llm_provider.as_ref()?;
+    if config.llm_mode != LlmMode::Connected || provider.model != requested_model {
+        return None;
+    }
+    if config.llm_profile == OPENAI_GPT4O_V1 && requested_model == "gpt-4o" {
+        // Production startup already pins this fixed profile's origin.
+        return Some(NativePdfModel::OpenAiGpt4o);
+    }
+    if config.llm_profile.id == "custom-v1:gpt-6-luna"
+        && config.llm_profile.model == "gpt-6-luna"
+        && config.llm_profile.provider == LlmProviderKind::Custom
+        && requested_model == "gpt-6-luna"
+        && provider.base_url.as_str() == "https://api.gapgpt.ir/v1/"
+    {
+        return Some(NativePdfModel::GapGptLuna);
+    }
+    None
+}
+
 async fn forward_native_pdf(
     state: &AppState,
     payload: &Value,
@@ -1390,8 +1411,8 @@ async fn forward_native_pdf(
         .map_err(|_| ProviderFailure::Unavailable)?;
     // No automatic network retry: PDF inference may be expensive and repeated
     // POST requests can charge the school twice on ambiguous timeouts.
-    let response = state
-        .client
+    let client = state.custom_llm_client.as_ref().unwrap_or(&state.client);
+    let response = client
         .post(url)
         .bearer_auth(api_key)
         .json(payload)
@@ -2488,6 +2509,27 @@ mod tests {
                 .code,
             "native_pdf_provider_unsupported"
         );
+    }
+
+    #[test]
+    fn native_pdf_luna_is_exactly_bound_to_gapgpt_and_rejects_backup() {
+        use crate::services::ai_grading_pdf_provider_payload::NativePdfModel;
+        let mut config = pdf_test_config(Url::parse("https://api.gapgpt.ir/v1/").unwrap());
+        config.llm_profile = resolve_llm_profile("custom-v1:gpt-6-luna").unwrap();
+        config.llm_provider.as_mut().unwrap().model = "gpt-6-luna".to_string();
+        assert_eq!(
+            native_pdf_model(&config, "gpt-6-luna"),
+            Some(NativePdfModel::GapGptLuna)
+        );
+        assert_eq!(native_pdf_model(&config, "gpt-4o"), None);
+        config.llm_provider.as_mut().unwrap().base_url =
+            Url::parse("https://api.other-provider.com/v1/").unwrap();
+        assert_eq!(native_pdf_model(&config, "gpt-6-luna"), None);
+        config.llm_provider.as_mut().unwrap().base_url =
+            Url::parse("https://api.gapgpt.ir/v1/").unwrap();
+        config.llm_profile = resolve_llm_profile("custom-v1:claude-haiku-5-5").unwrap();
+        config.llm_provider.as_mut().unwrap().model = "claude-haiku-5-5".to_string();
+        assert_eq!(native_pdf_model(&config, "claude-haiku-5-5"), None);
     }
 
     #[tokio::test]
