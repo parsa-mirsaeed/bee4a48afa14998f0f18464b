@@ -156,6 +156,23 @@ jobs:
           fi
           grep -Fq 'Native PDF grading requires the exact approved first-party GPT-4o profile' "${RUNNER_TEMP}/grading-wrong-profile.log"
 
+          # Preferred/backup GapGPT profiles use the existing custom text
+          # contract. Prove both deployment selections, not vendor inference.
+          for model in gpt-6-luna claude-haiku-5-5; do
+            sed -i \
+              -e 's|^AI_LLM_BASE_URL=.*|AI_LLM_BASE_URL=https://api.gapgpt.ir/v1/|' \
+              -e "s|^LLM_PROFILE=.*|LLM_PROFILE=custom-v1:${model}|" \
+              -e "s|^LLM_MODEL=.*|LLM_MODEL=${model}|" \
+              -e 's|^AI_NATIVE_PDF_GATEWAY_ENABLED=.*|AI_NATIVE_PDF_GATEWAY_ENABLED=false|' "${env_file}"
+            bash edutalent production-validate
+            sed -i -e 's|^AI_NATIVE_PDF_GATEWAY_ENABLED=.*|AI_NATIVE_PDF_GATEWAY_ENABLED=true|' "${env_file}"
+            if bash edutalent production-validate > "${RUNNER_TEMP}/grading-custom-pdf.log" 2>&1; then
+              echo "Unverified native PDF capability was accepted for ${model}" >&2
+              exit 1
+            fi
+            grep -Fq 'Native PDF grading requires the exact approved first-party GPT-4o profile' "${RUNNER_TEMP}/grading-custom-pdf.log"
+          done
+
       - name: Confirm strict runtime boundaries
         shell: bash
         run: |
