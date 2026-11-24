@@ -523,6 +523,7 @@ def main() -> None:
     approved_llm_contracts = {
         ("deepseek-chat-v1", "deepseek-chat", "https://api.deepseek.com/v1/"),
         ("deepseek-v41-flash-v1", "deepseek-v4.1-flash", "https://api.gapgpt.app/v1/"),
+        ("openai-gpt4o-v1", "gpt-4o", "https://api.openai.com/v1/"),
     }
     selected_llm_contract = (
         app_llm_profile,
@@ -552,6 +553,25 @@ def main() -> None:
         len(llm_key) < 24 or "replace" in llm_key.lower()
     ):
         fail("connected assignment personalization requires safe LLM_API_KEY")
+
+    # Flags must reach only their owning runtime. Backward-compatible absent
+    # values are OFF; render-time overrides cannot bypass profile checks.
+    if "AI_NATIVE_PDF_GATEWAY_ENABLED" in app_env:
+        fail("native PDF gateway flag belongs to AI gateway only")
+    if "AI_GRADING_WORKER_ENABLED" in ai_env:
+        fail("grading worker flag belongs to app only")
+    worker_flag = str(app_env.get("AI_GRADING_WORKER_ENABLED", "false"))
+    pdf_flag = str(ai_env.get("AI_NATIVE_PDF_GATEWAY_ENABLED", "false"))
+    if any(value not in {"false", "0", "true", "1"} for value in (worker_flag, pdf_flag)):
+        fail("AI grading switches must be true, false, 1, or 0")
+    worker_enabled = worker_flag in {"true", "1"}
+    pdf_enabled = pdf_flag in {"true", "1"}
+    if (worker_enabled or pdf_enabled) and not effective_llm_connected:
+        fail("enabled AI grading requires connected LLM")
+    if pdf_enabled and selected_llm_contract != (
+        "openai-gpt4o-v1", "gpt-4o", "https://api.openai.com/v1/"
+    ):
+        fail("native PDF grading requires the exact approved first-party GPT-4o profile")
 
     print("Rendered production Compose security and independent AI capability invariants verified.")
 
