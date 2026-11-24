@@ -12,8 +12,8 @@ Manual/external signoff remains consolidated in PR #2.
 An operator must record, **before** enabling any switch:
 
 - immutable Git SHA, base SHA, migration set/checksums, deployment image
-  digests, prompt+rubric policy SHA-256, exact OpenAI `gpt-4o` model profile
-  and fixed first-party HTTPS origin;
+  digests, prompt+rubric policy SHA-256, exact selected native PDF model profile
+  and approved HTTPS origin (GapGPT Luna or first-party GPT-4o);
 - successful exact-head `AI Change Proof`, **complete** Full Validation
   with actual DB/Rust/desktop/mobile browser/final gate jobs (not skipped),
   focused dependency-security, production topology, operational restore and
@@ -68,9 +68,11 @@ that residual risk and do not claim a hard monetary budget.
    record only in an owner-executed, audited SQL migration. FORCE RLS must
    be restored **within the transaction before COMMIT**; the runtime actor
    guard trigger must remain active. Verify other schools stay OFF.
-6. Configure the internal gateway using only the pinned first-party profile
-   `openai-gpt4o-v1`, approved model `gpt-4o`, first-party HTTPS origin and
-   managed secrets. Keep unrestricted OpenAI-compatible/custom origins denied.
+6. Configure the internal gateway using the exact preferred pair
+   `custom-v1:gpt-6-luna` / `gpt-6-luna` / `https://api.gapgpt.ir/v1/`,
+   or the existing first-party `openai-gpt4o-v1` / `gpt-4o` /
+   `https://api.openai.com/v1/`, with managed secrets. Arbitrary custom
+   origins and text-only Haiku remain denied for native PDFs.
    Enable `AI_NATIVE_PDF_GATEWAY_ENABLED` only for the isolated staging
    gateway, then `AI_GRADING_WORKER_ENABLED` on one isolated worker *after*
    the exact-head tests and budget gate pass.
