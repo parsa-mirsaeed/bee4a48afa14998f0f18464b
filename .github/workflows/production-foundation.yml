@@ -120,7 +120,13 @@ jobs:
             -e 's|^AI_NATIVE_PDF_GATEWAY_ENABLED=.*|AI_NATIVE_PDF_GATEWAY_ENABLED=true|' \
             "${env_file}"
           bash edutalent production-validate
-          bash edutalent production-config --format json | python3 -c '
+          export EDUTALENT_PRODUCTION_DIR="${PWD}/deploy/production"
+          supabase_dir="${EDUTALENT_PRODUCTION_DIR}/runtime/supabase"
+          docker compose --project-name edutalent --project-directory "${supabase_dir}" \
+            --env-file "${supabase_dir}/.env" --env-file "${env_file}" \
+            -f "${supabase_dir}/docker-compose.yml" \
+            -f deploy/production/compose.production.yaml --profile local-embedding \
+            config --format json | python3 -c '
           import json, sys
           services = json.load(sys.stdin)["services"]
           app = services["app"]["environment"]
