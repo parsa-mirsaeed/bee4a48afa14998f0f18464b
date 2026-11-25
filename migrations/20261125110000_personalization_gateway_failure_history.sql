@@ -22,7 +22,28 @@ CREATE TABLE public.assignment_personalization_gateway_failures (
     gateway_elapsed_ms BIGINT NOT NULL CHECK (gateway_elapsed_ms BETWEEN 0 AND 86400000),
     retry_after_seconds INTEGER CHECK (retry_after_seconds BETWEEN 1 AND 3600),
     scheduled_retry_at TIMESTAMPTZ,
-    provider_dispatch_state TEXT NOT NULL CHECK (provider_dispatch_state IN ('blocked', 'unknown'))
+    provider_dispatch_state TEXT NOT NULL CHECK (provider_dispatch_state IN ('blocked', 'unknown', 'attempted', 'responded')),
+    provider_failure_reason TEXT CHECK (provider_failure_reason IN (
+        'request_preparation', 'timeout', 'connect', 'transport', 'upstream_status',
+        'response_size', 'body_read', 'malformed_json', 'model_mismatch', 'invalid_choice'
+    )),
+    provider_transport_attempts INTEGER CHECK (provider_transport_attempts BETWEEN 0 AND 4),
+    upstream_http_status INTEGER CHECK (upstream_http_status BETWEEN 100 AND 599),
+    CHECK (
+        (provider_dispatch_state = 'unknown' AND provider_failure_reason IS NULL AND provider_transport_attempts IS NULL AND upstream_http_status IS NULL)
+        OR (provider_dispatch_state = 'blocked' AND (provider_failure_reason IS NULL OR provider_failure_reason = 'request_preparation')
+            AND provider_transport_attempts IS NOT NULL AND provider_transport_attempts = 0 AND upstream_http_status IS NULL)
+        OR (provider_dispatch_state = 'attempted' AND provider_failure_reason IS NOT NULL
+            AND provider_failure_reason IN ('timeout','connect','transport')
+            AND provider_transport_attempts IS NOT NULL AND provider_transport_attempts BETWEEN 1 AND 4 AND upstream_http_status IS NULL)
+        OR (provider_dispatch_state = 'responded' AND provider_failure_reason IS NOT NULL
+            AND provider_transport_attempts IS NOT NULL AND provider_transport_attempts BETWEEN 1 AND 4
+            AND upstream_http_status IS NOT NULL AND (
+                (provider_failure_reason = 'upstream_status' AND upstream_http_status NOT BETWEEN 200 AND 299)
+                OR (provider_failure_reason IN ('response_size','body_read','malformed_json','model_mismatch','invalid_choice')
+                    AND upstream_http_status BETWEEN 200 AND 299)
+            ))
+    )
 );
 CREATE INDEX assignment_personalization_gateway_failures_job_time_idx
     ON public.assignment_personalization_gateway_failures (job_id, recorded_at DESC, request_id);
@@ -53,4 +74,4 @@ WITH CHECK (
     )
 );
 COMMENT ON TABLE public.assignment_personalization_gateway_failures IS
-    'Append-only, parent-job-retained allowlisted internal gateway failures; admin read only. No external status or billing inference.';
+    'Append-only, parent-job-retained allowlisted gateway failures; admin read only. External status only when observed; no billing inference.';

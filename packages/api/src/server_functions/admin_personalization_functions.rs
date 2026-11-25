@@ -82,6 +82,9 @@ pub struct AdminGatewayFailureDto {
     pub retry_after_seconds: Option<i32>,
     pub scheduled_retry_at: Option<String>,
     pub provider_dispatch_state: String,
+    pub provider_failure_reason: Option<String>,
+    pub provider_transport_attempts: Option<i32>,
+    pub upstream_http_status: Option<i32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -409,6 +412,9 @@ fn job_dto(job: AdminPersonalizationJobRecord) -> AdminPersonalizationJobDto {
                 retry_after_seconds: failure.retry_after_seconds,
                 scheduled_retry_at: failure.scheduled_retry_at.map(|value| value.to_rfc3339()),
                 provider_dispatch_state: failure.provider_dispatch_state,
+                provider_failure_reason: failure.provider_failure_reason,
+                provider_transport_attempts: failure.provider_transport_attempts,
+                upstream_http_status: failure.upstream_http_status,
             })
             .collect(),
         created_at: job.created_at.to_rfc3339(),

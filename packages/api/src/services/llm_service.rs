@@ -7,7 +7,7 @@
 
 use crate::ai_gateway_protocol::{
     GatewayChatMessage, GatewayChatRequest, GatewayChatResponse, GatewayErrorEnvelope,
-    GatewayResponseFormat, GatewayUsage,
+    GatewayResponseFormat, GatewayUsage, ProviderFailureEvidence, PROVIDER_EVIDENCE_HEADER,
 };
 use crate::services::llm_profile::{
     resolve_llm_profile, validate_llm_profile_override, DEEPSEEK_CHAT_V1,
@@ -85,6 +85,7 @@ pub struct GatewayFailure {
     pub retry_after_seconds: Option<u64>,
     /// App-to-gateway round trip, not external provider latency.
     pub gateway_elapsed_ms: u64,
+    pub provider_evidence: Option<ProviderFailureEvidence>,
 }
 
 impl std::fmt::Display for GatewayFailure {
@@ -99,6 +100,9 @@ async fn gateway_failure(
     started: Instant,
 ) -> LlmError {
     let status = response.status().as_u16();
+    let provider_evidence = response.headers().get(PROVIDER_EVIDENCE_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .and_then(ProviderFailureEvidence::parse);
     let body = response.json::<GatewayErrorEnvelope>().await.ok();
     let kind = GatewayFailureKind::from_code(
         body.as_ref()
@@ -114,6 +118,18 @@ async fn gateway_failure(
         gateway_http_status: status,
         retry_after_seconds,
         gateway_elapsed_ms: started.elapsed().as_millis().min(86_400_000) as u64,
+        provider_evidence: provider_evidence.filter(|evidence| {
+            use crate::ai_gateway_protocol::ProviderFailureReason as R;
+            match kind {
+                GatewayFailureKind::ProviderRateLimited => evidence.upstream_http_status == Some(429),
+                GatewayFailureKind::ProviderRejectedRequest => evidence.reason == R::UpstreamStatus,
+                GatewayFailureKind::ProviderResponseTooLarge => evidence.reason == R::ResponseSize,
+                GatewayFailureKind::InvalidProviderResponse => matches!(evidence.reason, R::RequestPreparation | R::BodyRead | R::MalformedJson | R::ModelMismatch | R::InvalidChoice),
+                GatewayFailureKind::TemporarilyUnavailable => matches!(evidence.reason, R::RequestPreparation | R::Timeout | R::Connect | R::Transport | R::UpstreamStatus),
+                GatewayFailureKind::ProviderUnconfigured => evidence.reason == R::RequestPreparation,
+                _ => false,
+            }
+        }),
     };
     tracing::warn!(
         %request_id,

@@ -1579,6 +1579,12 @@ async fn deterministic_provider_contract_error_is_terminal_with_safe_code() {
         gateway_http_status: 502,
         retry_after_seconds: None,
         gateway_elapsed_ms: 26_327,
+        provider_evidence: Some(crate::ai_gateway_protocol::ProviderFailureEvidence {
+            dispatch: crate::ai_gateway_protocol::ProviderDispatch::Responded,
+            reason: crate::ai_gateway_protocol::ProviderFailureReason::ModelMismatch,
+            transport_attempts: 1,
+            upstream_http_status: Some(200),
+        }),
     };
     let disposition = run_as(
         fixture.pool.as_ref(),
@@ -1648,7 +1654,10 @@ async fn deterministic_provider_contract_error_is_terminal_with_safe_code() {
     assert_eq!(diagnostic.diagnostic_code, "invalid_provider_response");
     assert_eq!(diagnostic.gateway_http_status, 502);
     assert_eq!(diagnostic.gateway_elapsed_ms, 26_327);
-    assert_eq!(diagnostic.provider_dispatch_state, "unknown");
+    assert_eq!(diagnostic.provider_dispatch_state, "responded");
+    assert_eq!(diagnostic.provider_failure_reason.as_deref(), Some("model_mismatch"));
+    assert_eq!(diagnostic.provider_transport_attempts, Some(1));
+    assert_eq!(diagnostic.upstream_http_status, Some(200));
     assert!(diagnostic.scheduled_retry_at.is_none());
     let denied = run_as(
         fixture.pool.as_ref(),

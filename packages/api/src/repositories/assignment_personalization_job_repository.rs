@@ -151,6 +151,9 @@ pub struct AdminGatewayFailureRecord {
     pub retry_after_seconds: Option<i32>,
     pub scheduled_retry_at: Option<DateTime<Utc>>,
     pub provider_dispatch_state: String,
+    pub provider_failure_reason: Option<String>,
+    pub provider_transport_attempts: Option<i32>,
+    pub upstream_http_status: Option<i32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -376,7 +379,8 @@ impl AssignmentPersonalizationJobRepository {
                     SELECT d.request_id, d.execution_generation, d.attempt_number,
                            d.recorded_at, d.stage, d.diagnostic_code, d.gateway_http_status,
                            d.gateway_elapsed_ms, d.retry_after_seconds, d.scheduled_retry_at,
-                           d.provider_dispatch_state
+                           d.provider_dispatch_state, d.provider_failure_reason,
+                           d.provider_transport_attempts, d.upstream_http_status
                     FROM public.assignment_personalization_gateway_failures d
                     WHERE d.job_id = listed.job_id
                       AND d.request_id IN (
@@ -953,7 +957,8 @@ impl AssignmentPersonalizationJobRepository {
         let exponential = 2_i64.pow(job.attempt_count.clamp(1, 10) as u32);
         let delay_seconds = exponential.max(retry_after_seconds.min(3_600) as i64);
         if let Some(failure) = gateway {
-            let dispatch = match failure.kind {
+            let evidence = failure.provider_evidence;
+            let dispatch = evidence.map(|value| value.dispatch.as_str()).unwrap_or_else(|| match failure.kind {
                 GatewayFailureKind::CircuitOpen
                 | GatewayFailureKind::SchoolQuotaExceeded
                 | GatewayFailureKind::ShuttingDown
@@ -962,17 +967,18 @@ impl AssignmentPersonalizationJobRepository {
                 // Do not infer network dispatch, upstream status or billing
                 // from a generic internal gateway error.
                 _ => "unknown",
-            };
+            });
             sqlx::query(
                 r#"
                 INSERT INTO public.assignment_personalization_gateway_failures (
                     request_id, job_id, lease_owner, execution_generation, attempt_number,
                     stage, diagnostic_code, gateway_http_status, gateway_elapsed_ms,
-                    retry_after_seconds, scheduled_retry_at, provider_dispatch_state
+                    retry_after_seconds, scheduled_retry_at, provider_dispatch_state,
+                    provider_failure_reason, provider_transport_attempts, upstream_http_status
                 ) VALUES (
                     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
                     CASE WHEN $11 THEN NOW() + make_interval(secs => $12::DOUBLE PRECISION)
-                         ELSE NULL END, $13
+                         ELSE NULL END, $13, $14, $15, $16
                 )
                 "#,
             )
@@ -993,6 +999,9 @@ impl AssignmentPersonalizationJobRepository {
             .bind(should_retry)
             .bind(delay_seconds)
             .bind(dispatch)
+            .bind(evidence.map(|value| value.reason.as_str()))
+            .bind(evidence.map(|value| i32::from(value.transport_attempts)).or_else(|| (dispatch == "blocked").then_some(0)))
+            .bind(evidence.and_then(|value| value.upstream_http_status).map(i32::from))
             .execute(&*self.base.pool())
             .await?;
         }

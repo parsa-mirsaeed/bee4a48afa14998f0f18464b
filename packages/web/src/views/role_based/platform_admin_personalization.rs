@@ -1053,7 +1053,10 @@ fn PersonalizationJobCard(
                                 CompactField { label: t("platform_admin.personalization.gateway_http_status", locale), value: failure.gateway_http_status.to_string() }
                                 CompactField { label: t("platform_admin.personalization.gateway_elapsed_ms", locale), value: failure.gateway_elapsed_ms.to_string() }
                                 CompactField { label: t("platform_admin.personalization.gateway_attempt", locale), value: format!("v{} / {}", failure.execution_generation, failure.attempt_number) }
-                                CompactField { label: t("platform_admin.personalization.gateway_dispatch", locale), value: t(if failure.provider_dispatch_state == "blocked" { "platform_admin.personalization.gateway_blocked" } else { "platform_admin.personalization.gateway_unknown" }, locale) }
+                                CompactField { label: t("platform_admin.personalization.gateway_dispatch", locale), value: t(match failure.provider_dispatch_state.as_str() { "blocked" => "platform_admin.personalization.gateway_blocked", "attempted" => "platform_admin.personalization.gateway_attempted", "responded" => "platform_admin.personalization.gateway_responded", _ => "platform_admin.personalization.gateway_unknown" }, locale) }
+                                CompactField { label: t("platform_admin.personalization.gateway_provider_reason", locale), value: failure.provider_failure_reason.clone().unwrap_or_else(|| "—".to_string()) }
+                                CompactField { label: t("platform_admin.personalization.gateway_provider_status", locale), value: failure.upstream_http_status.map(|status| status.to_string()).unwrap_or_else(|| "—".to_string()) }
+                                CompactField { label: t("platform_admin.personalization.gateway_provider_attempts", locale), value: failure.provider_transport_attempts.map(|count| count.to_string()).unwrap_or_else(|| "—".to_string()) }
                                 CompactField { label: t("platform_admin.personalization.gateway_retry_at", locale), value: failure.scheduled_retry_at.clone().unwrap_or_else(|| "—".to_string()) }
                             }
                         }

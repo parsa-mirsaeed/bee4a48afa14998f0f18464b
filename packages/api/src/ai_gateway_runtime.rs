@@ -8,7 +8,8 @@
 
 use crate::ai_gateway_protocol::{
     GatewayChatRequest, GatewayChatResponse, GatewayEmbeddingRequest, GatewayEmbeddingResponse,
-    GatewayErrorBody, GatewayErrorEnvelope, GatewayNativePdfRequest,
+    GatewayErrorBody, GatewayErrorEnvelope, GatewayNativePdfRequest, ProviderDispatch,
+    ProviderFailureEvidence, ProviderFailureReason, PROVIDER_EVIDENCE_HEADER,
 };
 use crate::services::embedding_profile::{
     resolve_embedding_profile, EmbeddingProfile, EmbeddingProviderKind,
@@ -776,7 +777,8 @@ impl AppState {
             .await
             .map_err(|_| unavailable("gateway_shutting_down"))?;
         let started = Instant::now();
-        match forward_chat(self, &request).await {
+        let mut evidence = initial_provider_evidence();
+        match forward_chat(self, &request, &mut evidence).await {
             Ok(response) => {
                 self.llm_breaker.success().await;
                 tracing::info!(
@@ -799,9 +801,13 @@ impl AppState {
                     model = %request.model,
                     error_code = failure.code(),
                     elapsed_ms = started.elapsed().as_millis(),
+                    provider_dispatch = evidence.dispatch.as_str(),
+                    provider_reason = evidence.reason.as_str(),
+                    upstream_http_status = ?evidence.upstream_http_status,
+                    transport_attempts = evidence.transport_attempts,
                     "AI gateway LLM request failed"
                 );
-                Err(failure.http_error())
+                Err(failure.http_error().with_provider_evidence(evidence))
             }
         }
     }
@@ -884,7 +890,8 @@ impl AppState {
             .await
             .map_err(|_| unavailable("gateway_shutting_down"))?;
         let started = Instant::now();
-        match forward_native_pdf(self, &payload).await {
+        let mut evidence = initial_provider_evidence();
+        match forward_native_pdf(self, &payload, &mut evidence).await {
             Ok(response) => {
                 self.llm_breaker.success().await;
                 tracing::info!(
@@ -903,9 +910,13 @@ impl AppState {
                     request_id = %context.request_id,
                     school_id = %context.school_id,
                     error_code = failure.code(),
+                    provider_dispatch = evidence.dispatch.as_str(),
+                    provider_reason = evidence.reason.as_str(),
+                    upstream_http_status = ?evidence.upstream_http_status,
+                    transport_attempts = evidence.transport_attempts,
                     "Native PDF grading provider request failed"
                 );
-                Err(failure.http_error())
+                Err(failure.http_error().with_provider_evidence(evidence))
             }
         }
     }
@@ -923,6 +934,7 @@ struct HttpError {
     code: &'static str,
     message: &'static str,
     retry_after_seconds: Option<u64>,
+    provider_evidence: Option<ProviderFailureEvidence>,
 }
 
 impl HttpError {
@@ -932,6 +944,7 @@ impl HttpError {
             code,
             message,
             retry_after_seconds: None,
+            provider_evidence: None,
         }
     }
 
@@ -939,11 +952,18 @@ impl HttpError {
         self.retry_after_seconds = Some(seconds);
         self
     }
+
+    fn with_provider_evidence(mut self, evidence: ProviderFailureEvidence) -> Self {
+        if evidence.is_valid() {
+            self.provider_evidence = Some(evidence);
+        }
+        self
+    }
 }
 
 impl IntoResponse for HttpError {
     fn into_response(self) -> Response {
-        (
+        let mut response = (
             self.status,
             Json(GatewayErrorEnvelope {
                 error: GatewayErrorBody {
@@ -952,8 +972,15 @@ impl IntoResponse for HttpError {
                     retry_after_seconds: self.retry_after_seconds,
                 },
             }),
-        )
-            .into_response()
+        ).into_response();
+        if let Some(evidence) = self.provider_evidence {
+            if let Ok(serialized) = serde_json::to_string(&evidence) {
+                if let Ok(value) = axum::http::HeaderValue::from_str(&serialized) {
+                    response.headers_mut().insert(PROVIDER_EVIDENCE_HEADER, value);
+                }
+            }
+        }
+        response
     }
 }
 
@@ -1342,9 +1369,76 @@ fn chat_provider_payload(
     Ok(payload)
 }
 
+fn initial_provider_evidence() -> ProviderFailureEvidence {
+    ProviderFailureEvidence {
+        dispatch: ProviderDispatch::Blocked,
+        reason: ProviderFailureReason::RequestPreparation,
+        transport_attempts: 0,
+        upstream_http_status: None,
+    }
+}
+
+fn mark_provider_send(evidence: &mut ProviderFailureEvidence) {
+    evidence.dispatch = ProviderDispatch::Attempted;
+    evidence.reason = ProviderFailureReason::Transport;
+    evidence.transport_attempts = evidence.transport_attempts.saturating_add(1);
+    evidence.upstream_http_status = None;
+}
+
+fn mark_provider_transport_failure(evidence: &mut ProviderFailureEvidence, error: &reqwest::Error) {
+    evidence.reason = if error.is_timeout() {
+        ProviderFailureReason::Timeout
+    } else if error.is_connect() {
+        ProviderFailureReason::Connect
+    } else {
+        ProviderFailureReason::Transport
+    };
+}
+
+fn mark_provider_response(evidence: &mut ProviderFailureEvidence, status: ProviderStatus) {
+    evidence.dispatch = ProviderDispatch::Responded;
+    evidence.reason = ProviderFailureReason::UpstreamStatus;
+    evidence.upstream_http_status = Some(status.as_u16());
+}
+
+async fn diagnosed_chat_body(
+    response: reqwest::Response,
+    maximum: usize,
+    evidence: &mut ProviderFailureEvidence,
+) -> Result<GatewayChatResponse, ProviderFailure> {
+    let body = bounded_body(response, maximum).await.map_err(|failure| {
+        evidence.reason = if matches!(failure, ProviderFailure::ResponseTooLarge) {
+            ProviderFailureReason::ResponseSize
+        } else {
+            ProviderFailureReason::BodyRead
+        };
+        failure
+    })?;
+    serde_json::from_slice(&body).map_err(|_| {
+        evidence.reason = ProviderFailureReason::MalformedJson;
+        ProviderFailure::InvalidResponse
+    })
+}
+
+fn validate_diagnosed_chat_response(
+    provider: &Provider,
+    response: &GatewayChatResponse,
+    evidence: &mut ProviderFailureEvidence,
+) -> Result<(), ProviderFailure> {
+    validate_chat_response(provider, response).map_err(|failure| {
+        evidence.reason = if response.model != provider.model {
+            ProviderFailureReason::ModelMismatch
+        } else {
+            ProviderFailureReason::InvalidChoice
+        };
+        failure
+    })
+}
+
 async fn forward_chat(
     state: &AppState,
     request: &GatewayChatRequest,
+    evidence: &mut ProviderFailureEvidence,
 ) -> Result<GatewayChatResponse, ProviderFailure> {
     let provider = state
         .config
@@ -1362,6 +1456,7 @@ async fn forward_chat(
     let client = state.custom_llm_client.as_ref().unwrap_or(&state.client);
     let payload = chat_provider_payload(&state.config.llm_profile, request)?;
     for attempt in 0..=state.config.max_retries {
+        mark_provider_send(evidence);
         match client
             .post(url.clone())
             .bearer_auth(api_key)
@@ -1370,14 +1465,14 @@ async fn forward_chat(
             .await
         {
             Ok(response) if response.status().is_success() => {
-                let body = bounded_body(response, state.config.max_provider_response_bytes).await?;
-                let mut parsed: GatewayChatResponse =
-                    serde_json::from_slice(&body).map_err(|_| ProviderFailure::InvalidResponse)?;
+                mark_provider_response(evidence, response.status());
+                let mut parsed = diagnosed_chat_body(response, state.config.max_provider_response_bytes, evidence).await?;
                 normalize_known_gapgpt_model(&state.config.llm_profile, provider, &mut parsed);
-                validate_chat_response(provider, &parsed)?;
+                validate_diagnosed_chat_response(provider, &parsed, evidence)?;
                 return Ok(parsed);
             }
             Ok(response) => {
+                mark_provider_response(evidence, response.status());
                 let failure =
                     status_failure(response.status(), retry_after_seconds(response.headers()));
                 if failure.retryable() && attempt < state.config.max_retries {
@@ -1386,10 +1481,14 @@ async fn forward_chat(
                 }
                 return Err(failure);
             }
-            Err(_) if attempt < state.config.max_retries => {
+            Err(error) if attempt < state.config.max_retries => {
+                mark_provider_transport_failure(evidence, &error);
                 sleep_before_retry(&state.config, attempt, None).await;
             }
-            Err(_) => return Err(ProviderFailure::Unavailable),
+            Err(error) => {
+                mark_provider_transport_failure(evidence, &error);
+                return Err(ProviderFailure::Unavailable);
+            }
         }
     }
     Err(ProviderFailure::Unavailable)
@@ -1424,6 +1523,7 @@ fn native_pdf_model(
 async fn forward_native_pdf(
     state: &AppState,
     payload: &Value,
+    evidence: &mut ProviderFailureEvidence,
 ) -> Result<GatewayChatResponse, ProviderFailure> {
     let provider = state
         .config
@@ -1440,23 +1540,26 @@ async fn forward_native_pdf(
     // No automatic network retry: PDF inference may be expensive and repeated
     // POST requests can charge the school twice on ambiguous timeouts.
     let client = state.custom_llm_client.as_ref().unwrap_or(&state.client);
+    mark_provider_send(evidence);
     let response = client
         .post(url)
         .bearer_auth(api_key)
         .json(payload)
         .send()
         .await
-        .map_err(|_| ProviderFailure::Unavailable)?;
+        .map_err(|error| {
+            mark_provider_transport_failure(evidence, &error);
+            ProviderFailure::Unavailable
+        })?;
+    mark_provider_response(evidence, response.status());
     if !response.status().is_success() {
         return Err(status_failure(
             response.status(),
             retry_after_seconds(response.headers()),
         ));
     }
-    let body = bounded_body(response, state.config.max_provider_response_bytes).await?;
-    let parsed: GatewayChatResponse =
-        serde_json::from_slice(&body).map_err(|_| ProviderFailure::InvalidResponse)?;
-    validate_chat_response(provider, &parsed)?;
+    let parsed = diagnosed_chat_body(response, state.config.max_provider_response_bytes, evidence).await?;
+    validate_diagnosed_chat_response(provider, &parsed, evidence)?;
     Ok(parsed)
 }
 
@@ -2439,6 +2542,35 @@ mod tests {
             axum::serve(listener, app).await.expect("serve chat mock");
         });
         Url::parse(&format!("http://{address}/v1/")).expect("chat mock url")
+    }
+
+    #[tokio::test]
+    async fn chat_failures_report_only_gateway_observed_provider_evidence() {
+        let cases = [
+            (StatusCode::UNAUTHORIZED, "ignored-secret", ProviderFailureReason::UpstreamStatus),
+            (StatusCode::TOO_MANY_REQUESTS, "ignored-secret", ProviderFailureReason::UpstreamStatus),
+            (StatusCode::BAD_GATEWAY, "ignored-secret", ProviderFailureReason::UpstreamStatus),
+            (StatusCode::OK, "not-json-secret", ProviderFailureReason::MalformedJson),
+            (StatusCode::OK, r#"{"model":"wrong-model","choices":[{"index":0,"message":{"role":"assistant","content":"ok"}}]}"#, ProviderFailureReason::ModelMismatch),
+            (StatusCode::OK, r#"{"model":"deepseek-chat","choices":[]}"#, ProviderFailureReason::InvalidChoice),
+        ];
+        for (status, body, reason) in cases {
+            let router = Router::new().route("/v1/chat/completions", post(move || async move { (status, body) }));
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let task = tokio::spawn(async move { axum::serve(listener, router).await.unwrap(); });
+            let state = AppState::new(Config::test(Url::parse(&format!("http://{address}/v1/")).unwrap())).unwrap();
+            let error = state.chat(&context(), chat_request()).await.unwrap_err();
+            let response = error.into_response();
+            let header = response.headers().get(PROVIDER_EVIDENCE_HEADER).unwrap().to_str().unwrap();
+            let evidence = ProviderFailureEvidence::parse(header).unwrap();
+            assert_eq!(evidence.reason, reason);
+            assert_eq!(evidence.dispatch, ProviderDispatch::Responded);
+            assert_eq!(evidence.transport_attempts, 1);
+            assert_eq!(evidence.upstream_http_status, Some(status.as_u16()));
+            assert!(!header.contains("secret"));
+            task.abort();
+        }
     }
 
     #[tokio::test]

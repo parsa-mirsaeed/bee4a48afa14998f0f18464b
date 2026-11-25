@@ -484,3 +484,36 @@ for (const scenario of [
     }
   });
 }
+
+for (const locale of ['en', 'fa'] as const) {
+  test(`admin distinguishes recorded gateway and upstream failures in ${locale} @smoke @platform-admin @personalization @i18n`, async ({ page }) => {
+    const requestId = locale === 'en' ? 'd1000000-0000-0000-0000-000000000001' : 'd1000000-0000-0000-0000-000000000002';
+    try {
+      runFixtureSql(`
+        INSERT INTO assignment_personalization_gateway_failures (
+          request_id, job_id, lease_owner, execution_generation, attempt_number, stage,
+          diagnostic_code, gateway_http_status, gateway_elapsed_ms,
+          provider_dispatch_state, provider_failure_reason, provider_transport_attempts, upstream_http_status
+        )
+        SELECT '${requestId}', j.id, 'd1000000-0000-0000-0000-000000000003', j.execution_generation, 1,
+               'provider', 'invalid_provider_response', 502, 26327, 'responded', 'model_mismatch', 1, 200
+        FROM assignment_personalization_jobs j JOIN assignments a ON a.id = j.assignment_id
+        WHERE a.title = 'E2E Personalization Unavailable' AND j.school_id = '${SCHOOL_A_ID}'
+        ORDER BY j.id LIMIT 1
+      `);
+      await openAdminRoute(page, locale, '/dashboard/personalization');
+      const card = page.locator('article').filter({ has: page.getByText('E2E Personalization Unavailable', { exact: true }) });
+      const history = card.locator('details').filter({ has: page.locator('summary').filter({ hasText: /Gateway failure history|تاریخچه خطاهای دروازه/ }) });
+      await expect(history).toBeVisible();
+      await history.locator('summary').click();
+      await expect(history).toContainText(requestId);
+      await expect(history).toContainText('model_mismatch');
+      await expect(history).toContainText(/Internal gateway HTTP status|وضعیت HTTP دروازه داخلی/);
+      await expect(history).toContainText(/Observed upstream HTTP status|وضعیت HTTP مشاهده‌شده ارائه‌دهنده/);
+      await expect(history).toContainText('502');
+      await expect(history).toContainText('200');
+    } finally {
+      runFixtureSql(`DELETE FROM assignment_personalization_gateway_failures WHERE request_id = '${requestId}'`);
+    }
+  });
+}
