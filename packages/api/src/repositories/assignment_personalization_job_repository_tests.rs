@@ -1769,6 +1769,94 @@ async fn deterministic_provider_contract_error_is_terminal_with_safe_code() {
     assert_eq!(refusal.provider_transport_attempts, Some(0));
     assert!(refusal.upstream_http_status.is_none());
     assert!(refusal.scheduled_retry_at.is_some());
+
+    // Recovery clears the current error, not the immutable failure history.
+    prioritize_assignment_jobs(fixture.pool.as_ref(), fixture.assignment_id).await;
+    let recovered = claim_next(fixture.pool.as_ref(), Uuid::new_v4())
+        .await
+        .unwrap();
+    assert_eq!(recovered.id, claimed.id);
+    assert_eq!(recovered.attempt_count, retried.attempt_count + 1);
+    run_as(
+        fixture.pool.as_ref(),
+        actor(fixture.teacher_user, "Teacher", fixture.school_id),
+        repository.complete_with_diagnostics(
+            recovered.id,
+            recovered.lease_owner,
+            &PersonalizationExecutionDiagnostics::default(),
+        ),
+    )
+    .await
+    .unwrap();
+    let listed = run_as(
+        fixture.pool.as_ref(),
+        actor(admin, "PlatformAdmin", fixture.school_id),
+        repository.list_for_platform_admin(admin, Some(fixture.school_id), None, 200),
+    )
+    .await
+    .unwrap();
+    let record = listed
+        .iter()
+        .find(|record| record.job_id == claimed.id)
+        .unwrap();
+    assert_eq!(record.status, "succeeded");
+    assert!(record.last_error_code.is_none());
+    assert_eq!(record.gateway_failures.len(), 2);
+    assert!(record
+        .gateway_failures
+        .iter()
+        .any(|item| item.request_id == failure.request_id));
+
+    // Seed additional synthetic historical refusals to prove the bounded
+    // operator projection. Actual claim/append authorization is tested above
+    // and in the separate non-bypass RLS regression.
+    sqlx::query(
+        r#"
+        INSERT INTO public.assignment_personalization_gateway_failures (
+            request_id, job_id, lease_owner, execution_generation, attempt_number,
+            recorded_at, stage, diagnostic_code, gateway_http_status,
+            gateway_elapsed_ms, provider_dispatch_state, provider_transport_attempts
+        )
+        SELECT gen_random_uuid(), $1, gen_random_uuid(), $2, 1,
+               NOW() + make_interval(secs => n::DOUBLE PRECISION),
+               'ai_gateway', 'circuit_open', 503, 1, 'blocked', 0
+        FROM generate_series(1, 21) AS sequence(n)
+        "#,
+    )
+    .bind(claimed.id)
+    .bind(original.execution_generation)
+    .execute(&*fixture.pool)
+    .await
+    .unwrap();
+    let listed = run_as(
+        fixture.pool.as_ref(),
+        actor(admin, "PlatformAdmin", fixture.school_id),
+        repository.list_for_platform_admin(admin, Some(fixture.school_id), None, 200),
+    )
+    .await
+    .unwrap();
+    let record = listed
+        .iter()
+        .find(|record| record.job_id == claimed.id)
+        .unwrap();
+    assert_eq!(record.gateway_failures.len(), 21);
+    assert_eq!(
+        record.gateway_failures.last().unwrap().request_id,
+        failure.request_id
+    );
+    assert!(record
+        .gateway_failures
+        .iter()
+        .take(20)
+        .all(|item| item.provider_dispatch_state == "blocked"));
+    let stored_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM public.assignment_personalization_gateway_failures WHERE job_id = $1",
+    )
+    .bind(claimed.id)
+    .fetch_one(&*fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(stored_count, 23);
 }
 
 #[cfg(feature = "server")]
