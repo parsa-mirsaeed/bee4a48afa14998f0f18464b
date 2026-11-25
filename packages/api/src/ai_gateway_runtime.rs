@@ -2382,7 +2382,7 @@ mod tests {
     ) {
         let mut request = Box::pin(request);
         let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
-        assert!(request.as_mut().poll(&mut cx).is_pending());
+        assert!(std::future::Future::poll(request.as_mut(), &mut cx).is_pending());
         assert!(matches!(breaker.state().mode, CircuitMode::HalfOpen));
         assert_eq!(
             breaker.before_call().expect_err("single probe").code,
