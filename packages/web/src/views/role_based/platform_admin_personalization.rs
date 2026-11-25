@@ -71,9 +71,15 @@ fn failure_label(code: Option<&str>, locale: Locale) -> String {
         Some("rate_limited") => "platform_admin.personalization.failure.rate_limited",
         Some("quota_exceeded") => "platform_admin.personalization.failure.quota_exceeded",
         Some("circuit_open") => "platform_admin.personalization.failure.circuit_open",
-        Some("invalid_provider_response") => "platform_admin.personalization.failure.invalid_provider_response",
-        Some("provider_response_too_large") => "platform_admin.personalization.failure.provider_response_too_large",
-        Some("provider_rejected_request") => "platform_admin.personalization.failure.provider_rejected_request",
+        Some("invalid_provider_response") => {
+            "platform_admin.personalization.failure.invalid_provider_response"
+        }
+        Some("provider_response_too_large") => {
+            "platform_admin.personalization.failure.provider_response_too_large"
+        }
+        Some("provider_rejected_request") => {
+            "platform_admin.personalization.failure.provider_rejected_request"
+        }
         Some("invalid_gateway_response") => {
             "platform_admin.personalization.failure.invalid_gateway_response"
         }

@@ -835,17 +835,40 @@ mod tests {
             }
         );
         for (fault, kind, delay, retryable) in [
-            (MockGatewayFault::CircuitOpen, PersonalizationFailureKind::CircuitOpen, 29, true),
-            (MockGatewayFault::InvalidProviderResponse, PersonalizationFailureKind::ProviderInvalidResponse, 0, false),
-            (MockGatewayFault::Rejected, PersonalizationFailureKind::ProviderRejectedRequest, 0, false),
-            (MockGatewayFault::Oversize, PersonalizationFailureKind::ProviderResponseTooLarge, 0, false),
+            (
+                MockGatewayFault::CircuitOpen,
+                PersonalizationFailureKind::CircuitOpen,
+                29,
+                true,
+            ),
+            (
+                MockGatewayFault::InvalidProviderResponse,
+                PersonalizationFailureKind::ProviderInvalidResponse,
+                0,
+                false,
+            ),
+            (
+                MockGatewayFault::Rejected,
+                PersonalizationFailureKind::ProviderRejectedRequest,
+                0,
+                false,
+            ),
+            (
+                MockGatewayFault::Oversize,
+                PersonalizationFailureKind::ProviderResponseTooLarge,
+                0,
+                false,
+            ),
         ] {
             let error = mock_gateway_error(fault, Duration::from_secs(1)).await;
             assert!(!format!("{error:?}").contains("provider-secret-sentinel"));
             assert_eq!(kind.retryable(), retryable);
             assert_eq!(
                 classify_llm_failure(&error),
-                FailureAction::Record { kind, retry_after_seconds: delay }
+                FailureAction::Record {
+                    kind,
+                    retry_after_seconds: delay
+                }
             );
         }
     }

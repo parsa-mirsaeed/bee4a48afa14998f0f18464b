@@ -81,7 +81,9 @@ impl PersonalizationFailureKind {
             Self::RateLimited => "AI personalization is temporarily rate limited",
             Self::QuotaExceeded => "School AI quota is temporarily exhausted",
             Self::CircuitOpen => "AI provider circuit is waiting for recovery",
-            Self::ProviderInvalidResponse => "AI provider response did not match the required contract",
+            Self::ProviderInvalidResponse => {
+                "AI provider response did not match the required contract"
+            }
             Self::ProviderResponseTooLarge => "AI provider response exceeded the configured limit",
             Self::ProviderRejectedRequest => "AI provider rejected the request",
             Self::InvalidGatewayResponse => "AI gateway returned an invalid response",

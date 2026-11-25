@@ -95,7 +95,9 @@ async fn gateway_failure(response: reqwest::Response, request_id: Uuid) -> LlmEr
     let status = response.status().as_u16();
     let body = response.json::<GatewayErrorEnvelope>().await.ok();
     let kind = GatewayFailureKind::from_code(
-        body.as_ref().map(|item| item.error.code.as_str()).unwrap_or("gateway_error"),
+        body.as_ref()
+            .map(|item| item.error.code.as_str())
+            .unwrap_or("gateway_error"),
     );
     let retry_after_seconds = body
         .and_then(|item| item.error.retry_after_seconds)
