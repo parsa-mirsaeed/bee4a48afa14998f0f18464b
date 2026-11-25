@@ -6,6 +6,7 @@ CREATE TABLE public.assignment_personalization_gateway_failures (
     lease_owner UUID NOT NULL,
     execution_generation INTEGER NOT NULL CHECK (execution_generation > 0),
     attempt_number INTEGER NOT NULL CHECK (attempt_number > 0),
+    UNIQUE (job_id, execution_generation, attempt_number),
     recorded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     stage TEXT NOT NULL CHECK (stage IN (
         'queued', 'paused', 'authorizing', 'building_student_context',

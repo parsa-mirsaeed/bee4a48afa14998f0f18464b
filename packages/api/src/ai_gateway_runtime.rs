@@ -2620,6 +2620,92 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn chat_timeout_and_circuit_refusal_keep_distinct_dispatch_evidence() {
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let router = Router::new().route(
+            "/v1/chat/completions",
+            post({
+                let attempts = Arc::clone(&attempts);
+                move || {
+                    let attempts = Arc::clone(&attempts);
+                    async move {
+                        attempts.fetch_add(1, Ordering::SeqCst);
+                        tokio::time::sleep(Duration::from_secs(2)).await;
+                        StatusCode::SERVICE_UNAVAILABLE
+                    }
+                }
+            }),
+        );
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let task = tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        });
+        let mut config = Config::test(Url::parse(&format!("http://{address}/v1/")).unwrap());
+        config.request_timeout = Duration::from_millis(250);
+        config.circuit_open_for = Duration::from_secs(30);
+        let state = AppState::new(config).unwrap();
+        let error = state.chat(&context(), chat_request()).await.unwrap_err();
+        let evidence = error.provider_evidence.expect("transport evidence");
+        assert_eq!(evidence.dispatch, ProviderDispatch::Attempted);
+        assert_eq!(evidence.reason, ProviderFailureReason::Timeout);
+        assert_eq!(evidence.transport_attempts, 1);
+        assert_eq!(evidence.upstream_http_status, None);
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
+        let blocked = state.chat(&context(), chat_request()).await.unwrap_err();
+        assert_eq!(blocked.code, "circuit_open");
+        assert!(blocked.provider_evidence.is_none());
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
+        task.abort();
+    }
+
+    #[tokio::test]
+    async fn native_pdf_rejection_records_observed_status_without_network_retry() {
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let router = Router::new().route(
+            "/v1/chat/completions",
+            post({
+                let attempts = Arc::clone(&attempts);
+                move || {
+                    let attempts = Arc::clone(&attempts);
+                    async move {
+                        attempts.fetch_add(1, Ordering::SeqCst);
+                        (StatusCode::SERVICE_UNAVAILABLE, "untrusted provider body")
+                    }
+                }
+            }),
+        );
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let task = tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        });
+        let mut config = pdf_test_config(Url::parse(&format!("http://{address}/v1/")).unwrap());
+        config.native_pdf_enabled = true;
+        config.max_retries = 3;
+        let state = AppState::new(config).unwrap();
+        let error = state
+            .native_pdf(&context(), pdf_request(&synthetic_pdf()))
+            .await
+            .unwrap_err();
+        let response = error.into_response();
+        let header = response
+            .headers()
+            .get(PROVIDER_EVIDENCE_HEADER)
+            .unwrap()
+            .to_str()
+            .unwrap();
+        let evidence = ProviderFailureEvidence::parse(header).unwrap();
+        assert_eq!(evidence.dispatch, ProviderDispatch::Responded);
+        assert_eq!(evidence.reason, ProviderFailureReason::UpstreamStatus);
+        assert_eq!(evidence.upstream_http_status, Some(503));
+        assert_eq!(evidence.transport_attempts, 1);
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
+        assert!(!header.contains("untrusted provider body"));
+        task.abort();
+    }
+
+    #[tokio::test]
     async fn local_embedding_mode_can_use_connected_personalization_llm() {
         let provider = spawn_chat_mock().await;
         let mut config = Config::test(provider.clone());

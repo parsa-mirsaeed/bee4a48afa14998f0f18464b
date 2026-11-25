@@ -1750,6 +1750,25 @@ async fn gateway_history_rls_enforces_active_teacher_append_admin_read_and_immut
         "even the original teacher cannot read admin diagnostics"
     );
 
+    sqlx::query("SAVEPOINT duplicate_attempt")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    assert!(
+        sqlx::query(insert)
+            .bind(Uuid::new_v4())
+            .bind(claimed.lease_owner)
+            .bind(claimed.id)
+            .execute(&mut *tx)
+            .await
+            .is_err(),
+        "one immutable diagnostic record per job generation and worker attempt"
+    );
+    sqlx::query("ROLLBACK TO SAVEPOINT duplicate_attempt")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+
     sqlx::query("SAVEPOINT wrong_lease")
         .execute(&mut *tx)
         .await
