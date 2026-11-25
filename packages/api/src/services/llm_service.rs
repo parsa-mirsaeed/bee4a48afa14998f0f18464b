@@ -16,7 +16,7 @@ use reqwest::redirect::Policy as RedirectPolicy;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::env;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -83,6 +83,8 @@ pub struct GatewayFailure {
     /// Internal gateway status, not the external provider's HTTP status.
     pub gateway_http_status: u16,
     pub retry_after_seconds: Option<u64>,
+    /// App-to-gateway round trip, not external provider latency.
+    pub gateway_elapsed_ms: u64,
 }
 
 impl std::fmt::Display for GatewayFailure {
@@ -91,7 +93,11 @@ impl std::fmt::Display for GatewayFailure {
     }
 }
 
-async fn gateway_failure(response: reqwest::Response, request_id: Uuid) -> LlmError {
+async fn gateway_failure(
+    response: reqwest::Response,
+    request_id: Uuid,
+    started: Instant,
+) -> LlmError {
     let status = response.status().as_u16();
     let body = response.json::<GatewayErrorEnvelope>().await.ok();
     let kind = GatewayFailureKind::from_code(
@@ -107,6 +113,7 @@ async fn gateway_failure(response: reqwest::Response, request_id: Uuid) -> LlmEr
         request_id,
         gateway_http_status: status,
         retry_after_seconds,
+        gateway_elapsed_ms: started.elapsed().as_millis().min(86_400_000) as u64,
     };
     tracing::warn!(
         %request_id,
@@ -692,6 +699,7 @@ impl ExternalLlmClient {
         #[cfg(test)]
         let gateway_url = self.test_chat_url.as_deref().unwrap_or(&gateway_url);
         let request_id = Uuid::new_v4();
+        let started = Instant::now();
         let response = self
             .client
             .post(gateway_url)
@@ -702,7 +710,7 @@ impl ExternalLlmClient {
             .send()
             .await?;
         if !response.status().is_success() {
-            return Err(gateway_failure(response, request_id).await);
+            return Err(gateway_failure(response, request_id, started).await);
         }
         let completion = response
             .json::<GatewayChatResponse>()
@@ -881,6 +889,7 @@ impl ExternalLlmClient {
             .map(|base| format!("{base}/v1/grading/pdf"))
             .unwrap_or(gateway_url);
         let request_id = Uuid::new_v4();
+        let started = Instant::now();
         let response = self
             .client
             .post(gateway_url)
@@ -891,7 +900,7 @@ impl ExternalLlmClient {
             .send()
             .await?;
         if !response.status().is_success() {
-            return Err(gateway_failure(response, request_id).await);
+            return Err(gateway_failure(response, request_id, started).await);
         }
         let body = response.json::<GatewayChatResponse>().await.map_err(|_| {
             LlmError::InvalidResponse("Malformed native PDF gateway response".to_string())

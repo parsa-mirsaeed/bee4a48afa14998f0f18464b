@@ -1573,14 +1573,22 @@ async fn deterministic_provider_contract_error_is_terminal_with_safe_code() {
         .unwrap();
     assert_eq!(claimed.assignment_id, fixture.assignment_id);
     let repository = AssignmentPersonalizationJobRepository::new(fixture.pool.clone());
+    let failure = crate::services::llm_service::GatewayFailure {
+        kind: crate::services::llm_service::GatewayFailureKind::InvalidProviderResponse,
+        request_id: Uuid::new_v4(),
+        gateway_http_status: 502,
+        retry_after_seconds: None,
+        gateway_elapsed_ms: 26_327,
+    };
     let disposition = run_as(
         fixture.pool.as_ref(),
         actor(fixture.teacher_user, "Teacher", fixture.school_id),
-        repository.record_failure(
+        repository.record_failure_with_gateway(
             &claimed,
             PersonalizationFailureKind::ProviderInvalidResponse,
             0,
             5,
+            Some(failure),
         ),
     )
     .await
@@ -1600,4 +1608,47 @@ async fn deterministic_provider_contract_error_is_terminal_with_safe_code() {
     );
     assert_eq!(row.get::<i32, _>("attempt_count"), claimed.attempt_count);
     assert!(row.get::<bool, _>("completed"));
+    let stale = run_as(
+        fixture.pool.as_ref(),
+        actor(fixture.teacher_user, "Teacher", fixture.school_id),
+        repository.record_failure_with_gateway(
+            &claimed,
+            PersonalizationFailureKind::ProviderInvalidResponse,
+            0,
+            5,
+            Some(failure),
+        ),
+    )
+    .await
+    .unwrap();
+    assert_eq!(stale, PersonalizationFailureDisposition::IgnoredInactive);
+    let admin_role = role_id(&fixture.pool, "PlatformAdmin").await;
+    let admin = insert_user(
+        &fixture.pool,
+        &Uuid::new_v4().simple().to_string(),
+        "Diagnostics Admin",
+        admin_role,
+        fixture.school_id,
+    ).await;
+    let listed = run_as(
+        fixture.pool.as_ref(),
+        actor(admin, "PlatformAdmin", fixture.school_id),
+        repository.list_for_platform_admin(admin, Some(fixture.school_id), None, 200),
+    ).await.unwrap();
+    let record = listed.iter().find(|record| record.job_id == claimed.id).unwrap();
+    assert_eq!(record.gateway_failures.len(), 1);
+    let diagnostic = &record.gateway_failures[0];
+    assert_eq!(diagnostic.request_id, failure.request_id);
+    assert_eq!(diagnostic.diagnostic_code, "invalid_provider_response");
+    assert_eq!(diagnostic.gateway_http_status, 502);
+    assert_eq!(diagnostic.gateway_elapsed_ms, 26_327);
+    assert_eq!(diagnostic.provider_dispatch_state, "unknown");
+    assert!(diagnostic.scheduled_retry_at.is_none());
+    let denied = run_as(
+        fixture.pool.as_ref(),
+        actor(fixture.teacher_user, "Teacher", fixture.school_id),
+        repository.list_for_platform_admin(fixture.teacher_user, Some(fixture.school_id), None, 200),
+    ).await;
+    assert!(denied.is_err(), "teacher must not read admin failure history");
 }
+

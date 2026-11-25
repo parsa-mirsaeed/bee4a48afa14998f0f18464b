@@ -1,4 +1,5 @@
 use crate::repositories::{BaseRepository, Repository, RepositoryError, RepositoryResult};
+use crate::services::llm_service::{GatewayFailure, GatewayFailureKind};
 use chrono::{DateTime, Utc};
 use sqlx::Row;
 use uuid::Uuid;
@@ -136,6 +137,22 @@ pub struct AdminPersonalizationScopeSummary {
     pub total: i64,
 }
 
+/// Fixed projection: never serialize the lease or arbitrary database metadata.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+pub struct AdminGatewayFailureRecord {
+    pub request_id: Uuid,
+    pub execution_generation: i32,
+    pub attempt_number: i32,
+    pub recorded_at: DateTime<Utc>,
+    pub stage: String,
+    pub diagnostic_code: String,
+    pub gateway_http_status: i32,
+    pub gateway_elapsed_ms: i64,
+    pub retry_after_seconds: Option<i32>,
+    pub scheduled_retry_at: Option<DateTime<Utc>>,
+    pub provider_dispatch_state: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AdminPersonalizationJobRecord {
     pub job_id: Uuid,
@@ -159,6 +176,7 @@ pub struct AdminPersonalizationJobRecord {
     pub delivery_policy: String,
     pub last_error_code: Option<String>,
     pub last_error_summary: Option<String>,
+    pub gateway_failures: Vec<AdminGatewayFailureRecord>,
     pub created_at: DateTime<Utc>,
     pub started_at: Option<DateTime<Utc>>,
     pub completed_at: Option<DateTime<Utc>>,
@@ -347,10 +365,36 @@ impl AssignmentPersonalizationJobRepository {
         self.require_platform_admin(actor_id).await?;
         let rows = sqlx::query(
             r#"
-            SELECT listed.*, queue.execution_generation, queue.supersedes_job_id
+            SELECT listed.*, queue.execution_generation, queue.supersedes_job_id,
+                   COALESCE(history.records, '[]'::jsonb) AS gateway_failures
             FROM public.list_assignment_personalization_jobs_for_admin($1, $2, $3) AS listed
             JOIN public.assignment_personalization_jobs AS queue
               ON queue.id = listed.job_id
+            LEFT JOIN LATERAL (
+                SELECT jsonb_agg(to_jsonb(safe) ORDER BY safe.recorded_at DESC, safe.request_id) AS records
+                FROM (
+                    SELECT d.request_id, d.execution_generation, d.attempt_number,
+                           d.recorded_at, d.stage, d.diagnostic_code, d.gateway_http_status,
+                           d.gateway_elapsed_ms, d.retry_after_seconds, d.scheduled_retry_at,
+                           d.provider_dispatch_state
+                    FROM public.assignment_personalization_gateway_failures d
+                    WHERE d.job_id = listed.job_id
+                      AND d.request_id IN (
+                          (SELECT recent.request_id
+                           FROM public.assignment_personalization_gateway_failures recent
+                           WHERE recent.job_id = listed.job_id
+                           ORDER BY recent.recorded_at DESC, recent.request_id
+                           LIMIT 20)
+                          UNION
+                          (SELECT first_failure.request_id
+                           FROM public.assignment_personalization_gateway_failures first_failure
+                           WHERE first_failure.job_id = listed.job_id
+                             AND first_failure.provider_dispatch_state <> 'blocked'
+                           ORDER BY first_failure.recorded_at, first_failure.request_id
+                           LIMIT 1)
+                      )
+                ) AS safe
+            ) AS history ON TRUE
             "#,
         )
         .bind(school_id)
@@ -383,6 +427,9 @@ impl AssignmentPersonalizationJobRepository {
                     delivery_policy: row.try_get("delivery_policy")?,
                     last_error_code: row.try_get("last_error_code")?,
                     last_error_summary: row.try_get("last_error_summary")?,
+                    gateway_failures: row
+                        .try_get::<sqlx::types::Json<Vec<AdminGatewayFailureRecord>>, _>("gateway_failures")?
+                        .0,
                     created_at: row.try_get("created_at")?,
                     started_at: row.try_get("started_at")?,
                     completed_at: row.try_get("completed_at")?,
@@ -867,30 +914,84 @@ impl AssignmentPersonalizationJobRepository {
         retry_after_seconds: u64,
         max_attempts: i32,
     ) -> RepositoryResult<PersonalizationFailureDisposition> {
-        let active = sqlx::query_scalar::<_, bool>(
+        self.record_failure_with_gateway(job, kind, retry_after_seconds, max_attempts, None)
+            .await
+    }
+
+    /// Run inside the existing teacher AuthorizedTx. Lock the active lease
+    /// before appending immutable diagnostic metadata and changing queue state.
+    pub async fn record_failure_with_gateway(
+        &self,
+        job: &ClaimedAssignmentPersonalizationJob,
+        kind: PersonalizationFailureKind,
+        retry_after_seconds: u64,
+        max_attempts: i32,
+        gateway: Option<GatewayFailure>,
+    ) -> RepositoryResult<PersonalizationFailureDisposition> {
+        let active = sqlx::query(
             r#"
-            SELECT EXISTS (
-                SELECT 1
-                FROM assignment_personalization_jobs
-                WHERE id = $1
-                  AND status = 'running'
-                  AND lease_owner = $2
-            )
+            SELECT execution_generation, processing_stage
+            FROM assignment_personalization_jobs
+            WHERE id = $1 AND status = 'running' AND lease_owner = $2
+              AND attempt_count = $3
+            FOR UPDATE
             "#,
         )
         .bind(job.id)
         .bind(job.lease_owner)
-        .fetch_one(&*self.base.pool())
+        .bind(job.attempt_count)
+        .fetch_optional(&*self.base.pool())
         .await?;
-        if !active {
+        let Some(active) = active else {
             return Ok(PersonalizationFailureDisposition::IgnoredInactive);
-        }
+        };
 
         let max_attempts = max_attempts.clamp(1, 10);
         let should_retry = kind.retryable() && job.attempt_count < max_attempts;
-        if should_retry {
-            let exponential = 2_i64.pow(job.attempt_count.clamp(1, 10) as u32);
-            let delay_seconds = exponential.max(retry_after_seconds.min(3_600) as i64);
+        let exponential = 2_i64.pow(job.attempt_count.clamp(1, 10) as u32);
+        let delay_seconds = exponential.max(retry_after_seconds.min(3_600) as i64);
+        if let Some(failure) = gateway {
+            let dispatch = match failure.kind {
+                GatewayFailureKind::CircuitOpen
+                | GatewayFailureKind::SchoolQuotaExceeded
+                | GatewayFailureKind::ShuttingDown
+                | GatewayFailureKind::ProviderUnconfigured
+                | GatewayFailureKind::LlmDisabled => "blocked",
+                // Do not infer network dispatch, upstream status or billing
+                // from a generic internal gateway error.
+                _ => "unknown",
+            };
+            sqlx::query(
+                r#"
+                INSERT INTO public.assignment_personalization_gateway_failures (
+                    request_id, job_id, lease_owner, execution_generation, attempt_number,
+                    stage, diagnostic_code, gateway_http_status, gateway_elapsed_ms,
+                    retry_after_seconds, scheduled_retry_at, provider_dispatch_state
+                ) VALUES (
+                    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+                    CASE WHEN $11 THEN NOW() + make_interval(secs => $12::DOUBLE PRECISION)
+                         ELSE NULL END, $13
+                )
+                "#,
+            )
+            .bind(failure.request_id)
+            .bind(job.id)
+            .bind(job.lease_owner)
+            .bind(active.try_get::<i32, _>("execution_generation")?)
+            .bind(job.attempt_count)
+            .bind(active.try_get::<String, _>("processing_stage")?)
+            .bind(failure.kind.code())
+            .bind(i32::from(failure.gateway_http_status))
+            .bind(failure.gateway_elapsed_ms.min(86_400_000) as i64)
+            .bind(failure.retry_after_seconds.map(|seconds| seconds.clamp(1, 3_600) as i32))
+            .bind(should_retry)
+            .bind(delay_seconds)
+            .bind(dispatch)
+            .execute(&*self.base.pool())
+            .await?;
+        }
+
+        let updated = if should_retry {
             sqlx::query(
                 r#"
                 UPDATE assignment_personalization_jobs
@@ -901,9 +1002,8 @@ impl AssignmentPersonalizationJobRepository {
                     last_error_code = $4,
                     last_error_summary = $5,
                     processing_stage = 'queued'
-                WHERE id = $1
-                  AND status = 'running'
-                  AND lease_owner = $2
+                WHERE id = $1 AND status = 'running' AND lease_owner = $2
+                  AND attempt_count = $6
                 "#,
             )
             .bind(job.id)
@@ -911,33 +1011,41 @@ impl AssignmentPersonalizationJobRepository {
             .bind(delay_seconds)
             .bind(kind.code())
             .bind(kind.safe_summary())
+            .bind(job.attempt_count)
             .execute(&*self.base.pool())
-            .await?;
-            return Ok(PersonalizationFailureDisposition::Requeued);
+            .await?
+        } else {
+            sqlx::query(
+                r#"
+                UPDATE assignment_personalization_jobs
+                SET status = 'failed',
+                    completed_at = NOW(),
+                    lease_owner = NULL,
+                    heartbeat_at = NULL,
+                    last_error_code = $3,
+                    last_error_summary = $4,
+                    processing_stage = 'failed'
+                WHERE id = $1 AND status = 'running' AND lease_owner = $2
+                  AND attempt_count = $5
+                "#,
+            )
+            .bind(job.id)
+            .bind(job.lease_owner)
+            .bind(kind.code())
+            .bind(kind.safe_summary())
+            .bind(job.attempt_count)
+            .execute(&*self.base.pool())
+            .await?
+        };
+        if updated.rows_affected() != 1 {
+            // Roll back the append together with a failed queue transition.
+            return Err(RepositoryError::Validation("Personalization failure lease changed".into()));
         }
-
-        sqlx::query(
-            r#"
-            UPDATE assignment_personalization_jobs
-            SET status = 'failed',
-                completed_at = NOW(),
-                lease_owner = NULL,
-                heartbeat_at = NULL,
-                last_error_code = $3,
-                last_error_summary = $4,
-                processing_stage = 'failed'
-            WHERE id = $1
-              AND status = 'running'
-              AND lease_owner = $2
-            "#,
-        )
-        .bind(job.id)
-        .bind(job.lease_owner)
-        .bind(kind.code())
-        .bind(kind.safe_summary())
-        .execute(&*self.base.pool())
-        .await?;
-        Ok(PersonalizationFailureDisposition::FailedPermanently)
+        Ok(if should_retry {
+            PersonalizationFailureDisposition::Requeued
+        } else {
+            PersonalizationFailureDisposition::FailedPermanently
+        })
     }
 
     /// Safe teacher-facing metrics. No prompts, generated content, provider

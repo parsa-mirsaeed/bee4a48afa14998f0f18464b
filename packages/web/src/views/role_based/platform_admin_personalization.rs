@@ -1035,6 +1035,32 @@ fn PersonalizationJobCard(
                 }
             }
 
+            if !job.gateway_failures.is_empty() {
+                details { class: "mt-4 rounded-lg border border-gray-200 p-3 text-sm dark:border-gray-700",
+                    summary { class: "cursor-pointer font-medium",
+                        {t("platform_admin.personalization.gateway_history", locale)}
+                    }
+                    p { class: "mt-2 text-xs text-gray-500",
+                        {t("platform_admin.personalization.gateway_history_hint", locale)}
+                    }
+                    for failure in job.gateway_failures.iter() {
+                        div { key: "{failure.request_id}", class: "mt-3 border-t border-gray-200 pt-3 dark:border-gray-700",
+                            p { class: "font-medium", "{failure_label(Some(&failure.diagnostic_code), locale)}" }
+                            dl { class: "mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2",
+                                CompactField { label: t("platform_admin.personalization.diagnostic_code", locale), value: failure.diagnostic_code.clone() }
+                                CompactField { label: t("platform_admin.personalization.gateway_request_id", locale), value: failure.request_id.clone() }
+                                CompactField { label: t("platform_admin.personalization.gateway_recorded", locale), value: failure.recorded_at.clone() }
+                                CompactField { label: t("platform_admin.personalization.gateway_http_status", locale), value: failure.gateway_http_status.to_string() }
+                                CompactField { label: t("platform_admin.personalization.gateway_elapsed_ms", locale), value: failure.gateway_elapsed_ms.to_string() }
+                                CompactField { label: t("platform_admin.personalization.gateway_attempt", locale), value: format!("v{} / {}", failure.execution_generation, failure.attempt_number) }
+                                CompactField { label: t("platform_admin.personalization.gateway_dispatch", locale), value: t(if failure.provider_dispatch_state == "blocked" { "platform_admin.personalization.gateway_blocked" } else { "platform_admin.personalization.gateway_unknown" }, locale) }
+                                CompactField { label: t("platform_admin.personalization.gateway_retry_at", locale), value: failure.scheduled_retry_at.clone().unwrap_or_else(|| "—".to_string()) }
+                            }
+                        }
+                    }
+                }
+            }
+
             if retryable {
                 button {
                     r#type: "button",

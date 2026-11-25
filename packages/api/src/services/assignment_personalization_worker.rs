@@ -317,10 +317,13 @@ async fn handle_processing_failure(
     max_attempts: i32,
 ) {
     let action = classify_failure(&error);
-    if let WorkerProcessError::Personalization(PersonalizationError::LlmError(
-        LlmError::GatewayFailure(failure),
-    )) = &error
-    {
+    let gateway_failure = match &error {
+        WorkerProcessError::Personalization(PersonalizationError::LlmError(
+            LlmError::GatewayFailure(failure),
+        )) => Some(*failure),
+        _ => None,
+    };
+    if let Some(failure) = gateway_failure {
         tracing::warn!(
             job_id = %job.id,
             request_id = %failure.request_id,
@@ -369,7 +372,13 @@ async fn handle_processing_failure(
             match run_authorized(
                 raw_pool,
                 actor,
-                repository.record_failure(job, kind, retry_after_seconds, max_attempts),
+                repository.record_failure_with_gateway(
+                    job,
+                    kind,
+                    retry_after_seconds,
+                    max_attempts,
+                    gateway_failure,
+                ),
             )
             .await
             {
