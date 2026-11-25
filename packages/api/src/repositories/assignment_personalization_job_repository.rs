@@ -428,7 +428,9 @@ impl AssignmentPersonalizationJobRepository {
                     last_error_code: row.try_get("last_error_code")?,
                     last_error_summary: row.try_get("last_error_summary")?,
                     gateway_failures: row
-                        .try_get::<sqlx::types::Json<Vec<AdminGatewayFailureRecord>>, _>("gateway_failures")?
+                        .try_get::<sqlx::types::Json<Vec<AdminGatewayFailureRecord>>, _>(
+                            "gateway_failures",
+                        )?
                         .0,
                     created_at: row.try_get("created_at")?,
                     started_at: row.try_get("started_at")?,
@@ -983,7 +985,11 @@ impl AssignmentPersonalizationJobRepository {
             .bind(failure.kind.code())
             .bind(i32::from(failure.gateway_http_status))
             .bind(failure.gateway_elapsed_ms.min(86_400_000) as i64)
-            .bind(failure.retry_after_seconds.map(|seconds| seconds.clamp(1, 3_600) as i32))
+            .bind(
+                failure
+                    .retry_after_seconds
+                    .map(|seconds| seconds.clamp(1, 3_600) as i32),
+            )
             .bind(should_retry)
             .bind(delay_seconds)
             .bind(dispatch)
@@ -1039,7 +1045,9 @@ impl AssignmentPersonalizationJobRepository {
         };
         if updated.rows_affected() != 1 {
             // Roll back the append together with a failed queue transition.
-            return Err(RepositoryError::Validation("Personalization failure lease changed".into()));
+            return Err(RepositoryError::Validation(
+                "Personalization failure lease changed".into(),
+            ));
         }
         Ok(if should_retry {
             PersonalizationFailureDisposition::Requeued

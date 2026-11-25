@@ -1629,13 +1629,19 @@ async fn deterministic_provider_contract_error_is_terminal_with_safe_code() {
         "Diagnostics Admin",
         admin_role,
         fixture.school_id,
-    ).await;
+    )
+    .await;
     let listed = run_as(
         fixture.pool.as_ref(),
         actor(admin, "PlatformAdmin", fixture.school_id),
         repository.list_for_platform_admin(admin, Some(fixture.school_id), None, 200),
-    ).await.unwrap();
-    let record = listed.iter().find(|record| record.job_id == claimed.id).unwrap();
+    )
+    .await
+    .unwrap();
+    let record = listed
+        .iter()
+        .find(|record| record.job_id == claimed.id)
+        .unwrap();
     assert_eq!(record.gateway_failures.len(), 1);
     let diagnostic = &record.gateway_failures[0];
     assert_eq!(diagnostic.request_id, failure.request_id);
@@ -1647,8 +1653,16 @@ async fn deterministic_provider_contract_error_is_terminal_with_safe_code() {
     let denied = run_as(
         fixture.pool.as_ref(),
         actor(fixture.teacher_user, "Teacher", fixture.school_id),
-        repository.list_for_platform_admin(fixture.teacher_user, Some(fixture.school_id), None, 200),
-    ).await;
-    assert!(denied.is_err(), "teacher must not read admin failure history");
+        repository.list_for_platform_admin(
+            fixture.teacher_user,
+            Some(fixture.school_id),
+            None,
+            200,
+        ),
+    )
+    .await;
+    assert!(
+        denied.is_err(),
+        "teacher must not read admin failure history"
+    );
 }
-

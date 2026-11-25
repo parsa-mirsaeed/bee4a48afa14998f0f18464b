@@ -394,19 +394,23 @@ fn job_dto(job: AdminPersonalizationJobRecord) -> AdminPersonalizationJobDto {
         delivery_policy: job.delivery_policy,
         last_error_code: job.last_error_code,
         last_error_summary: job.last_error_summary,
-        gateway_failures: job.gateway_failures.into_iter().map(|failure| AdminGatewayFailureDto {
-            request_id: failure.request_id.to_string(),
-            execution_generation: failure.execution_generation,
-            attempt_number: failure.attempt_number,
-            recorded_at: failure.recorded_at.to_rfc3339(),
-            stage: failure.stage,
-            diagnostic_code: failure.diagnostic_code,
-            gateway_http_status: failure.gateway_http_status,
-            gateway_elapsed_ms: failure.gateway_elapsed_ms,
-            retry_after_seconds: failure.retry_after_seconds,
-            scheduled_retry_at: failure.scheduled_retry_at.map(|value| value.to_rfc3339()),
-            provider_dispatch_state: failure.provider_dispatch_state,
-        }).collect(),
+        gateway_failures: job
+            .gateway_failures
+            .into_iter()
+            .map(|failure| AdminGatewayFailureDto {
+                request_id: failure.request_id.to_string(),
+                execution_generation: failure.execution_generation,
+                attempt_number: failure.attempt_number,
+                recorded_at: failure.recorded_at.to_rfc3339(),
+                stage: failure.stage,
+                diagnostic_code: failure.diagnostic_code,
+                gateway_http_status: failure.gateway_http_status,
+                gateway_elapsed_ms: failure.gateway_elapsed_ms,
+                retry_after_seconds: failure.retry_after_seconds,
+                scheduled_retry_at: failure.scheduled_retry_at.map(|value| value.to_rfc3339()),
+                provider_dispatch_state: failure.provider_dispatch_state,
+            })
+            .collect(),
         created_at: job.created_at.to_rfc3339(),
         started_at: job.started_at.map(|value| value.to_rfc3339()),
         completed_at: job.completed_at.map(|value| value.to_rfc3339()),
