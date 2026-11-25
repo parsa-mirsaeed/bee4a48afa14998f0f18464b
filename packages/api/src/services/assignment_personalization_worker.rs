@@ -123,10 +123,14 @@ pub fn start_assignment_personalization_worker(
                 last_recovery = Instant::now();
             }
 
+            // A lease identifies one claim, not the lifetime of the worker.
+            // Original-policy retries may reset attempt_count for the same job.
+            // A fresh UUID prevents stale work from matching a later claim.
+            let claim_id = Uuid::new_v4();
             let claimed = run_authorized(
                 &raw_pool,
-                AuthorizedActor::system_queue(worker_id),
-                claim_next_job(&pool, worker_id),
+                AuthorizedActor::system_queue(claim_id),
+                claim_next_job(&pool, claim_id),
             )
             .await;
 

@@ -1677,6 +1677,98 @@ async fn deterministic_provider_contract_error_is_terminal_with_safe_code() {
         denied.is_err(),
         "teacher must not read admin failure history"
     );
+
+    // Explicit retry keeps the job and snapshot generation, but resets the
+    // attempt counter. A new claim must append without replacing history.
+    run_as(
+        fixture.pool.as_ref(),
+        actor(fixture.teacher_user, "Teacher", fixture.school_id),
+        repository.requeue_for_teacher(
+            fixture.teacher_user,
+            fixture.assignment_id,
+            fixture.student_ids[0],
+        ),
+    )
+    .await
+    .unwrap();
+    prioritize_assignment_jobs(fixture.pool.as_ref(), fixture.assignment_id).await;
+    let retried = claim_next(fixture.pool.as_ref(), Uuid::new_v4())
+        .await
+        .unwrap();
+    assert_eq!(retried.id, claimed.id);
+    assert_eq!(retried.attempt_count, claimed.attempt_count);
+    assert_ne!(retried.lease_owner, claimed.lease_owner);
+
+    let stale = run_as(
+        fixture.pool.as_ref(),
+        actor(fixture.teacher_user, "Teacher", fixture.school_id),
+        repository.record_failure_with_gateway(
+            &claimed,
+            PersonalizationFailureKind::ProviderInvalidResponse,
+            0,
+            5,
+            Some(failure),
+        ),
+    )
+    .await
+    .unwrap();
+    assert_eq!(stale, PersonalizationFailureDisposition::IgnoredInactive);
+
+    let blocked = crate::services::llm_service::GatewayFailure {
+        kind: crate::services::llm_service::GatewayFailureKind::CircuitOpen,
+        request_id: Uuid::new_v4(),
+        gateway_http_status: 503,
+        retry_after_seconds: Some(30),
+        gateway_elapsed_ms: 1,
+        provider_evidence: None,
+    };
+    let disposition = run_as(
+        fixture.pool.as_ref(),
+        actor(fixture.teacher_user, "Teacher", fixture.school_id),
+        repository.record_failure_with_gateway(
+            &retried,
+            PersonalizationFailureKind::CircuitOpen,
+            30,
+            5,
+            Some(blocked),
+        ),
+    )
+    .await
+    .unwrap();
+    assert_eq!(disposition, PersonalizationFailureDisposition::Requeued);
+    let listed = run_as(
+        fixture.pool.as_ref(),
+        actor(admin, "PlatformAdmin", fixture.school_id),
+        repository.list_for_platform_admin(admin, Some(fixture.school_id), None, 200),
+    )
+    .await
+    .unwrap();
+    let record = listed
+        .iter()
+        .find(|record| record.job_id == claimed.id)
+        .unwrap();
+    assert_eq!(record.gateway_failures.len(), 2);
+    let original = record
+        .gateway_failures
+        .iter()
+        .find(|item| item.request_id == failure.request_id)
+        .unwrap();
+    let refusal = record
+        .gateway_failures
+        .iter()
+        .find(|item| item.request_id == blocked.request_id)
+        .unwrap();
+    assert_eq!(original.execution_generation, refusal.execution_generation);
+    assert_eq!(original.attempt_number, refusal.attempt_number);
+    assert_eq!(original.upstream_http_status, Some(200));
+    assert_eq!(
+        original.provider_failure_reason.as_deref(),
+        Some("model_mismatch")
+    );
+    assert_eq!(refusal.provider_dispatch_state, "blocked");
+    assert_eq!(refusal.provider_transport_attempts, Some(0));
+    assert!(refusal.upstream_http_status.is_none());
+    assert!(refusal.scheduled_retry_at.is_some());
 }
 
 #[cfg(feature = "server")]
@@ -1762,7 +1854,7 @@ async fn gateway_history_rls_enforces_active_teacher_append_admin_read_and_immut
             .execute(&mut *tx)
             .await
             .is_err(),
-        "one immutable diagnostic record per job generation and worker attempt"
+        "one immutable diagnostic record per job generation, attempt and claim lease"
     );
     sqlx::query("ROLLBACK TO SAVEPOINT duplicate_attempt")
         .execute(&mut *tx)
