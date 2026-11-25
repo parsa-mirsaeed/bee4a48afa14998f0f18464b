@@ -654,8 +654,11 @@ test('teacher published-submission report filters without invented metrics @smok
 for (const locale of ['en', 'fa'] as const) {
   test(`manager creates and reloads a class after malformed and real keyboard events in ${locale} @smoke @aurora @manager @forms @rtl @accessibility`, async ({ page }) => {
     await signIn(page, 'e2e-manager-a@example.test');
-    await page.evaluate((value) => localStorage.setItem('edutalent_locale', value), locale);
     await page.goto('/dashboard/classes');
+    // The suite pins English on each navigation; use the actual language switch.
+    if (locale === 'fa') {
+      await page.locator('.et-sidebar .language-switcher-toggle').click();
+    }
     await expect.poll(() => page.evaluate(() => document.documentElement.dir)).toBe(locale === 'fa' ? 'rtl' : 'ltr');
     const trigger = page.locator('.et-manager-classes__toolbar').getByRole('button').last();
     await trigger.click();
