@@ -70,7 +70,9 @@ fn failure_label(code: Option<&str>, locale: Locale) -> String {
         Some("provider_unconfigured" | "llm_disabled") => {
             "platform_admin.personalization.failure.provider_unconfigured"
         }
-        Some("rate_limited" | "provider_rate_limited") => "platform_admin.personalization.failure.rate_limited",
+        Some("rate_limited" | "provider_rate_limited") => {
+            "platform_admin.personalization.failure.rate_limited"
+        }
         Some("quota_exceeded") => "platform_admin.personalization.failure.quota_exceeded",
         Some("circuit_open") => "platform_admin.personalization.failure.circuit_open",
         Some("invalid_provider_response") => {
