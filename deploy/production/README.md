@@ -164,6 +164,32 @@ Backups must use a separate protected filesystem/device or controlled backup-hos
 
 PostgreSQL, Supavisor, Qdrant, Studio, Auth, PostgREST, Realtime, Storage, Edge Runtime and metadata services publish no direct host ports.
 
+## Private Storage bucket compatibility (ET-04/05)
+
+First-use creation uses the pinned Storage REST snake_case fields and verifies
+both restrictions after creation. Expected private buckets:
+
+| Bucket | Maximum bytes | Allowed MIME types |
+| --- | ---: | --- |
+| edutalent-knowledge-sources | 20971520 | application/pdf |
+| edutalent-submission-originals | 10485760 | application/pdf, image/jpeg, image/png |
+
+Existing private buckets with legacy NULL restrictions remain compatible;
+the application independently enforces upload limits. Never make a bucket
+public, delete/re-create it, or rewrite objects to repair metadata. In a
+controlled maintenance window, back up and inventory the existing objects
+and references, confirm privacy, then use the pinned administrative Storage
+REST `PUT /storage/v1/bucket/{bucket-id}` with the protected service credentials
+and exact JSON fields `public: false`, `file_size_limit` and
+`allowed_mime_types` as above. Read back restrictions and verify existing
+object access/integrity. Stop if conflicting settings or unexpected responses
+are found. Never log service credentials. No automatic repair on startup.
+
+The existing Production Foundation smoke workflow verifies the real pinned
+Storage REST contract using disposable CI-only buckets. It never pre-creates
+the application buckets. Normal authenticated application first-use uploads
+and cross-school authorization remain separate local acceptance requirements.
+
 ## Optional Edge Functions
 
 The pinned Supabase Edge Runtime definition remains coordinated in the upstream configuration but is assigned to the explicit `edge-functions` profile. It is not part of the default production startup and `/functions/v1` is not exposed by Caddy. Enabling it later requires a separate authentication, ingress, health, resource and release-scope review.

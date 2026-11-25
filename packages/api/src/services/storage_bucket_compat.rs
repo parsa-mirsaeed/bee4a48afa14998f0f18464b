@@ -1,6 +1,6 @@
 //! Pinned Supabase Storage v1.60.4 may return HTTP 400 with a structured
-//! NoSuchBucket code (rather than HTTP 404) for a missing bucket.
-//! Only the exact machine code authorizes first-use bucket creation.
+//! NoSuchBucket code or the legacy structured 404 envelope for a missing
+//! bucket. Unrelated HTTP 400 responses must not authorize creation.
 use reqwest::Response;
 use serde_json::Value;
 
@@ -10,12 +10,20 @@ fn missing_bucket_code(status: u16, bytes: &[u8]) -> bool {
     if status == 404 {
         return true;
     }
-    status == 400
-        && serde_json::from_slice::<Value>(bytes)
-            .ok()
-            .and_then(|body| body.get("code").and_then(Value::as_str).map(str::to_owned))
-            .as_deref()
-            == Some("NoSuchBucket")
+    if status != 400 {
+        return false;
+    }
+    let Ok(body) = serde_json::from_slice::<Value>(bytes) else {
+        return false;
+    };
+    match body.get("code") {
+        Some(code) => code.as_str() == Some("NoSuchBucket"),
+        None => {
+            body.get("statusCode").and_then(Value::as_str) == Some("404")
+                && body.get("error").and_then(Value::as_str) == Some("Bucket not found")
+                && body.get("message").and_then(Value::as_str) == Some("Bucket not found")
+        }
+    }
 }
 
 /// Consumes a failed bucket-lookup response without buffering unbounded HTML,
@@ -76,6 +84,25 @@ pub fn matches_private_bucket(body: &Value, limit: usize, mime: &[&str]) -> bool
     true
 }
 
+/// The raw Storage REST schema uses snake_case, unlike the JS SDK.
+pub fn private_bucket_create_body(bucket: &str, limit: usize, mime: &[&str]) -> Value {
+    serde_json::json!({
+        "id": bucket,
+        "name": bucket,
+        "public": false,
+        "file_size_limit": limit,
+        "allowed_mime_types": mime,
+    })
+}
+
+/// New (including concurrent-first-use) buckets must persist both limits.
+/// The legacy compatibility exception applies only to pre-existing buckets.
+pub fn matches_new_private_bucket(body: &Value, limit: usize, mime: &[&str]) -> bool {
+    body.get("file_size_limit").is_some_and(|v| !v.is_null())
+        && body.get("allowed_mime_types").is_some_and(|v| !v.is_null())
+        && matches_private_bucket(body, limit, mime)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -88,8 +115,16 @@ mod tests {
             400,
             br#"{"code":"NoSuchBucket","message":"Bucket not found"}"#
         ));
+        assert!(missing_bucket_code(
+            400,
+            br#"{"statusCode":"404","error":"Bucket not found","message":"Bucket not found"}"#
+        ));
         for body in [
             br#"{"code":"InvalidToken"}"#.as_slice(),
+            br#"{"code":"InvalidToken","statusCode":"404","error":"Bucket not found","message":"Bucket not found"}"#,
+            br#"{"statusCode":"403","error":"Bucket not found","message":"Bucket not found"}"#,
+            br#"{"statusCode":"404","error":"Forbidden","message":"Bucket not found"}"#,
+            br#"{"statusCode":"404","error":"Bucket not found"}"#,
             br#"{"message":"Bucket not found"}"#,
             br#"{"code":"noSuchBucket"}"#,
             b"<html>400</html>",
@@ -99,6 +134,47 @@ mod tests {
         }
         for status in [200, 401, 403, 409, 429, 500, 503] {
             assert!(!missing_bucket_code(status, br#"{"code":"NoSuchBucket"}"#));
+        }
+    }
+
+    #[test]
+    fn rest_payload_and_first_use_readback_require_persisted_limits() {
+        for (name, limit, mime) in [
+            (
+                "edutalent-knowledge-sources",
+                20 * 1024 * 1024,
+                &["application/pdf"][..],
+            ),
+            (
+                "edutalent-submission-originals",
+                10 * 1024 * 1024,
+                &["application/pdf", "image/jpeg", "image/png"][..],
+            ),
+        ] {
+            let body = private_bucket_create_body(name, limit, mime);
+            assert_eq!(
+                body,
+                json!({
+                    "id": name, "name": name, "public": false,
+                    "file_size_limit": limit, "allowed_mime_types": mime
+                })
+            );
+            assert!(matches_new_private_bucket(&body, limit, mime));
+            assert!(!matches_new_private_bucket(
+                &json!({"public":false}),
+                limit,
+                mime
+            ));
+            assert!(!matches_new_private_bucket(
+                &json!({"public":false,"file_size_limit":limit,"allowed_mime_types":null}),
+                limit,
+                mime
+            ));
+            assert!(!matches_new_private_bucket(
+                &json!({"public":true,"file_size_limit":limit,"allowed_mime_types":mime}),
+                limit,
+                mime
+            ));
         }
     }
 
