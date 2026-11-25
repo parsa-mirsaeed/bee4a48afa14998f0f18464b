@@ -5,7 +5,7 @@ use crate::repositories::{
     PersonalizationFailureKind, RepositoryError,
 };
 use crate::rls_context::{AuthorizedActor, AuthorizedPool, AuthorizedTx, RlsContextError};
-use crate::services::llm_service::LlmError;
+use crate::services::llm_service::{GatewayFailureKind, LlmError};
 use crate::services::{
     AssignmentPersonalizationService, PersonalizationError, PersonalizationStageReporter,
 };
@@ -317,6 +317,20 @@ async fn handle_processing_failure(
     max_attempts: i32,
 ) {
     let action = classify_failure(&error);
+    if let WorkerProcessError::Personalization(PersonalizationError::LlmError(
+        LlmError::GatewayFailure(failure),
+    )) = &error
+    {
+        tracing::warn!(
+            job_id = %job.id,
+            request_id = %failure.request_id,
+            attempt = job.attempt_count,
+            gateway_http_status = failure.gateway_http_status,
+            error_code = failure.kind.code(),
+            retry_after_seconds = ?failure.retry_after_seconds,
+            "Assignment personalization gateway failure correlation"
+        );
+    }
     let actor = match AuthorizedActor::new(job.requested_by, "Teacher", Some(job.school_id)) {
         Ok(actor) => actor,
         Err(_) => {
@@ -413,6 +427,29 @@ fn classify_failure(error: &WorkerProcessError) -> FailureAction {
 
 fn classify_llm_failure(error: &LlmError) -> FailureAction {
     match error {
+        LlmError::GatewayFailure(failure) => {
+            use GatewayFailureKind as G;
+            use PersonalizationFailureKind as P;
+            let (kind, default_delay) = match failure.kind {
+                G::ProviderRateLimited => (P::RateLimited, 60),
+                G::SchoolQuotaExceeded => (P::QuotaExceeded, 60),
+                G::CircuitOpen => (P::CircuitOpen, 30),
+                G::ProviderUnconfigured | G::LlmDisabled => (P::ConfigurationUnavailable, 0),
+                G::InvalidProviderResponse => (P::ProviderInvalidResponse, 0),
+                G::ProviderResponseTooLarge => (P::ProviderResponseTooLarge, 0),
+                G::ProviderRejectedRequest => (P::ProviderRejectedRequest, 0),
+                G::TemporarilyUnavailable | G::ShuttingDown => (P::GatewayUnavailable, 10),
+                G::Unknown => (P::InvalidGatewayResponse, 5),
+            };
+            FailureAction::Record {
+                kind,
+                retry_after_seconds: if kind.retryable() {
+                    failure.retry_after_seconds.unwrap_or(default_delay)
+                } else {
+                    0
+                },
+            }
+        }
         LlmError::RateLimited {
             retry_after_seconds,
         } => FailureAction::Record {
@@ -573,6 +610,10 @@ mod tests {
         RateLimited,
         InvalidJson,
         Outage,
+        CircuitOpen,
+        InvalidProviderResponse,
+        Rejected,
+        Oversize,
     }
 
     fn spawn_mock_gateway(fault: MockGatewayFault) -> String {
@@ -608,6 +649,26 @@ mod tests {
                     "503 Service Unavailable",
                     "application/json",
                     r#"{"error":{"code":"ai_temporarily_unavailable","message":"offline","retry_after_seconds":30}}"#,
+                ),
+                MockGatewayFault::CircuitOpen => (
+                    "503 Service Unavailable",
+                    "application/json",
+                    r#"{"error":{"code":"circuit_open","message":"offline","retry_after_seconds":29}}"#,
+                ),
+                MockGatewayFault::InvalidProviderResponse => (
+                    "502 Bad Gateway",
+                    "application/json",
+                    r#"{"error":{"code":"invalid_provider_response","message":"provider-secret-sentinel"}}"#,
+                ),
+                MockGatewayFault::Rejected => (
+                    "502 Bad Gateway",
+                    "application/json",
+                    r#"{"error":{"code":"provider_rejected_request","message":"provider-secret-sentinel"}}"#,
+                ),
+                MockGatewayFault::Oversize => (
+                    "502 Bad Gateway",
+                    "application/json",
+                    r#"{"error":{"code":"provider_response_too_large","message":"provider-secret-sentinel"}}"#,
                 ),
             };
             let response = format!(
@@ -738,9 +799,11 @@ mod tests {
             mock_gateway_error(MockGatewayFault::RateLimited, Duration::from_secs(1)).await;
         assert!(matches!(
             rate_limited,
-            LlmError::RateLimited {
-                retry_after_seconds: 19
-            }
+            LlmError::GatewayFailure(crate::services::llm_service::GatewayFailure {
+                kind: GatewayFailureKind::ProviderRateLimited,
+                retry_after_seconds: Some(19),
+                ..
+            })
         ));
         assert_eq!(
             classify_llm_failure(&rate_limited),
@@ -763,14 +826,28 @@ mod tests {
         );
 
         let outage = mock_gateway_error(MockGatewayFault::Outage, Duration::from_secs(1)).await;
-        assert!(matches!(outage, LlmError::TemporarilyUnavailable));
+        assert!(matches!(outage, LlmError::GatewayFailure(_)));
         assert_eq!(
             classify_llm_failure(&outage),
             FailureAction::Record {
                 kind: PersonalizationFailureKind::GatewayUnavailable,
-                retry_after_seconds: 10,
+                retry_after_seconds: 30,
             }
         );
+        for (fault, kind, delay, retryable) in [
+            (MockGatewayFault::CircuitOpen, PersonalizationFailureKind::CircuitOpen, 29, true),
+            (MockGatewayFault::InvalidProviderResponse, PersonalizationFailureKind::ProviderInvalidResponse, 0, false),
+            (MockGatewayFault::Rejected, PersonalizationFailureKind::ProviderRejectedRequest, 0, false),
+            (MockGatewayFault::Oversize, PersonalizationFailureKind::ProviderResponseTooLarge, 0, false),
+        ] {
+            let error = mock_gateway_error(fault, Duration::from_secs(1)).await;
+            assert!(!format!("{error:?}").contains("provider-secret-sentinel"));
+            assert_eq!(kind.retryable(), retryable);
+            assert_eq!(
+                classify_llm_failure(&error),
+                FailureAction::Record { kind, retry_after_seconds: delay }
+            );
+        }
     }
 
     #[test]

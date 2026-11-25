@@ -683,6 +683,7 @@ fn llm_initialization_error_code(error: &LlmError) -> &'static str {
         LlmError::RequestFailed(_) => "gateway_unreachable",
         LlmError::RateLimited { .. } => "rate_limited",
         LlmError::TemporarilyUnavailable => "temporarily_unavailable",
+        LlmError::GatewayFailure(failure) => failure.kind.code(),
         LlmError::ConfigurationUnavailable => "provider_unconfigured",
         LlmError::SecretInPrompt => "secret_in_prompt",
         LlmError::PromptTooLarge => "prompt_too_large",
@@ -708,6 +709,7 @@ fn controlled_personalization_message(error: &PersonalizationError) -> &'static 
         PersonalizationError::LlmError(
             LlmError::RateLimited { .. }
             | LlmError::TemporarilyUnavailable
+            | LlmError::GatewayFailure(_)
             | LlmError::RequestFailed(_)
             | LlmError::MissingApiKey
             | LlmError::ConfigurationUnavailable,

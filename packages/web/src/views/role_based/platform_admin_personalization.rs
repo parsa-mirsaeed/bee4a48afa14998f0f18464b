@@ -69,6 +69,11 @@ fn failure_label(code: Option<&str>, locale: Locale) -> String {
             "platform_admin.personalization.failure.provider_unconfigured"
         }
         Some("rate_limited") => "platform_admin.personalization.failure.rate_limited",
+        Some("quota_exceeded") => "platform_admin.personalization.failure.quota_exceeded",
+        Some("circuit_open") => "platform_admin.personalization.failure.circuit_open",
+        Some("invalid_provider_response") => "platform_admin.personalization.failure.invalid_provider_response",
+        Some("provider_response_too_large") => "platform_admin.personalization.failure.provider_response_too_large",
+        Some("provider_rejected_request") => "platform_admin.personalization.failure.provider_rejected_request",
         Some("invalid_gateway_response") => {
             "platform_admin.personalization.failure.invalid_gateway_response"
         }
@@ -1008,6 +1013,19 @@ fn PersonalizationJobCard(
                 div { class: "mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-800 dark:bg-red-900/20 dark:text-red-200",
                     p { class: "font-medium", {t("platform_admin.personalization.error", locale)} }
                     p { class: "mt-1", "{failure_label(job.last_error_code.as_deref(), locale)}" }
+                    details { class: "mt-2",
+                        summary { class: "cursor-pointer", {t("platform_admin.personalization.diagnostic_details", locale)} }
+                        p { class: "mt-2 break-all",
+                            {t("platform_admin.personalization.diagnostic_code", locale)}
+                            ": "
+                            bdi { "{job.last_error_code.as_deref().unwrap_or(\"—\")}" }
+                        }
+                        p { class: "mt-1 break-all",
+                            {t("platform_admin.personalization.diagnostic_job_id", locale)}
+                            ": "
+                            bdi { "{job.job_id}" }
+                        }
+                    }
                 }
             }
 
