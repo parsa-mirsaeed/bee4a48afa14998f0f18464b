@@ -345,11 +345,13 @@ async fn ensure_private_bucket(state: &AppState) -> Result<(), UploadRejection> 
         state.supabase_config.url.trim_end_matches('/')
     );
     let response = storage_auth(state.services.http_client.post(&create_url), state)
-        .json(&crate::services::storage_bucket_compat::private_bucket_create_body(
-            KNOWLEDGE_SOURCE_BUCKET,
-            MAX_KNOWLEDGE_PDF_BYTES,
-            &["application/pdf"],
-        ))
+        .json(
+            &crate::services::storage_bucket_compat::private_bucket_create_body(
+                KNOWLEDGE_SOURCE_BUCKET,
+                MAX_KNOWLEDGE_PDF_BYTES,
+                &["application/pdf"],
+            ),
+        )
         .send()
         .await
         .map_err(|error| {

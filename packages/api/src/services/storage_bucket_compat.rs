@@ -140,16 +140,31 @@ mod tests {
     #[test]
     fn rest_payload_and_first_use_readback_require_persisted_limits() {
         for (name, limit, mime) in [
-            ("edutalent-knowledge-sources", 20 * 1024 * 1024, &["application/pdf"][..]),
-            ("edutalent-submission-originals", 10 * 1024 * 1024, &["application/pdf", "image/jpeg", "image/png"][..]),
+            (
+                "edutalent-knowledge-sources",
+                20 * 1024 * 1024,
+                &["application/pdf"][..],
+            ),
+            (
+                "edutalent-submission-originals",
+                10 * 1024 * 1024,
+                &["application/pdf", "image/jpeg", "image/png"][..],
+            ),
         ] {
             let body = private_bucket_create_body(name, limit, mime);
-            assert_eq!(body, json!({
-                "id": name, "name": name, "public": false,
-                "file_size_limit": limit, "allowed_mime_types": mime
-            }));
+            assert_eq!(
+                body,
+                json!({
+                    "id": name, "name": name, "public": false,
+                    "file_size_limit": limit, "allowed_mime_types": mime
+                })
+            );
             assert!(matches_new_private_bucket(&body, limit, mime));
-            assert!(!matches_new_private_bucket(&json!({"public":false}), limit, mime));
+            assert!(!matches_new_private_bucket(
+                &json!({"public":false}),
+                limit,
+                mime
+            ));
             assert!(!matches_new_private_bucket(
                 &json!({"public":false,"file_size_limit":limit,"allowed_mime_types":null}),
                 limit,
