@@ -21,6 +21,20 @@ function runFixtureSql(sql: string): string {
   ).trim();
 }
 
+// Synthetic fixture setup/cleanup uses the same transaction-scoped actor
+// contract enforced by the production teacher override trigger. Never disable it.
+function runAdminFixtureMutation(sql: string): void {
+  runFixtureSql(`
+    BEGIN;
+    SELECT set_config('app.user_id', 'b0000000-0000-0000-0000-0000000000a0', true),
+           set_config('app.user_role', 'PlatformAdmin', true),
+           set_config('app.school_id', '${SCHOOL_A_ID}', true),
+           set_config('app.elevated_operation', 'false', true);
+    ${sql};
+    COMMIT;
+  `);
+}
+
 function resetVectorizationFixture(): void {
   runFixtureSql(`
     BEGIN;
@@ -519,7 +533,7 @@ for (const locale of ['en', 'fa'] as const) {
     const manage = locale === 'fa' ? 'مدیریت استثناهای معلم' : 'Manage teacher overrides';
     const save = locale === 'fa' ? 'ذخیره سیاست' : 'Save policy';
     try {
-      runFixtureSql(`
+      runAdminFixtureMutation(`
         INSERT INTO ${table} AS current_override (teacher_id, school_id, mode, llm_profile_id_override)
         VALUES ('${teacherId}', '${SCHOOL_A_ID}', 'override', '${savedProfile}')
         ON CONFLICT (teacher_id) DO UPDATE
@@ -554,7 +568,7 @@ for (const locale of ['en', 'fa'] as const) {
       // Only the synthetic fixture is restored; normal saves above use the application.
       if (original) {
         const escaped = original.replaceAll("'", "''");
-        runFixtureSql(`
+        runAdminFixtureMutation(`
           UPDATE ${table} o
           SET mode = prior.mode, enabled_override = prior.enabled_override,
               paused_override = prior.paused_override,
@@ -565,7 +579,7 @@ for (const locale of ['en', 'fa'] as const) {
           WHERE o.teacher_id = '${teacherId}'
         `);
       } else {
-        runFixtureSql(`DELETE FROM ${table} WHERE teacher_id = '${teacherId}'`);
+        runAdminFixtureMutation(`DELETE FROM ${table} WHERE teacher_id = '${teacherId}'`);
       }
     }
   });
