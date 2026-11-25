@@ -1509,8 +1509,9 @@ async fn forward_native_pdf(
         ));
     }
     let body = bounded_body(response, state.config.max_provider_response_bytes).await?;
-    let parsed: GatewayChatResponse =
+    let mut parsed: GatewayChatResponse =
         serde_json::from_slice(&body).map_err(|_| ProviderFailure::InvalidResponse)?;
+    normalize_known_gapgpt_model(&state.config.llm_profile, provider, &mut parsed);
     validate_chat_response(provider, &parsed)?;
     Ok(parsed)
 }
@@ -1574,10 +1575,9 @@ fn validate_embedding_response(
     Ok(())
 }
 
-/// GapGPT's verified DeepSeek v4.1 Flash endpoint accepts the unprefixed
-/// request model, but identifies that exact model with a vendor namespace in
-/// its response. Normalize only this known fixed-profile response alias. All
-/// other profiles, origins, requested models, and reported IDs stay strict.
+/// Normalize only independently observed GapGPT response aliases for exact
+/// profile, HTTPS origin and requested model combinations. All other model
+/// IDs (including unverified snapshot dates) stay strict.
 fn normalize_known_gapgpt_model(
     profile: &LlmProfile,
     provider: &Provider,
@@ -1587,6 +1587,14 @@ fn normalize_known_gapgpt_model(
         && provider.base_url.as_str() == GAPGPT_LLM_BASE_URL
         && provider.model == DEEPSEEK_V41_FLASH_V1.model.as_ref()
         && response.model == "deepseek/deepseek-v4.1-flash"
+    {
+        response.model = provider.model.clone();
+    } else if profile.id == "custom-v1:gpt-6-luna"
+        && profile.provider == LlmProviderKind::Custom
+        && profile.model == "gpt-6-luna"
+        && provider.base_url.as_str() == "https://api.gapgpt.ir/v1/"
+        && provider.model == "gpt-6-luna"
+        && response.model == "gpt-6-luna-2026-09-22"
     {
         response.model = provider.model.clone();
     }
@@ -2150,6 +2158,64 @@ mod tests {
         let mut other_profile_response = make_response("deepseek/deepseek-v4.1-flash");
         normalize_known_gapgpt_model(&DEEPSEEK_CHAT_V1, &provider, &mut other_profile_response);
         assert!(validate_chat_response(&provider, &other_profile_response).is_err());
+    }
+
+    #[test]
+    fn gateway_accepts_only_the_observed_gapgpt_luna_snapshot_alias() {
+        let profile = resolve_llm_profile("custom-v1:gpt-6-luna").unwrap();
+        let provider = Provider {
+            base_url: Url::parse("https://api.gapgpt.ir/v1/").unwrap(),
+            api_key: None,
+            model: "gpt-6-luna".to_string(),
+        };
+        let response = |model: &str| GatewayChatResponse {
+            model: model.to_string(),
+            choices: vec![GatewayChatChoice {
+                index: 0,
+                message: GatewayChatMessage {
+                    role: "assistant".to_string(),
+                    content: "{\"status\":\"ok\"}".to_string(),
+                },
+                finish_reason: Some("stop".to_string()),
+            }],
+            usage: None,
+        };
+        for model in ["gpt-6-luna", "gpt-6-luna-2026-09-22"] {
+            let mut result = response(model);
+            normalize_known_gapgpt_model(&profile, &provider, &mut result);
+            assert_eq!(result.model, provider.model);
+            assert!(validate_chat_response(&provider, &result).is_ok());
+        }
+        for model in [
+            "gpt-6-luna-2026-09-23",
+            "gpt-6-luna-2026-09-22-extra",
+            "vendor/gpt-6-luna-2026-09-22",
+            "gpt-6",
+        ] {
+            let mut result = response(model);
+            normalize_known_gapgpt_model(&profile, &provider, &mut result);
+            assert!(validate_chat_response(&provider, &result).is_err());
+        }
+        let mut other_origin = provider.clone();
+        other_origin.base_url = Url::parse("https://api.gapgpt.app/v1/").unwrap();
+        let mut wrong_origin = response("gpt-6-luna-2026-09-22");
+        normalize_known_gapgpt_model(&profile, &other_origin, &mut wrong_origin);
+        assert!(validate_chat_response(&other_origin, &wrong_origin).is_err());
+
+        let mut wrong_profile = response("gpt-6-luna-2026-09-22");
+        normalize_known_gapgpt_model(&DEEPSEEK_CHAT_V1, &provider, &mut wrong_profile);
+        assert!(validate_chat_response(&provider, &wrong_profile).is_err());
+
+        let mut wrong_model = provider.clone();
+        wrong_model.model = "another-model".to_string();
+        let mut wrong_response = response("gpt-6-luna-2026-09-22");
+        normalize_known_gapgpt_model(&profile, &wrong_model, &mut wrong_response);
+        assert!(validate_chat_response(&wrong_model, &wrong_response).is_err());
+
+        let mut empty = response("gpt-6-luna-2026-09-22");
+        empty.choices[0].message.content.clear();
+        normalize_known_gapgpt_model(&profile, &provider, &mut empty);
+        assert!(validate_chat_response(&provider, &empty).is_err());
     }
 
     #[test]
