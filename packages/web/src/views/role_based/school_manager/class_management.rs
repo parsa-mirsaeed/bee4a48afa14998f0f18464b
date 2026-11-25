@@ -369,7 +369,10 @@ fn ClassCard(class: ClassSectionResponse, on_click: EventHandler) -> Element {
             tabindex: "0",
             onclick: move |_| on_click.call(()),
             onkeydown: move |event| {
-                if event.key() == Key::Enter || event.key().to_string() == " " {
+                let Some(key) = crate::ui::layers::safe_keyboard_key(&event) else {
+                    return;
+                };
+                if key == Key::Enter || key.to_string() == " " {
                     event.prevent_default();
                     on_click.call(());
                 }
