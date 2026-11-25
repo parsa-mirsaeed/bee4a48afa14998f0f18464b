@@ -345,13 +345,13 @@ async fn ensure_private_bucket(state: &AppState) -> Result<(), UploadRejection> 
         state.supabase_config.url.trim_end_matches('/')
     );
     let response = storage_auth(state.services.http_client.post(&create_url), state)
-        .json(&json!({
-            "id": KNOWLEDGE_SOURCE_BUCKET,
-            "name": KNOWLEDGE_SOURCE_BUCKET,
-            "public": false,
-            "fileSizeLimit": MAX_KNOWLEDGE_PDF_BYTES,
-            "allowedMimeTypes": ["application/pdf"]
-        }))
+        .json(
+            &crate::services::storage_bucket_compat::private_bucket_create_body(
+                KNOWLEDGE_SOURCE_BUCKET,
+                MAX_KNOWLEDGE_PDF_BYTES,
+                &["application/pdf"],
+            ),
+        )
         .send()
         .await
         .map_err(|error| {
@@ -392,7 +392,7 @@ async fn verify_bucket_private(state: &AppState) -> Result<(), UploadRejection> 
         error!(%error, "knowledge storage bucket verification response was invalid");
         reject(StatusCode::BAD_GATEWAY, "Knowledge storage is unavailable")
     })?;
-    if crate::services::storage_bucket_compat::matches_private_bucket(
+    if crate::services::storage_bucket_compat::matches_new_private_bucket(
         &body,
         MAX_KNOWLEDGE_PDF_BYTES,
         &["application/pdf"],

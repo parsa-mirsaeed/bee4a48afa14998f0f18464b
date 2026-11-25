@@ -67,7 +67,7 @@ jobs:
             deploy/production/generate-secrets.sh \
             deploy/production/preflight.sh \
             deploy/production/edutalent-production
-          python3 -m py_compile deploy/production/validate-rendered-compose.py
+          python3 -m py_compile deploy/production/validate-rendered-compose.py deploy/production/verify-storage-contract.py
 
       - name: Materialize pinned official Supabase runtime
         run: bash edutalent production-bootstrap
@@ -556,6 +556,9 @@ jobs:
               raise SystemExit("Supabase secret key was exposed in the application response")
           print("Application response secret-exclusion boundary verified.")
           PY
+
+      - name: Verify pinned Storage REST and private bucket contract
+        run: python3 deploy/production/verify-storage-contract.py
 
       - name: Show service state on failure
         if: failure()
