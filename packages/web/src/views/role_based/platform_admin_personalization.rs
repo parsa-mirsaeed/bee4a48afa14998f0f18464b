@@ -597,6 +597,11 @@ fn SchoolPolicyCard(
                     p { class: "mt-1 text-xs text-gray-500",
                         {format!("{} · v{}", t("platform_admin.personalization.effective", locale), policy.policy_version)}
                     }
+                    p { class: "mt-1 break-all text-sm", "data-testid": "saved-school-profile",
+                        {t("platform_admin.personalization.saved_profile", locale)}
+                        ": "
+                        bdi { "{policy.llm_profile_id}" }
+                    }
                 }
                 button {
                     r#type: "button",
@@ -642,8 +647,19 @@ fn SchoolPolicyCard(
                         value: "{profile}",
                         disabled: busy(),
                         onchange: move |event| profile.set(event.value()),
+                        if !methods.iter().any(|method| method.profile_id == profile()) {
+                            option {
+                                value: "{profile}",
+                                selected: true,
+                                {format!("{} · {}", profile(), t("platform_admin.personalization.profile_not_available", locale))}
+                            }
+                        }
                         for method in methods.iter() {
-                            option { value: "{method.profile_id}", "{method.profile_id} · {method.model}" }
+                            option {
+                                value: "{method.profile_id}",
+                                selected: profile() == method.profile_id,
+                                "{method.profile_id} · {method.model}"
+                            }
                         }
                     }
                 }
@@ -750,7 +766,7 @@ fn TeacherPolicyCard(
     rsx! {
         article { class: "et-ui-card et-admin-policy-card p-5",
             h3 { class: "font-semibold text-gray-900 dark:text-white", "{policy.teacher_name}" }
-            p { class: "mt-1 text-xs text-gray-500",
+            p { class: "mt-1 text-xs text-gray-500", "data-testid": "effective-teacher-policy",
                 {format!(
                     "{}: {} · {} · {}",
                     t("platform_admin.personalization.effective", locale),
@@ -777,8 +793,8 @@ fn TeacherPolicyCard(
                     value: "{mode}",
                     disabled: busy(),
                     onchange: move |event| mode.set(event.value()),
-                    option { value: "inherit", {t("platform_admin.personalization.inherit", locale)} }
-                    option { value: "override", {t("platform_admin.personalization.override", locale)} }
+                    option { value: "inherit", selected: mode() == "inherit", {t("platform_admin.personalization.inherit", locale)} }
+                    option { value: "override", selected: mode() == "override", {t("platform_admin.personalization.override", locale)} }
                 }
             }
 
@@ -809,8 +825,19 @@ fn TeacherPolicyCard(
                             value: "{profile}",
                             disabled: busy(),
                             onchange: move |event| profile.set(event.value()),
+                            if !methods.iter().any(|method| method.profile_id == profile()) {
+                                option {
+                                    value: "{profile}",
+                                    selected: true,
+                                    {format!("{} · {}", profile(), t("platform_admin.personalization.profile_not_available", locale))}
+                                }
+                            }
                             for method in methods.iter() {
-                                option { value: "{method.profile_id}", "{method.profile_id} · {method.model}" }
+                                option {
+                                    value: "{method.profile_id}",
+                                    selected: profile() == method.profile_id,
+                                    "{method.profile_id} · {method.model}"
+                                }
                             }
                         }
                     }
