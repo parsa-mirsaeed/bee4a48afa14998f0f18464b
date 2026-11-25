@@ -2362,6 +2362,117 @@ mod tests {
         assert_eq!(breaker.status().await, "closed");
     }
 
+    fn arm_recovery(breaker: &CircuitBreaker) {
+        breaker.before_call().unwrap().failure(true);
+        breaker.state().mode = CircuitMode::Open {
+            until: Instant::now(),
+        };
+    }
+
+    fn expire_reopened_circuit(breaker: &CircuitBreaker) {
+        assert!(matches!(breaker.state().mode, CircuitMode::Open { .. }));
+        breaker.state().mode = CircuitMode::Open {
+            until: Instant::now(),
+        };
+    }
+
+    fn assert_cancelled_admission_reopens<T>(
+        breaker: &CircuitBreaker,
+        request: impl std::future::Future<Output = Result<T, HttpError>>,
+    ) {
+        let mut request = Box::pin(request);
+        let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
+        assert!(request.as_mut().poll(&mut cx).is_pending());
+        assert!(matches!(breaker.state().mode, CircuitMode::HalfOpen));
+        assert_eq!(
+            breaker.before_call().expect_err("single probe").code,
+            "circuit_open"
+        );
+        drop(request);
+        expire_reopened_circuit(breaker);
+        breaker.before_call().expect("next probe").success();
+        assert!(matches!(breaker.state().mode, CircuitMode::Closed));
+    }
+
+    #[tokio::test]
+    async fn real_gateway_admission_refusal_and_cancellation_reopen_recovery() {
+        let mut config = Config::test(Url::parse("http://127.0.0.1:9/v1/").unwrap());
+        config.circuit_open_for = Duration::from_secs(30);
+        config.embedding_quota.requests_per_hour = 1;
+        config.llm_quota.requests_per_hour = 1;
+        let state = AppState::new(config).unwrap();
+
+        let exhausted = context();
+        state
+            .embedding_quota
+            .consume(exhausted.school_id, 1)
+            .await
+            .unwrap();
+        arm_recovery(&state.embedding_breaker);
+        assert_eq!(
+            state
+                .embed(&exhausted, embedding_request())
+                .await
+                .expect_err("quota")
+                .code,
+            "quota_exceeded"
+        );
+        expire_reopened_circuit(&state.embedding_breaker);
+        let _embedding_slots = state.embedding_slots.acquire_many(2).await.unwrap();
+        let fresh = context();
+        assert_cancelled_admission_reopens(
+            &state.embedding_breaker,
+            state.embed(&fresh, embedding_request()),
+        );
+
+        state
+            .llm_quota
+            .consume(exhausted.school_id, 1)
+            .await
+            .unwrap();
+        arm_recovery(&state.llm_breaker);
+        assert_eq!(
+            state
+                .chat(&exhausted, chat_request())
+                .await
+                .expect_err("quota")
+                .code,
+            "quota_exceeded"
+        );
+        expire_reopened_circuit(&state.llm_breaker);
+        let _chat_slot = state.llm_slots.acquire().await.unwrap();
+        assert_cancelled_admission_reopens(
+            &state.llm_breaker,
+            state.chat(&fresh, chat_request()),
+        );
+
+        let mut config = pdf_test_config(Url::parse("http://127.0.0.1:9/v1/").unwrap());
+        config.native_pdf_enabled = true;
+        config.circuit_open_for = Duration::from_secs(30);
+        config.llm_quota.requests_per_hour = 1;
+        let state = AppState::new(config).unwrap();
+        state
+            .llm_quota
+            .consume(exhausted.school_id, 1)
+            .await
+            .unwrap();
+        arm_recovery(&state.llm_breaker);
+        assert_eq!(
+            state
+                .native_pdf(&exhausted, pdf_request(&synthetic_pdf()))
+                .await
+                .expect_err("quota")
+                .code,
+            "quota_exceeded"
+        );
+        expire_reopened_circuit(&state.llm_breaker);
+        let _pdf_slot = state.llm_slots.acquire().await.unwrap();
+        assert_cancelled_admission_reopens(
+            &state.llm_breaker,
+            state.native_pdf(&fresh, pdf_request(&synthetic_pdf())),
+        );
+    }
+
     #[test]
     fn responses_require_exact_model_role_dimension_and_finite_values() {
         let request = embedding_request();
