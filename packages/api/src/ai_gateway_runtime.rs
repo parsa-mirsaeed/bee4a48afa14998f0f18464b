@@ -481,7 +481,9 @@ impl CircuitBreaker {
     }
 
     fn state(&self) -> std::sync::MutexGuard<'_, CircuitState> {
-        self.state.lock().unwrap_or_else(|poison| poison.into_inner())
+        self.state
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
     }
 
     fn before_call(&self) -> Result<CircuitPermit<'_>, HttpError> {
@@ -2240,7 +2242,9 @@ mod tests {
             breaker.before_call().expect_err("open").code,
             "circuit_open"
         );
-        breaker.state().mode = CircuitMode::Open { until: Instant::now() };
+        breaker.state().mode = CircuitMode::Open {
+            until: Instant::now(),
+        };
         let probe = breaker.before_call().expect("half-open probe");
         assert_eq!(
             breaker.before_call().expect_err("single probe").code,
@@ -2255,7 +2259,9 @@ mod tests {
         let breaker = CircuitBreaker::new(1, Duration::from_secs(30));
         breaker.before_call().unwrap().failure(true);
         for rejected in [false, true] {
-            breaker.state().mode = CircuitMode::Open { until: Instant::now() };
+            breaker.state().mode = CircuitMode::Open {
+                until: Instant::now(),
+            };
             let probe = breaker.before_call().unwrap();
             if rejected {
                 probe.failure(false);
@@ -2265,7 +2271,9 @@ mod tests {
             }
             assert_eq!(breaker.status().await, "open");
         }
-        breaker.state().mode = CircuitMode::Open { until: Instant::now() };
+        breaker.state().mode = CircuitMode::Open {
+            until: Instant::now(),
+        };
         breaker.before_call().unwrap().success();
         assert_eq!(breaker.status().await, "closed");
     }
@@ -2278,7 +2286,9 @@ mod tests {
         breaker.before_call().unwrap().failure(true);
         stale_success.success();
         assert_eq!(breaker.status().await, "open");
-        breaker.state().mode = CircuitMode::Open { until: Instant::now() };
+        breaker.state().mode = CircuitMode::Open {
+            until: Instant::now(),
+        };
         let probe = breaker.before_call().unwrap();
         stale_failure.failure(true);
         assert_eq!(breaker.status().await, "half_open");
