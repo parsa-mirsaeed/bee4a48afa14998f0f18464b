@@ -129,7 +129,11 @@ fn app_observed_gateway_failure(
     LlmError::GatewayFailure(failure)
 }
 
-fn gateway_transport_failure(error: &reqwest::Error, request_id: Uuid, started: Instant) -> LlmError {
+fn gateway_transport_failure(
+    error: &reqwest::Error,
+    request_id: Uuid,
+    started: Instant,
+) -> LlmError {
     let kind = if error.is_timeout() {
         GatewayFailureKind::GatewayTransportTimeout
     } else if error.is_connect() {

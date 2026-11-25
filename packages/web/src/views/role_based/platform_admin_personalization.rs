@@ -71,9 +71,7 @@ fn failure_label(code: Option<&str>, locale: Locale) -> String {
             | "gateway_transport_timeout"
             | "gateway_transport_connect"
             | "gateway_transport_other",
-        ) => {
-            "platform_admin.personalization.failure.gateway_unavailable"
-        }
+        ) => "platform_admin.personalization.failure.gateway_unavailable",
         Some("provider_unconfigured" | "llm_disabled") => {
             "platform_admin.personalization.failure.provider_unconfigured"
         }
