@@ -457,13 +457,14 @@ enum CircuitMode {
 struct CircuitState {
     mode: CircuitMode,
     failures: u32,
+    generation: u64,
 }
 
 #[derive(Debug)]
 struct CircuitBreaker {
     threshold: u32,
     open_for: Duration,
-    state: Mutex<CircuitState>,
+    state: std::sync::Mutex<CircuitState>,
 }
 
 impl CircuitBreaker {
@@ -471,60 +472,118 @@ impl CircuitBreaker {
         Self {
             threshold: threshold.max(1),
             open_for,
-            state: Mutex::new(CircuitState {
+            state: std::sync::Mutex::new(CircuitState {
                 mode: CircuitMode::Closed,
                 failures: 0,
+                generation: 0,
             }),
         }
     }
 
-    async fn before_call(&self) -> Result<(), HttpError> {
+    fn state(&self) -> std::sync::MutexGuard<'_, CircuitState> {
+        self.state.lock().unwrap_or_else(|poison| poison.into_inner())
+    }
+
+    fn before_call(&self) -> Result<CircuitPermit<'_>, HttpError> {
         let now = Instant::now();
-        let mut state = self.state.lock().await;
-        match state.mode {
-            CircuitMode::Closed => Ok(()),
-            CircuitMode::Open { until } if now < until => Err(HttpError::new(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "circuit_open",
-                "AI service temporarily unavailable",
-            )
-            .retry_after(until.duration_since(now).as_secs().max(1))),
+        let mut state = self.state();
+        let probe = match state.mode {
+            CircuitMode::Closed => false,
+            CircuitMode::Open { until } if now < until => {
+                return Err(HttpError::new(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "circuit_open",
+                    "AI service temporarily unavailable",
+                )
+                .retry_after(until.duration_since(now).as_secs().saturating_add(1)))
+            }
             CircuitMode::Open { .. } => {
                 state.mode = CircuitMode::HalfOpen;
-                Ok(())
+                true
             }
-            CircuitMode::HalfOpen => Err(HttpError::new(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "circuit_open",
-                "AI service temporarily unavailable",
-            )
-            .retry_after(self.open_for.as_secs().max(1))),
-        }
+            CircuitMode::HalfOpen => {
+                return Err(HttpError::new(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "circuit_open",
+                    "AI service temporarily unavailable",
+                )
+                .retry_after(self.open_for.as_secs().max(1)))
+            }
+        };
+        Ok(CircuitPermit {
+            breaker: self,
+            generation: state.generation,
+            probe,
+            finished: false,
+        })
     }
 
-    async fn success(&self) {
-        let mut state = self.state.lock().await;
-        state.mode = CircuitMode::Closed;
-        state.failures = 0;
-    }
-
-    async fn failure(&self) {
-        let mut state = self.state.lock().await;
-        state.failures = state.failures.saturating_add(1);
-        if state.mode == CircuitMode::HalfOpen || state.failures >= self.threshold {
-            state.mode = CircuitMode::Open {
-                until: Instant::now() + self.open_for,
-            };
-        }
+    fn open(&self, state: &mut CircuitState) {
+        state.mode = CircuitMode::Open {
+            until: Instant::now() + self.open_for,
+        };
+        state.generation = state.generation.wrapping_add(1);
     }
 
     async fn status(&self) -> &'static str {
-        let state = self.state.lock().await;
+        let state = self.state();
         match state.mode {
             CircuitMode::Closed => "closed",
             CircuitMode::Open { until } if Instant::now() < until => "open",
             CircuitMode::Open { .. } => "recovery_probe_ready",
             CircuitMode::HalfOpen => "half_open",
+        }
+    }
+}
+
+/// Owns exactly one admission. No lock is held across await points.
+/// A cancelled/dropped recovery probe reopens the circuit; completions from
+/// earlier generations cannot undo a newer open or half-open transition.
+#[derive(Debug)]
+struct CircuitPermit<'a> {
+    breaker: &'a CircuitBreaker,
+    generation: u64,
+    probe: bool,
+    finished: bool,
+}
+
+impl CircuitPermit<'_> {
+    fn success(mut self) {
+        self.finished = true;
+        let mut state = self.breaker.state();
+        if state.generation != self.generation {
+            return;
+        }
+        state.mode = CircuitMode::Closed;
+        state.failures = 0;
+        if self.probe {
+            state.generation = state.generation.wrapping_add(1);
+        }
+    }
+
+    fn failure(mut self, counts: bool) {
+        self.finished = true;
+        let mut state = self.breaker.state();
+        if state.generation != self.generation {
+            return;
+        }
+        if counts {
+            state.failures = state.failures.saturating_add(1);
+        }
+        if self.probe || (counts && state.failures >= self.breaker.threshold) {
+            self.breaker.open(&mut state);
+        }
+    }
+}
+
+impl Drop for CircuitPermit<'_> {
+    fn drop(&mut self) {
+        if self.finished || !self.probe {
+            return;
+        }
+        let mut state = self.breaker.state();
+        if state.generation == self.generation && state.mode == CircuitMode::HalfOpen {
+            self.breaker.open(&mut state);
         }
     }
 }
@@ -710,7 +769,7 @@ impl AppState {
         request: GatewayEmbeddingRequest,
     ) -> Result<GatewayEmbeddingResponse, HttpError> {
         validate_embedding_request(&self.config, &request)?;
-        self.embedding_breaker.before_call().await?;
+        let circuit = self.embedding_breaker.before_call()?;
         let characters = request
             .input
             .iter()
@@ -727,7 +786,7 @@ impl AppState {
         let started = Instant::now();
         match forward_embeddings(self, &request).await {
             Ok(response) => {
-                self.embedding_breaker.success().await;
+                circuit.success();
                 tracing::info!(
                     request_id = %context.request_id,
                     school_id = %context.school_id,
@@ -739,9 +798,7 @@ impl AppState {
                 Ok(response)
             }
             Err(failure) => {
-                if failure.counts_toward_circuit() {
-                    self.embedding_breaker.failure().await;
-                }
+                circuit.failure(failure.counts_toward_circuit());
                 tracing::warn!(
                     request_id = %context.request_id,
                     school_id = %context.school_id,
@@ -761,7 +818,7 @@ impl AppState {
         request: GatewayChatRequest,
     ) -> Result<GatewayChatResponse, HttpError> {
         validate_chat_request(&self.config, &request)?;
-        self.llm_breaker.before_call().await?;
+        let circuit = self.llm_breaker.before_call()?;
         let characters = request
             .messages
             .iter()
@@ -778,7 +835,7 @@ impl AppState {
         let started = Instant::now();
         match forward_chat(self, &request).await {
             Ok(response) => {
-                self.llm_breaker.success().await;
+                circuit.success();
                 tracing::info!(
                     request_id = %context.request_id,
                     school_id = %context.school_id,
@@ -790,9 +847,7 @@ impl AppState {
                 Ok(response)
             }
             Err(failure) => {
-                if failure.counts_toward_circuit() {
-                    self.llm_breaker.failure().await;
-                }
+                circuit.failure(failure.counts_toward_circuit());
                 tracing::warn!(
                     request_id = %context.request_id,
                     school_id = %context.school_id,
@@ -867,7 +922,7 @@ impl AppState {
             request.max_tokens,
         )
         .map_err(|_| bad_request("native_pdf_invalid", "Invalid PDF grading request"))?;
-        self.llm_breaker.before_call().await?;
+        let circuit = self.llm_breaker.before_call()?;
         // Count encoded document input against the school quota; a PDF is not
         // free merely because there is no extracted text prompt.
         let charge = request
@@ -886,7 +941,7 @@ impl AppState {
         let started = Instant::now();
         match forward_native_pdf(self, &payload).await {
             Ok(response) => {
-                self.llm_breaker.success().await;
+                circuit.success();
                 tracing::info!(
                     request_id = %context.request_id,
                     school_id = %context.school_id,
@@ -896,9 +951,7 @@ impl AppState {
                 Ok(response)
             }
             Err(failure) => {
-                if failure.counts_toward_circuit() {
-                    self.llm_breaker.failure().await;
-                }
+                circuit.failure(failure.counts_toward_circuit());
                 tracing::warn!(
                     request_id = %context.request_id,
                     school_id = %context.school_id,
@@ -2182,19 +2235,55 @@ mod tests {
     #[tokio::test]
     async fn circuit_allows_one_recovery_probe() {
         let breaker = CircuitBreaker::new(1, Duration::from_millis(5));
-        breaker.failure().await;
+        breaker.before_call().expect("initial").failure(true);
         assert_eq!(
-            breaker.before_call().await.expect_err("open").code,
+            breaker.before_call().expect_err("open").code,
             "circuit_open"
         );
-        tokio::time::sleep(Duration::from_millis(8)).await;
-        breaker.before_call().await.expect("half-open probe");
+        breaker.state().mode = CircuitMode::Open { until: Instant::now() };
+        let probe = breaker.before_call().expect("half-open probe");
         assert_eq!(
-            breaker.before_call().await.expect_err("single probe").code,
+            breaker.before_call().expect_err("single probe").code,
             "circuit_open"
         );
-        breaker.success().await;
-        breaker.before_call().await.expect("closed");
+        probe.success();
+        breaker.before_call().expect("closed").success();
+    }
+
+    #[tokio::test]
+    async fn abandoned_or_noncounting_recovery_probe_reopens_and_can_recover() {
+        let breaker = CircuitBreaker::new(1, Duration::from_secs(30));
+        breaker.before_call().unwrap().failure(true);
+        for rejected in [false, true] {
+            breaker.state().mode = CircuitMode::Open { until: Instant::now() };
+            let probe = breaker.before_call().unwrap();
+            if rejected {
+                probe.failure(false);
+            } else {
+                // Includes quota/admission early return and cancelled future.
+                drop(probe);
+            }
+            assert_eq!(breaker.status().await, "open");
+        }
+        breaker.state().mode = CircuitMode::Open { until: Instant::now() };
+        breaker.before_call().unwrap().success();
+        assert_eq!(breaker.status().await, "closed");
+    }
+
+    #[tokio::test]
+    async fn stale_concurrent_completion_cannot_reset_newer_circuit_generation() {
+        let breaker = CircuitBreaker::new(1, Duration::from_secs(30));
+        let stale_success = breaker.before_call().unwrap();
+        let stale_failure = breaker.before_call().unwrap();
+        breaker.before_call().unwrap().failure(true);
+        stale_success.success();
+        assert_eq!(breaker.status().await, "open");
+        breaker.state().mode = CircuitMode::Open { until: Instant::now() };
+        let probe = breaker.before_call().unwrap();
+        stale_failure.failure(true);
+        assert_eq!(breaker.status().await, "half_open");
+        probe.success();
+        assert_eq!(breaker.status().await, "closed");
     }
 
     #[test]
