@@ -39,11 +39,28 @@ fn restore_active_element(return_focus_id: Signal<Option<String>>) {
     }
 }
 
-fn trap_tab(event: &KeyboardEvent, root_id: &str) {
-    if event.key() != Key::Tab {
-        return;
+/// A browser can deliver a generic keydown Event without a string `key`.
+/// Dioxus 0.7's unchecked WebEvent conversion would otherwise call the
+/// wasm-bindgen string getter and trap before any application handler runs.
+pub(crate) fn safe_keyboard_key(event: &KeyboardEvent) -> Option<Key> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let data = event.data();
+        let raw = data.downcast::<web_sys::KeyboardEvent>()?;
+        js_sys::Reflect::get(raw.as_ref(), &wasm_bindgen::JsValue::from_str("key"))
+            .ok()?
+            .as_string()?
+            .parse()
+            .ok()
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        Some(event.key())
+    }
+}
+
+fn trap_tab(event: &KeyboardEvent, root_id: &str) {
     let Some(document) = web_sys::window().and_then(|window| window.document()) else {
         return;
     };
@@ -145,10 +162,13 @@ pub fn Dialog(
                 class: "et-ui-layer",
                 role: "presentation",
                 onkeydown: move |event| {
-                    if event.key() == Key::Escape && !busy {
+                    let Some(key) = safe_keyboard_key(&event) else {
+                        return;
+                    };
+                    if key == Key::Escape && !busy {
                         event.stop_propagation();
                         on_close.call(());
-                    } else if event.key() == Key::Tab {
+                    } else if key == Key::Tab {
                         trap_tab(&event, &dialog_focus_root);
                     }
                 },
@@ -210,11 +230,14 @@ pub fn Drawer(
             div {
                 class: "et-ui-layer et-ui-layer--drawer",
                 onkeydown: move |event| {
-                    if event.key() == Key::Escape {
+                    let Some(key) = safe_keyboard_key(&event) else {
+                        return;
+                    };
+                    if key == Key::Escape {
                         event.stop_propagation();
                         on_close.call(());
                         restore_active_element(return_focus_id);
-                    } else if event.key() == Key::Tab {
+                    } else if key == Key::Tab {
                         trap_tab(&event, &drawer_focus_root);
                     }
                 },
@@ -280,7 +303,7 @@ pub fn Popover(
                     let _ = element.data().set_focus(true).await;
                 },
                 onkeydown: move |event| {
-                    if event.key() == Key::Escape {
+                    if safe_keyboard_key(&event) == Some(Key::Escape) {
                         event.stop_propagation();
                         on_close.call(());
                         restore_active_element(return_focus_id);
