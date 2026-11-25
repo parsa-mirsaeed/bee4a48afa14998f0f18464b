@@ -1,8 +1,8 @@
 use super::{
     AssignmentPersonalizationJobRepository, AssignmentPersonalizationPolicyRepository,
     AuthorizedAssignmentRepository, AuthorizedTeacher, ClaimedAssignmentPersonalizationJob,
-    PersonalizationFailureDisposition, PersonalizationFailureKind,
-    DELIVERY_ALLOW_ORIGINAL_FALLBACK, DELIVERY_REQUIRE_PERSONALIZED,
+    PersonalizationExecutionDiagnostics, PersonalizationFailureDisposition,
+    PersonalizationFailureKind, DELIVERY_ALLOW_ORIGINAL_FALLBACK, DELIVERY_REQUIRE_PERSONALIZED,
 };
 use crate::models::CreateAssignmentRequest;
 use crate::rls_context::{AuthorizedActor, AuthorizedPool, AuthorizedTx};
