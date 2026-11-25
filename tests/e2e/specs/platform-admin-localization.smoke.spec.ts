@@ -21,6 +21,20 @@ function runFixtureSql(sql: string): string {
   ).trim();
 }
 
+// Synthetic fixture setup/cleanup uses the same transaction-scoped actor
+// contract enforced by the production teacher override trigger. Never disable it.
+function runAdminFixtureMutation(sql: string): void {
+  runFixtureSql(`
+    BEGIN;
+    SELECT set_config('app.user_id', 'b0000000-0000-0000-0000-0000000000a0', true),
+           set_config('app.user_role', 'PlatformAdmin', true),
+           set_config('app.school_id', '${SCHOOL_A_ID}', true),
+           set_config('app.elevated_operation', 'false', true);
+    ${sql};
+    COMMIT;
+  `);
+}
+
 function resetVectorizationFixture(): void {
   runFixtureSql(`
     BEGIN;
@@ -481,6 +495,97 @@ for (const scenario of [
     if (scenario.locale === 'fa') {
       await expect(body).not.toContainText('Knowledge audit trail');
       await expect(table).not.toContainText('View details');
+    }
+  });
+}
+
+for (const locale of ['en', 'fa'] as const) {
+  test(`saved non-default personalization profile is selected after reload in ${locale} @smoke @platform-admin @personalization @i18n`, async ({ page }) => {
+    const original = runFixtureSql(`SELECT llm_profile_id FROM assignment_personalization_school_policies WHERE school_id = '${SCHOOL_A_ID}'`);
+    expect(original).toMatch(/^(deepseek-chat-v1|deepseek-v41-flash-v1|custom-v1:[A-Za-z0-9][A-Za-z0-9._:/-]{0,95})$/);
+    try {
+      for (const profile of ['deepseek-v41-flash-v1', 'custom-v1:gpt-6-luna']) {
+        runFixtureSql(`UPDATE assignment_personalization_school_policies SET llm_profile_id = '${profile}', policy_version = policy_version + 1 WHERE school_id = '${SCHOOL_A_ID}'`);
+        await openAdminRoute(page, locale, '/dashboard/personalization');
+        const card = page.locator('article').filter({ has: page.getByText('E2E School A', { exact: true }) });
+        const profileSelect = card.locator('select').first();
+        await expect(card.getByTestId('saved-school-profile')).toContainText(profile);
+        await expect(profileSelect).toHaveValue(profile);
+        await expect(profileSelect.locator('option:checked')).toHaveAttribute('value', profile);
+        await page.reload();
+        await expect(profileSelect).toHaveValue(profile);
+        // Opening the view must not silently rewrite a saved custom profile.
+        expect(runFixtureSql(`SELECT llm_profile_id FROM assignment_personalization_school_policies WHERE school_id = '${SCHOOL_A_ID}'`)).toBe(profile);
+      }
+      const card = page.locator('article').filter({ has: page.getByText('E2E School A', { exact: true }) });
+      await card.locator('select').first().selectOption('deepseek-chat-v1');
+      const save = locale === 'fa' ? 'ذخیره سیاست' : 'Save policy';
+      await card.getByRole('button', { name: save, exact: true }).click();
+      await expect(card.getByTestId('saved-school-profile')).toContainText('deepseek-chat-v1');
+      await expect.poll(() => runFixtureSql(`SELECT llm_profile_id FROM assignment_personalization_school_policies WHERE school_id = '${SCHOOL_A_ID}'`)).toBe('deepseek-chat-v1');
+      await page.reload();
+      await expect(card.locator('select').first()).toHaveValue('deepseek-chat-v1');
+    } finally {
+      runFixtureSql(`UPDATE assignment_personalization_school_policies SET llm_profile_id = '${original}', policy_version = policy_version + 1 WHERE school_id = '${SCHOOL_A_ID}'`);
+    }
+  });
+
+  test(`teacher override retains saved and effective AI profile in ${locale} @smoke @platform-admin @personalization @i18n`, async ({ page }) => {
+    const teacherId = 'c0000000-0000-0000-0000-0000000000a2';
+    const table = 'public.assignment_personalization_teacher_overrides';
+    const original = runFixtureSql(`SELECT to_jsonb(o)::text FROM ${table} o WHERE teacher_id = '${teacherId}'`);
+    const savedProfile = 'custom-v1:gpt-6-luna';
+    const manage = locale === 'fa' ? 'مدیریت استثناهای معلم' : 'Manage teacher overrides';
+    const save = locale === 'fa' ? 'ذخیره سیاست' : 'Save policy';
+    try {
+      runAdminFixtureMutation(`
+        INSERT INTO ${table} AS current_override (teacher_id, school_id, mode, llm_profile_id_override)
+        VALUES ('${teacherId}', '${SCHOOL_A_ID}', 'override', '${savedProfile}')
+        ON CONFLICT (teacher_id) DO UPDATE
+          SET mode = 'override', llm_profile_id_override = EXCLUDED.llm_profile_id_override,
+              override_version = current_override.override_version + 1
+      `);
+      await openAdminRoute(page, locale, '/dashboard/personalization');
+      const schoolCard = page.locator('article').filter({ has: page.getByText('E2E School A', { exact: true }) });
+      const teacherCard = page.locator('article').filter({ has: page.getByText('E2E Teacher A', { exact: true }) });
+      await schoolCard.getByRole('button', { name: manage, exact: true }).click();
+      const mode = teacherCard.locator('select').nth(0);
+      const profile = teacherCard.locator('select').nth(1);
+      await expect(mode).toHaveValue('override');
+      await expect(profile).toHaveValue(savedProfile);
+      await expect(teacherCard.getByTestId('effective-teacher-policy')).toContainText(savedProfile);
+      await page.reload();
+      await schoolCard.getByRole('button', { name: manage, exact: true }).click();
+      await expect(profile).toHaveValue(savedProfile);
+      expect(runFixtureSql(`SELECT llm_profile_id_override FROM ${table} WHERE teacher_id = '${teacherId}'`)).toBe(savedProfile);
+
+      await profile.selectOption('deepseek-chat-v1');
+      // A draft selection must not change the persisted/effective label before save.
+      await expect(teacherCard.getByTestId('effective-teacher-policy')).toContainText(savedProfile);
+      await teacherCard.getByRole('button', { name: save, exact: true }).click();
+      await expect.poll(() => runFixtureSql(`SELECT llm_profile_id_override FROM ${table} WHERE teacher_id = '${teacherId}'`)).toBe('deepseek-chat-v1');
+      await expect(teacherCard.getByTestId('effective-teacher-policy')).toContainText('deepseek-chat-v1');
+      await page.reload();
+      await schoolCard.getByRole('button', { name: manage, exact: true }).click();
+      await expect(profile).toHaveValue('deepseek-chat-v1');
+      await expect(teacherCard.getByTestId('effective-teacher-policy')).toContainText('deepseek-chat-v1');
+    } finally {
+      // Only the synthetic fixture is restored; normal saves above use the application.
+      if (original) {
+        const escaped = original.replaceAll("'", "''");
+        runAdminFixtureMutation(`
+          UPDATE ${table} o
+          SET mode = prior.mode, enabled_override = prior.enabled_override,
+              paused_override = prior.paused_override,
+              llm_profile_id_override = prior.llm_profile_id_override,
+              delivery_policy_override = prior.delivery_policy_override,
+              updated_by = prior.updated_by, override_version = o.override_version + 1
+          FROM jsonb_populate_record(NULL::${table}, '${escaped}'::jsonb) prior
+          WHERE o.teacher_id = '${teacherId}'
+        `);
+      } else {
+        runAdminFixtureMutation(`DELETE FROM ${table} WHERE teacher_id = '${teacherId}'`);
+      }
     }
   });
 }

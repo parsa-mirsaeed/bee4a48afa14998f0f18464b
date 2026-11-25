@@ -48,7 +48,7 @@ pub fn Sidebar(
             class: "{sidebar_class}",
             "aria-label": locale.t("navigation.primary"),
             onkeydown: move |event| {
-                if mobile_open && event.key() == Key::Escape {
+                if mobile_open && crate::ui::layers::safe_keyboard_key(&event) == Some(Key::Escape) {
                     event.stop_propagation();
                     on_close_mobile.call(());
                 }

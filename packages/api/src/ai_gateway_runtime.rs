@@ -457,13 +457,14 @@ enum CircuitMode {
 struct CircuitState {
     mode: CircuitMode,
     failures: u32,
+    generation: u64,
 }
 
 #[derive(Debug)]
 struct CircuitBreaker {
     threshold: u32,
     open_for: Duration,
-    state: Mutex<CircuitState>,
+    state: std::sync::Mutex<CircuitState>,
 }
 
 impl CircuitBreaker {
@@ -471,60 +472,120 @@ impl CircuitBreaker {
         Self {
             threshold: threshold.max(1),
             open_for,
-            state: Mutex::new(CircuitState {
+            state: std::sync::Mutex::new(CircuitState {
                 mode: CircuitMode::Closed,
                 failures: 0,
+                generation: 0,
             }),
         }
     }
 
-    async fn before_call(&self) -> Result<(), HttpError> {
+    fn state(&self) -> std::sync::MutexGuard<'_, CircuitState> {
+        self.state
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+    }
+
+    fn before_call(&self) -> Result<CircuitPermit<'_>, HttpError> {
         let now = Instant::now();
-        let mut state = self.state.lock().await;
-        match state.mode {
-            CircuitMode::Closed => Ok(()),
-            CircuitMode::Open { until } if now < until => Err(HttpError::new(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "circuit_open",
-                "AI service temporarily unavailable",
-            )
-            .retry_after(until.duration_since(now).as_secs().max(1))),
+        let mut state = self.state();
+        let probe = match state.mode {
+            CircuitMode::Closed => false,
+            CircuitMode::Open { until } if now < until => {
+                return Err(HttpError::new(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "circuit_open",
+                    "AI service temporarily unavailable",
+                )
+                .retry_after(until.duration_since(now).as_secs().saturating_add(1)))
+            }
             CircuitMode::Open { .. } => {
                 state.mode = CircuitMode::HalfOpen;
-                Ok(())
+                true
             }
-            CircuitMode::HalfOpen => Err(HttpError::new(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "circuit_open",
-                "AI service temporarily unavailable",
-            )
-            .retry_after(self.open_for.as_secs().max(1))),
-        }
+            CircuitMode::HalfOpen => {
+                return Err(HttpError::new(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "circuit_open",
+                    "AI service temporarily unavailable",
+                )
+                .retry_after(self.open_for.as_secs().max(1)))
+            }
+        };
+        Ok(CircuitPermit {
+            breaker: self,
+            generation: state.generation,
+            probe,
+            finished: false,
+        })
     }
 
-    async fn success(&self) {
-        let mut state = self.state.lock().await;
-        state.mode = CircuitMode::Closed;
-        state.failures = 0;
-    }
-
-    async fn failure(&self) {
-        let mut state = self.state.lock().await;
-        state.failures = state.failures.saturating_add(1);
-        if state.mode == CircuitMode::HalfOpen || state.failures >= self.threshold {
-            state.mode = CircuitMode::Open {
-                until: Instant::now() + self.open_for,
-            };
-        }
+    fn open(&self, state: &mut CircuitState) {
+        state.mode = CircuitMode::Open {
+            until: Instant::now() + self.open_for,
+        };
+        state.generation = state.generation.wrapping_add(1);
     }
 
     async fn status(&self) -> &'static str {
-        let state = self.state.lock().await;
+        let state = self.state();
         match state.mode {
             CircuitMode::Closed => "closed",
             CircuitMode::Open { until } if Instant::now() < until => "open",
             CircuitMode::Open { .. } => "recovery_probe_ready",
             CircuitMode::HalfOpen => "half_open",
+        }
+    }
+}
+
+/// Owns exactly one admission. No lock is held across await points.
+/// A cancelled/dropped recovery probe reopens the circuit; completions from
+/// earlier generations cannot undo a newer open or half-open transition.
+#[derive(Debug)]
+struct CircuitPermit<'a> {
+    breaker: &'a CircuitBreaker,
+    generation: u64,
+    probe: bool,
+    finished: bool,
+}
+
+impl CircuitPermit<'_> {
+    fn success(mut self) {
+        self.finished = true;
+        let mut state = self.breaker.state();
+        if state.generation != self.generation {
+            return;
+        }
+        state.mode = CircuitMode::Closed;
+        state.failures = 0;
+        if self.probe {
+            state.generation = state.generation.wrapping_add(1);
+        }
+    }
+
+    fn failure(mut self, counts: bool) {
+        self.finished = true;
+        let mut state = self.breaker.state();
+        if state.generation != self.generation {
+            return;
+        }
+        if counts {
+            state.failures = state.failures.saturating_add(1);
+        }
+        if self.probe || (counts && state.failures >= self.breaker.threshold) {
+            self.breaker.open(&mut state);
+        }
+    }
+}
+
+impl Drop for CircuitPermit<'_> {
+    fn drop(&mut self) {
+        if self.finished || !self.probe {
+            return;
+        }
+        let mut state = self.breaker.state();
+        if state.generation == self.generation && state.mode == CircuitMode::HalfOpen {
+            self.breaker.open(&mut state);
         }
     }
 }
@@ -710,7 +771,7 @@ impl AppState {
         request: GatewayEmbeddingRequest,
     ) -> Result<GatewayEmbeddingResponse, HttpError> {
         validate_embedding_request(&self.config, &request)?;
-        self.embedding_breaker.before_call().await?;
+        let circuit = self.embedding_breaker.before_call()?;
         let characters = request
             .input
             .iter()
@@ -727,7 +788,7 @@ impl AppState {
         let started = Instant::now();
         match forward_embeddings(self, &request).await {
             Ok(response) => {
-                self.embedding_breaker.success().await;
+                circuit.success();
                 tracing::info!(
                     request_id = %context.request_id,
                     school_id = %context.school_id,
@@ -739,9 +800,7 @@ impl AppState {
                 Ok(response)
             }
             Err(failure) => {
-                if failure.counts_toward_circuit() {
-                    self.embedding_breaker.failure().await;
-                }
+                circuit.failure(failure.counts_toward_circuit());
                 tracing::warn!(
                     request_id = %context.request_id,
                     school_id = %context.school_id,
@@ -761,7 +820,7 @@ impl AppState {
         request: GatewayChatRequest,
     ) -> Result<GatewayChatResponse, HttpError> {
         validate_chat_request(&self.config, &request)?;
-        self.llm_breaker.before_call().await?;
+        let circuit = self.llm_breaker.before_call()?;
         let characters = request
             .messages
             .iter()
@@ -778,7 +837,7 @@ impl AppState {
         let started = Instant::now();
         match forward_chat(self, &request).await {
             Ok(response) => {
-                self.llm_breaker.success().await;
+                circuit.success();
                 tracing::info!(
                     request_id = %context.request_id,
                     school_id = %context.school_id,
@@ -790,9 +849,7 @@ impl AppState {
                 Ok(response)
             }
             Err(failure) => {
-                if failure.counts_toward_circuit() {
-                    self.llm_breaker.failure().await;
-                }
+                circuit.failure(failure.counts_toward_circuit());
                 tracing::warn!(
                     request_id = %context.request_id,
                     school_id = %context.school_id,
@@ -867,7 +924,7 @@ impl AppState {
             request.max_tokens,
         )
         .map_err(|_| bad_request("native_pdf_invalid", "Invalid PDF grading request"))?;
-        self.llm_breaker.before_call().await?;
+        let circuit = self.llm_breaker.before_call()?;
         // Count encoded document input against the school quota; a PDF is not
         // free merely because there is no extracted text prompt.
         let charge = request
@@ -886,7 +943,7 @@ impl AppState {
         let started = Instant::now();
         match forward_native_pdf(self, &payload).await {
             Ok(response) => {
-                self.llm_breaker.success().await;
+                circuit.success();
                 tracing::info!(
                     request_id = %context.request_id,
                     school_id = %context.school_id,
@@ -896,9 +953,7 @@ impl AppState {
                 Ok(response)
             }
             Err(failure) => {
-                if failure.counts_toward_circuit() {
-                    self.llm_breaker.failure().await;
-                }
+                circuit.failure(failure.counts_toward_circuit());
                 tracing::warn!(
                     request_id = %context.request_id,
                     school_id = %context.school_id,
@@ -1454,8 +1509,9 @@ async fn forward_native_pdf(
         ));
     }
     let body = bounded_body(response, state.config.max_provider_response_bytes).await?;
-    let parsed: GatewayChatResponse =
+    let mut parsed: GatewayChatResponse =
         serde_json::from_slice(&body).map_err(|_| ProviderFailure::InvalidResponse)?;
+    normalize_known_gapgpt_model(&state.config.llm_profile, provider, &mut parsed);
     validate_chat_response(provider, &parsed)?;
     Ok(parsed)
 }
@@ -1519,10 +1575,9 @@ fn validate_embedding_response(
     Ok(())
 }
 
-/// GapGPT's verified DeepSeek v4.1 Flash endpoint accepts the unprefixed
-/// request model, but identifies that exact model with a vendor namespace in
-/// its response. Normalize only this known fixed-profile response alias. All
-/// other profiles, origins, requested models, and reported IDs stay strict.
+/// Normalize only independently observed GapGPT response aliases for exact
+/// profile, HTTPS origin and requested model combinations. All other model
+/// IDs (including unverified snapshot dates) stay strict.
 fn normalize_known_gapgpt_model(
     profile: &LlmProfile,
     provider: &Provider,
@@ -1532,6 +1587,14 @@ fn normalize_known_gapgpt_model(
         && provider.base_url.as_str() == GAPGPT_LLM_BASE_URL
         && provider.model == DEEPSEEK_V41_FLASH_V1.model.as_ref()
         && response.model == "deepseek/deepseek-v4.1-flash"
+    {
+        response.model = provider.model.clone();
+    } else if profile.id == "custom-v1:gpt-6-luna"
+        && profile.provider == LlmProviderKind::Custom
+        && profile.model == "gpt-6-luna"
+        && provider.base_url.as_str() == "https://api.gapgpt.ir/v1/"
+        && provider.model == "gpt-6-luna"
+        && response.model == "gpt-6-luna-2026-09-22"
     {
         response.model = provider.model.clone();
     }
@@ -2098,6 +2161,64 @@ mod tests {
     }
 
     #[test]
+    fn gateway_accepts_only_the_observed_gapgpt_luna_snapshot_alias() {
+        let profile = resolve_llm_profile("custom-v1:gpt-6-luna").unwrap();
+        let provider = Provider {
+            base_url: Url::parse("https://api.gapgpt.ir/v1/").unwrap(),
+            api_key: None,
+            model: "gpt-6-luna".to_string(),
+        };
+        let response = |model: &str| GatewayChatResponse {
+            model: model.to_string(),
+            choices: vec![GatewayChatChoice {
+                index: 0,
+                message: GatewayChatMessage {
+                    role: "assistant".to_string(),
+                    content: "{\"status\":\"ok\"}".to_string(),
+                },
+                finish_reason: Some("stop".to_string()),
+            }],
+            usage: None,
+        };
+        for model in ["gpt-6-luna", "gpt-6-luna-2026-09-22"] {
+            let mut result = response(model);
+            normalize_known_gapgpt_model(&profile, &provider, &mut result);
+            assert_eq!(result.model, provider.model);
+            assert!(validate_chat_response(&provider, &result).is_ok());
+        }
+        for model in [
+            "gpt-6-luna-2026-09-23",
+            "gpt-6-luna-2026-09-22-extra",
+            "vendor/gpt-6-luna-2026-09-22",
+            "gpt-6",
+        ] {
+            let mut result = response(model);
+            normalize_known_gapgpt_model(&profile, &provider, &mut result);
+            assert!(validate_chat_response(&provider, &result).is_err());
+        }
+        let mut other_origin = provider.clone();
+        other_origin.base_url = Url::parse("https://api.gapgpt.app/v1/").unwrap();
+        let mut wrong_origin = response("gpt-6-luna-2026-09-22");
+        normalize_known_gapgpt_model(&profile, &other_origin, &mut wrong_origin);
+        assert!(validate_chat_response(&other_origin, &wrong_origin).is_err());
+
+        let mut wrong_profile = response("gpt-6-luna-2026-09-22");
+        normalize_known_gapgpt_model(&DEEPSEEK_CHAT_V1, &provider, &mut wrong_profile);
+        assert!(validate_chat_response(&provider, &wrong_profile).is_err());
+
+        let mut wrong_model = provider.clone();
+        wrong_model.model = "another-model".to_string();
+        let mut wrong_response = response("gpt-6-luna-2026-09-22");
+        normalize_known_gapgpt_model(&profile, &wrong_model, &mut wrong_response);
+        assert!(validate_chat_response(&wrong_model, &wrong_response).is_err());
+
+        let mut empty = response("gpt-6-luna-2026-09-22");
+        empty.choices[0].message.content.clear();
+        normalize_known_gapgpt_model(&profile, &provider, &mut empty);
+        assert!(validate_chat_response(&provider, &empty).is_err());
+    }
+
+    #[test]
     fn gateway_rejects_loose_provider_model_names() {
         let provider = Provider {
             base_url: Url::parse(GAPGPT_LLM_BASE_URL).expect("URL"),
@@ -2182,19 +2303,171 @@ mod tests {
     #[tokio::test]
     async fn circuit_allows_one_recovery_probe() {
         let breaker = CircuitBreaker::new(1, Duration::from_millis(5));
-        breaker.failure().await;
+        breaker.before_call().expect("initial").failure(true);
         assert_eq!(
-            breaker.before_call().await.expect_err("open").code,
+            breaker.before_call().expect_err("open").code,
             "circuit_open"
         );
-        tokio::time::sleep(Duration::from_millis(8)).await;
-        breaker.before_call().await.expect("half-open probe");
+        breaker.state().mode = CircuitMode::Open {
+            until: Instant::now(),
+        };
+        let probe = breaker.before_call().expect("half-open probe");
         assert_eq!(
-            breaker.before_call().await.expect_err("single probe").code,
+            breaker.before_call().expect_err("single probe").code,
             "circuit_open"
         );
-        breaker.success().await;
-        breaker.before_call().await.expect("closed");
+        probe.success();
+        breaker.before_call().expect("closed").success();
+    }
+
+    #[tokio::test]
+    async fn abandoned_or_noncounting_recovery_probe_reopens_and_can_recover() {
+        let breaker = CircuitBreaker::new(1, Duration::from_secs(30));
+        breaker.before_call().unwrap().failure(true);
+        for rejected in [false, true] {
+            breaker.state().mode = CircuitMode::Open {
+                until: Instant::now(),
+            };
+            let probe = breaker.before_call().unwrap();
+            if rejected {
+                probe.failure(false);
+            } else {
+                // Includes quota/admission early return and cancelled future.
+                drop(probe);
+            }
+            assert_eq!(breaker.status().await, "open");
+        }
+        breaker.state().mode = CircuitMode::Open {
+            until: Instant::now(),
+        };
+        breaker.before_call().unwrap().success();
+        assert_eq!(breaker.status().await, "closed");
+    }
+
+    #[tokio::test]
+    async fn stale_concurrent_completion_cannot_reset_newer_circuit_generation() {
+        let breaker = CircuitBreaker::new(1, Duration::from_secs(30));
+        let stale_success = breaker.before_call().unwrap();
+        let stale_failure = breaker.before_call().unwrap();
+        breaker.before_call().unwrap().failure(true);
+        stale_success.success();
+        assert_eq!(breaker.status().await, "open");
+        breaker.state().mode = CircuitMode::Open {
+            until: Instant::now(),
+        };
+        let probe = breaker.before_call().unwrap();
+        stale_failure.failure(true);
+        assert_eq!(breaker.status().await, "half_open");
+        probe.success();
+        assert_eq!(breaker.status().await, "closed");
+    }
+
+    fn arm_recovery(breaker: &CircuitBreaker) {
+        breaker.before_call().unwrap().failure(true);
+        breaker.state().mode = CircuitMode::Open {
+            until: Instant::now(),
+        };
+    }
+
+    fn expire_reopened_circuit(breaker: &CircuitBreaker) {
+        assert!(matches!(breaker.state().mode, CircuitMode::Open { .. }));
+        breaker.state().mode = CircuitMode::Open {
+            until: Instant::now(),
+        };
+    }
+
+    fn assert_cancelled_admission_reopens<T>(
+        breaker: &CircuitBreaker,
+        request: impl std::future::Future<Output = Result<T, HttpError>>,
+    ) {
+        let mut request = Box::pin(request);
+        let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
+        assert!(std::future::Future::poll(request.as_mut(), &mut cx).is_pending());
+        assert!(matches!(breaker.state().mode, CircuitMode::HalfOpen));
+        assert_eq!(
+            breaker.before_call().expect_err("single probe").code,
+            "circuit_open"
+        );
+        drop(request);
+        expire_reopened_circuit(breaker);
+        breaker.before_call().expect("next probe").success();
+        assert!(matches!(breaker.state().mode, CircuitMode::Closed));
+    }
+
+    #[tokio::test]
+    async fn real_gateway_admission_refusal_and_cancellation_reopen_recovery() {
+        let mut config = Config::test(Url::parse("http://127.0.0.1:9/v1/").unwrap());
+        config.circuit_open_for = Duration::from_secs(30);
+        config.embedding_quota.requests_per_hour = 1;
+        config.llm_quota.requests_per_hour = 1;
+        let state = AppState::new(config).unwrap();
+
+        let exhausted = context();
+        state
+            .embedding_quota
+            .consume(exhausted.school_id, 1)
+            .await
+            .unwrap();
+        arm_recovery(&state.embedding_breaker);
+        assert_eq!(
+            state
+                .embed(&exhausted, embedding_request())
+                .await
+                .expect_err("quota")
+                .code,
+            "quota_exceeded"
+        );
+        expire_reopened_circuit(&state.embedding_breaker);
+        let _embedding_slots = state.embedding_slots.acquire_many(2).await.unwrap();
+        let fresh = context();
+        assert_cancelled_admission_reopens(
+            &state.embedding_breaker,
+            state.embed(&fresh, embedding_request()),
+        );
+
+        state
+            .llm_quota
+            .consume(exhausted.school_id, 1)
+            .await
+            .unwrap();
+        arm_recovery(&state.llm_breaker);
+        assert_eq!(
+            state
+                .chat(&exhausted, chat_request())
+                .await
+                .expect_err("quota")
+                .code,
+            "quota_exceeded"
+        );
+        expire_reopened_circuit(&state.llm_breaker);
+        let _chat_slot = state.llm_slots.acquire().await.unwrap();
+        assert_cancelled_admission_reopens(&state.llm_breaker, state.chat(&fresh, chat_request()));
+
+        let mut config = pdf_test_config(Url::parse("http://127.0.0.1:9/v1/").unwrap());
+        config.native_pdf_enabled = true;
+        config.circuit_open_for = Duration::from_secs(30);
+        config.llm_quota.requests_per_hour = 1;
+        let state = AppState::new(config).unwrap();
+        state
+            .llm_quota
+            .consume(exhausted.school_id, 1)
+            .await
+            .unwrap();
+        arm_recovery(&state.llm_breaker);
+        assert_eq!(
+            state
+                .native_pdf(&exhausted, pdf_request(&synthetic_pdf()))
+                .await
+                .expect_err("quota")
+                .code,
+            "quota_exceeded"
+        );
+        expire_reopened_circuit(&state.llm_breaker);
+        let _pdf_slot = state.llm_slots.acquire().await.unwrap();
+        assert_cancelled_admission_reopens(
+            &state.llm_breaker,
+            state.native_pdf(&fresh, pdf_request(&synthetic_pdf())),
+        );
     }
 
     #[test]
