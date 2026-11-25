@@ -502,6 +502,7 @@ for (const scenario of [
 for (const locale of ['en', 'fa'] as const) {
   test(`admin distinguishes recorded gateway and upstream failures in ${locale} @smoke @platform-admin @personalization @i18n`, async ({ page }) => {
     const requestId = locale === 'en' ? 'd1000000-0000-0000-0000-000000000001' : 'd1000000-0000-0000-0000-000000000002';
+    const timeoutId = locale === 'en' ? 'd1000000-0000-0000-0000-000000000004' : 'd1000000-0000-0000-0000-000000000005';
     try {
       runFixtureSql(`
         INSERT INTO assignment_personalization_gateway_failures (
@@ -513,27 +514,38 @@ for (const locale of ['en', 'fa'] as const) {
                'provider', 'invalid_provider_response', 502, 26327, 'responded', 'model_mismatch', 1, 200
         FROM assignment_personalization_jobs j JOIN assignments a ON a.id = j.assignment_id
         WHERE a.title = 'E2E Personalization Unavailable' AND j.school_id = '${SCHOOL_A_ID}'
-        ORDER BY j.id LIMIT 1
+        ORDER BY j.id LIMIT 1;
+        INSERT INTO assignment_personalization_gateway_failures (
+          request_id, job_id, lease_owner, execution_generation, attempt_number, stage,
+          diagnostic_code, gateway_http_status, gateway_elapsed_ms, provider_dispatch_state
+        )
+        SELECT '${timeoutId}', job_id, 'd1000000-0000-0000-0000-000000000006', execution_generation, 2,
+               'ai_gateway', 'gateway_transport_timeout', NULL, 400, 'unknown'
+        FROM assignment_personalization_gateway_failures WHERE request_id = '${requestId}'
       `);
       await openAdminRoute(page, locale, '/dashboard/personalization');
       const card = page.locator('article').filter({ has: page.getByText('E2E Personalization Unavailable', { exact: true }) });
       const history = card.locator('details').filter({ has: page.locator('summary').filter({ hasText: /Gateway failure history|تاریخچه خطاهای دروازه/ }) });
       await expect(history).toBeVisible();
       await history.locator('summary').click();
-      await expect(history).toContainText(requestId);
-      await expect(history).toContainText('model_mismatch');
-      await expect(history).toContainText(/Internal gateway HTTP status|وضعیت HTTP دروازه داخلی/);
-      await expect(history).toContainText(/Observed upstream HTTP status|وضعیت HTTP مشاهده‌شده ارائه‌دهنده/);
-      await expect(history).toContainText('502');
-      await expect(history).toContainText('200');
+      const observed = history.getByTestId('gateway-failure-record').filter({ hasText: requestId });
+      const unknown = history.getByTestId('gateway-failure-record').filter({ hasText: timeoutId });
+      await expect(observed).toContainText('model_mismatch');
+      await expect(observed).toContainText(/Internal gateway HTTP status|وضعیت HTTP دروازه داخلی/);
+      await expect(observed).toContainText(/Observed upstream HTTP status|وضعیت HTTP مشاهده‌شده ارائه‌دهنده/);
+      await expect(observed).toContainText('502');
+      await expect(observed).toContainText('200');
+      await expect(unknown).toContainText('gateway_transport_timeout');
+      await expect(unknown.locator('dt').filter({ hasText: /Internal gateway HTTP status|وضعیت HTTP دروازه داخلی/ }).locator('..').locator('dd')).toHaveText(/^(Unknown|نامشخص)$/);
+      await expect(unknown).toContainText(/Unknown|نامشخص/);
       await expect(history).toContainText(/Assignment personalization chat|گفت‌وگوی شخصی‌سازی تکلیف/);
       await expect(page.getByText(/Last validated provider response|آخرین پاسخ معتبر ارائه‌دهنده/)).toBeVisible();
       await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
-      await history.getByRole('button', { name: /Copy request reference|کپی شناسه پیگیری درخواست/ }).click();
-      await expect(history.getByRole('status')).toHaveText(/Request reference copied|شناسه پیگیری درخواست کپی شد/);
+      await observed.getByRole('button', { name: /Copy request reference|کپی شناسه پیگیری درخواست/ }).click();
+      await expect(observed.getByRole('status')).toHaveText(/Request reference copied|شناسه پیگیری درخواست کپی شد/);
       expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(requestId);
     } finally {
-      runFixtureSql(`DELETE FROM assignment_personalization_gateway_failures WHERE request_id = '${requestId}'`);
+      runFixtureSql(`DELETE FROM assignment_personalization_gateway_failures WHERE request_id IN ('${requestId}', '${timeoutId}')`);
     }
   });
 }

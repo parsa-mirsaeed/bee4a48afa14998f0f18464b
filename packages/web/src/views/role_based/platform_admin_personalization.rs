@@ -1083,7 +1083,7 @@ fn PersonalizationJobCard(
                         {t("platform_admin.personalization.gateway_history_hint", locale)}
                     }
                     for failure in job.gateway_failures.iter() {
-                        div { key: "{failure.request_id}", class: "mt-3 border-t border-gray-200 pt-3 dark:border-gray-700",
+                        div { key: "{failure.request_id}", "data-testid": "gateway-failure-record", class: "mt-3 border-t border-gray-200 pt-3 dark:border-gray-700",
                             p { class: "font-medium", "{failure_label(Some(&failure.diagnostic_code), locale)}" }
                             dl { class: "mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2",
                                 CompactField { label: t("platform_admin.personalization.diagnostic_code", locale), value: failure.diagnostic_code.clone() }
