@@ -192,9 +192,18 @@ impl ProviderFailureEvidence {
                         (100..=599).contains(&status) && !(200..=299).contains(&status)
                     })
             }
-            (D::Responded, R::ResponseSize | R::BodyRead | R::MalformedJson | R::ModelMismatch | R::InvalidChoice) => {
+            (
+                D::Responded,
+                R::ResponseSize
+                | R::BodyRead
+                | R::MalformedJson
+                | R::ModelMismatch
+                | R::InvalidChoice,
+            ) => {
                 (1..=4).contains(&self.transport_attempts)
-                    && self.upstream_http_status.is_some_and(|status| (200..=299).contains(&status))
+                    && self
+                        .upstream_http_status
+                        .is_some_and(|status| (200..=299).contains(&status))
             }
             _ => false,
         }
@@ -206,7 +215,9 @@ impl ProviderFailureEvidence {
         if value.len() > 256 {
             return None;
         }
-        serde_json::from_str::<Self>(value).ok().filter(|evidence| evidence.is_valid())
+        serde_json::from_str::<Self>(value)
+            .ok()
+            .filter(|evidence| evidence.is_valid())
     }
 }
 

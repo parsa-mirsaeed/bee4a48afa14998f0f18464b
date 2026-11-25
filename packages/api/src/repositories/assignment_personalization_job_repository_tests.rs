@@ -1655,7 +1655,10 @@ async fn deterministic_provider_contract_error_is_terminal_with_safe_code() {
     assert_eq!(diagnostic.gateway_http_status, 502);
     assert_eq!(diagnostic.gateway_elapsed_ms, 26_327);
     assert_eq!(diagnostic.provider_dispatch_state, "responded");
-    assert_eq!(diagnostic.provider_failure_reason.as_deref(), Some("model_mismatch"));
+    assert_eq!(
+        diagnostic.provider_failure_reason.as_deref(),
+        Some("model_mismatch")
+    );
     assert_eq!(diagnostic.provider_transport_attempts, Some(1));
     assert_eq!(diagnostic.upstream_http_status, Some(200));
     assert!(diagnostic.scheduled_retry_at.is_none());
@@ -1682,25 +1685,39 @@ async fn gateway_history_rls_enforces_active_teacher_append_admin_read_and_immut
     let _queue_guard = QUEUE_TEST_LOCK.lock().await;
     let fixture = queue_fixture(1).await;
     prioritize_assignment_jobs(fixture.pool.as_ref(), fixture.assignment_id).await;
-    let claimed = claim_next(fixture.pool.as_ref(), Uuid::new_v4()).await.unwrap();
+    let claimed = claim_next(fixture.pool.as_ref(), Uuid::new_v4())
+        .await
+        .unwrap();
     assert_eq!(claimed.assignment_id, fixture.assignment_id);
 
     // The fixture owner is privileged. Use a real non-bypass role in the
     // same transaction; creating that role and all probes is rolled back.
     let role = format!("et_diag_{}", Uuid::new_v4().simple());
     let mut tx = fixture.pool.begin().await.unwrap();
-    sqlx::query(&format!("CREATE ROLE {role} NOLOGIN NOSUPERUSER NOINHERIT NOCREATEDB NOCREATEROLE NOBYPASSRLS"))
-        .execute(&mut *tx).await.unwrap();
+    sqlx::query(&format!(
+        "CREATE ROLE {role} NOLOGIN NOSUPERUSER NOINHERIT NOCREATEDB NOCREATEROLE NOBYPASSRLS"
+    ))
+    .execute(&mut *tx)
+    .await
+    .unwrap();
     sqlx::query(&format!("GRANT USAGE ON SCHEMA public TO {role}"))
-        .execute(&mut *tx).await.unwrap();
-    sqlx::query(&format!("GRANT SELECT ON public.assignment_personalization_jobs TO {role}"))
-        .execute(&mut *tx).await.unwrap();
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query(&format!(
+        "GRANT SELECT ON public.assignment_personalization_jobs TO {role}"
+    ))
+    .execute(&mut *tx)
+    .await
+    .unwrap();
     sqlx::query(&format!("GRANT SELECT, INSERT, UPDATE, DELETE ON public.assignment_personalization_gateway_failures TO {role}"))
         .execute(&mut *tx).await.unwrap();
     sqlx::query(&format!("GRANT EXECUTE ON FUNCTION public.get_user_id(), public.get_role(), public.get_school_id() TO {role}"))
         .execute(&mut *tx).await.unwrap();
     sqlx::query(&format!("SET LOCAL ROLE {role}"))
-        .execute(&mut *tx).await.unwrap();
+        .execute(&mut *tx)
+        .await
+        .unwrap();
     sqlx::query("SELECT set_config('app.user_id', $1, true), set_config('app.user_role', 'Teacher', true), set_config('app.school_id', $2, true), set_config('app.elevated_operation', 'false', true)")
         .bind(fixture.teacher_user.to_string()).bind(fixture.school_id.to_string())
         .execute(&mut *tx).await.unwrap();
@@ -1715,37 +1732,90 @@ async fn gateway_history_rls_enforces_active_teacher_append_admin_read_and_immut
         FROM public.assignment_personalization_jobs WHERE id = $3
     "#;
     let request_id = Uuid::new_v4();
-    assert_eq!(sqlx::query(insert).bind(request_id).bind(claimed.lease_owner).bind(claimed.id)
-        .execute(&mut *tx).await.unwrap().rows_affected(), 1);
+    assert_eq!(
+        sqlx::query(insert)
+            .bind(request_id)
+            .bind(claimed.lease_owner)
+            .bind(claimed.id)
+            .execute(&mut *tx)
+            .await
+            .unwrap()
+            .rows_affected(),
+        1
+    );
     let count = sqlx::query_scalar::<_, i64>("SELECT count(*) FROM public.assignment_personalization_gateway_failures WHERE request_id = $1")
         .bind(request_id).fetch_one(&mut *tx).await.unwrap();
-    assert_eq!(count, 0, "even the original teacher cannot read admin diagnostics");
+    assert_eq!(
+        count, 0,
+        "even the original teacher cannot read admin diagnostics"
+    );
 
-    sqlx::query("SAVEPOINT wrong_lease").execute(&mut *tx).await.unwrap();
-    assert!(sqlx::query(insert).bind(Uuid::new_v4()).bind(Uuid::new_v4()).bind(claimed.id)
-        .execute(&mut *tx).await.is_err(), "wrong lease must not append");
-    sqlx::query("ROLLBACK TO SAVEPOINT wrong_lease").execute(&mut *tx).await.unwrap();
+    sqlx::query("SAVEPOINT wrong_lease")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    assert!(
+        sqlx::query(insert)
+            .bind(Uuid::new_v4())
+            .bind(Uuid::new_v4())
+            .bind(claimed.id)
+            .execute(&mut *tx)
+            .await
+            .is_err(),
+        "wrong lease must not append"
+    );
+    sqlx::query("ROLLBACK TO SAVEPOINT wrong_lease")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
 
     sqlx::query("SELECT set_config('app.school_id', $1, true)")
-        .bind(Uuid::new_v4().to_string()).execute(&mut *tx).await.unwrap();
-    assert_eq!(sqlx::query(insert).bind(Uuid::new_v4()).bind(claimed.lease_owner).bind(claimed.id)
-        .execute(&mut *tx).await.unwrap().rows_affected(), 0, "foreign school cannot access job for insert");
+        .bind(Uuid::new_v4().to_string())
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    assert_eq!(
+        sqlx::query(insert)
+            .bind(Uuid::new_v4())
+            .bind(claimed.lease_owner)
+            .bind(claimed.id)
+            .execute(&mut *tx)
+            .await
+            .unwrap()
+            .rows_affected(),
+        0,
+        "foreign school cannot access job for insert"
+    );
     for denied_role in ["Teacher", "SchoolManager", "Student", "Parent"] {
         sqlx::query("SELECT set_config('app.user_role', $1, true)")
-            .bind(denied_role).execute(&mut *tx).await.unwrap();
+            .bind(denied_role)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
         let count = sqlx::query_scalar::<_, i64>("SELECT count(*) FROM public.assignment_personalization_gateway_failures WHERE request_id = $1")
             .bind(request_id).fetch_one(&mut *tx).await.unwrap();
         assert_eq!(count, 0);
     }
     sqlx::query("SELECT set_config('app.user_role', 'PlatformAdmin', true)")
-        .execute(&mut *tx).await.unwrap();
+        .execute(&mut *tx)
+        .await
+        .unwrap();
     let count = sqlx::query_scalar::<_, i64>("SELECT count(*) FROM public.assignment_personalization_gateway_failures WHERE request_id = $1")
         .bind(request_id).fetch_one(&mut *tx).await.unwrap();
     assert_eq!(count, 1);
     assert_eq!(sqlx::query("UPDATE public.assignment_personalization_gateway_failures SET gateway_http_status = 500 WHERE request_id = $1")
         .bind(request_id).execute(&mut *tx).await.unwrap().rows_affected(), 0);
-    assert_eq!(sqlx::query("DELETE FROM public.assignment_personalization_gateway_failures WHERE request_id = $1")
-        .bind(request_id).execute(&mut *tx).await.unwrap().rows_affected(), 0);
+    assert_eq!(
+        sqlx::query(
+            "DELETE FROM public.assignment_personalization_gateway_failures WHERE request_id = $1"
+        )
+        .bind(request_id)
+        .execute(&mut *tx)
+        .await
+        .unwrap()
+        .rows_affected(),
+        0
+    );
     tx.rollback().await.unwrap();
     let count = sqlx::query_scalar::<_, i64>("SELECT count(*) FROM public.assignment_personalization_gateway_failures WHERE request_id = $1")
         .bind(request_id).fetch_one(&*fixture.pool).await.unwrap();
@@ -1754,6 +1824,13 @@ async fn gateway_history_rls_enforces_active_teacher_append_admin_read_and_immut
     run_as(
         fixture.pool.as_ref(),
         actor(fixture.teacher_user, "Teacher", fixture.school_id),
-        repository.record_failure(&claimed, PersonalizationFailureKind::ProviderInvalidResponse, 0, 5),
-    ).await.unwrap();
+        repository.record_failure(
+            &claimed,
+            PersonalizationFailureKind::ProviderInvalidResponse,
+            0,
+            5,
+        ),
+    )
+    .await
+    .unwrap();
 }

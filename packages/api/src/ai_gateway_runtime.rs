@@ -972,11 +972,14 @@ impl IntoResponse for HttpError {
                     retry_after_seconds: self.retry_after_seconds,
                 },
             }),
-        ).into_response();
+        )
+            .into_response();
         if let Some(evidence) = self.provider_evidence {
             if let Ok(serialized) = serde_json::to_string(&evidence) {
                 if let Ok(value) = axum::http::HeaderValue::from_str(&serialized) {
-                    response.headers_mut().insert(PROVIDER_EVIDENCE_HEADER, value);
+                    response
+                        .headers_mut()
+                        .insert(PROVIDER_EVIDENCE_HEADER, value);
                 }
             }
         }
@@ -1466,7 +1469,12 @@ async fn forward_chat(
         {
             Ok(response) if response.status().is_success() => {
                 mark_provider_response(evidence, response.status());
-                let mut parsed = diagnosed_chat_body(response, state.config.max_provider_response_bytes, evidence).await?;
+                let mut parsed = diagnosed_chat_body(
+                    response,
+                    state.config.max_provider_response_bytes,
+                    evidence,
+                )
+                .await?;
                 normalize_known_gapgpt_model(&state.config.llm_profile, provider, &mut parsed);
                 validate_diagnosed_chat_response(provider, &parsed, evidence)?;
                 return Ok(parsed);
@@ -1558,7 +1566,8 @@ async fn forward_native_pdf(
             retry_after_seconds(response.headers()),
         ));
     }
-    let parsed = diagnosed_chat_body(response, state.config.max_provider_response_bytes, evidence).await?;
+    let parsed =
+        diagnosed_chat_body(response, state.config.max_provider_response_bytes, evidence).await?;
     validate_diagnosed_chat_response(provider, &parsed, evidence)?;
     Ok(parsed)
 }
@@ -2547,22 +2556,59 @@ mod tests {
     #[tokio::test]
     async fn chat_failures_report_only_gateway_observed_provider_evidence() {
         let cases = [
-            (StatusCode::UNAUTHORIZED, "ignored-secret", ProviderFailureReason::UpstreamStatus),
-            (StatusCode::TOO_MANY_REQUESTS, "ignored-secret", ProviderFailureReason::UpstreamStatus),
-            (StatusCode::BAD_GATEWAY, "ignored-secret", ProviderFailureReason::UpstreamStatus),
-            (StatusCode::OK, "not-json-secret", ProviderFailureReason::MalformedJson),
-            (StatusCode::OK, r#"{"model":"wrong-model","choices":[{"index":0,"message":{"role":"assistant","content":"ok"}}]}"#, ProviderFailureReason::ModelMismatch),
-            (StatusCode::OK, r#"{"model":"deepseek-chat","choices":[]}"#, ProviderFailureReason::InvalidChoice),
+            (
+                StatusCode::UNAUTHORIZED,
+                "ignored-secret",
+                ProviderFailureReason::UpstreamStatus,
+            ),
+            (
+                StatusCode::TOO_MANY_REQUESTS,
+                "ignored-secret",
+                ProviderFailureReason::UpstreamStatus,
+            ),
+            (
+                StatusCode::BAD_GATEWAY,
+                "ignored-secret",
+                ProviderFailureReason::UpstreamStatus,
+            ),
+            (
+                StatusCode::OK,
+                "not-json-secret",
+                ProviderFailureReason::MalformedJson,
+            ),
+            (
+                StatusCode::OK,
+                r#"{"model":"wrong-model","choices":[{"index":0,"message":{"role":"assistant","content":"ok"}}]}"#,
+                ProviderFailureReason::ModelMismatch,
+            ),
+            (
+                StatusCode::OK,
+                r#"{"model":"deepseek-chat","choices":[]}"#,
+                ProviderFailureReason::InvalidChoice,
+            ),
         ];
         for (status, body, reason) in cases {
-            let router = Router::new().route("/v1/chat/completions", post(move || async move { (status, body) }));
+            let router = Router::new().route(
+                "/v1/chat/completions",
+                post(move || async move { (status, body) }),
+            );
             let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
             let address = listener.local_addr().unwrap();
-            let task = tokio::spawn(async move { axum::serve(listener, router).await.unwrap(); });
-            let state = AppState::new(Config::test(Url::parse(&format!("http://{address}/v1/")).unwrap())).unwrap();
+            let task = tokio::spawn(async move {
+                axum::serve(listener, router).await.unwrap();
+            });
+            let state = AppState::new(Config::test(
+                Url::parse(&format!("http://{address}/v1/")).unwrap(),
+            ))
+            .unwrap();
             let error = state.chat(&context(), chat_request()).await.unwrap_err();
             let response = error.into_response();
-            let header = response.headers().get(PROVIDER_EVIDENCE_HEADER).unwrap().to_str().unwrap();
+            let header = response
+                .headers()
+                .get(PROVIDER_EVIDENCE_HEADER)
+                .unwrap()
+                .to_str()
+                .unwrap();
             let evidence = ProviderFailureEvidence::parse(header).unwrap();
             assert_eq!(evidence.reason, reason);
             assert_eq!(evidence.dispatch, ProviderDispatch::Responded);

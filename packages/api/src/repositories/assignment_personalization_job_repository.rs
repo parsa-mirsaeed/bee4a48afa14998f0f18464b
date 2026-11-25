@@ -958,16 +958,18 @@ impl AssignmentPersonalizationJobRepository {
         let delay_seconds = exponential.max(retry_after_seconds.min(3_600) as i64);
         if let Some(failure) = gateway {
             let evidence = failure.provider_evidence;
-            let dispatch = evidence.map(|value| value.dispatch.as_str()).unwrap_or_else(|| match failure.kind {
-                GatewayFailureKind::CircuitOpen
-                | GatewayFailureKind::SchoolQuotaExceeded
-                | GatewayFailureKind::ShuttingDown
-                | GatewayFailureKind::ProviderUnconfigured
-                | GatewayFailureKind::LlmDisabled => "blocked",
-                // Do not infer network dispatch, upstream status or billing
-                // from a generic internal gateway error.
-                _ => "unknown",
-            });
+            let dispatch = evidence
+                .map(|value| value.dispatch.as_str())
+                .unwrap_or_else(|| match failure.kind {
+                    GatewayFailureKind::CircuitOpen
+                    | GatewayFailureKind::SchoolQuotaExceeded
+                    | GatewayFailureKind::ShuttingDown
+                    | GatewayFailureKind::ProviderUnconfigured
+                    | GatewayFailureKind::LlmDisabled => "blocked",
+                    // Do not infer network dispatch, upstream status or billing
+                    // from a generic internal gateway error.
+                    _ => "unknown",
+                });
             sqlx::query(
                 r#"
                 INSERT INTO public.assignment_personalization_gateway_failures (
@@ -1000,8 +1002,16 @@ impl AssignmentPersonalizationJobRepository {
             .bind(delay_seconds)
             .bind(dispatch)
             .bind(evidence.map(|value| value.reason.as_str()))
-            .bind(evidence.map(|value| i32::from(value.transport_attempts)).or_else(|| (dispatch == "blocked").then_some(0)))
-            .bind(evidence.and_then(|value| value.upstream_http_status).map(i32::from))
+            .bind(
+                evidence
+                    .map(|value| i32::from(value.transport_attempts))
+                    .or_else(|| (dispatch == "blocked").then_some(0)),
+            )
+            .bind(
+                evidence
+                    .and_then(|value| value.upstream_http_status)
+                    .map(i32::from),
+            )
             .execute(&*self.base.pool())
             .await?;
         }

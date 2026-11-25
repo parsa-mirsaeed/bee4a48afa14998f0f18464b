@@ -100,7 +100,9 @@ async fn gateway_failure(
     started: Instant,
 ) -> LlmError {
     let status = response.status().as_u16();
-    let provider_evidence = response.headers().get(PROVIDER_EVIDENCE_HEADER)
+    let provider_evidence = response
+        .headers()
+        .get(PROVIDER_EVIDENCE_HEADER)
         .and_then(|value| value.to_str().ok())
         .and_then(ProviderFailureEvidence::parse);
     let body = response.json::<GatewayErrorEnvelope>().await.ok();
@@ -121,14 +123,36 @@ async fn gateway_failure(
         provider_evidence: provider_evidence.filter(|evidence| {
             use crate::ai_gateway_protocol::ProviderFailureReason as R;
             match kind {
-                GatewayFailureKind::ProviderRateLimited => evidence.upstream_http_status == Some(429),
-                GatewayFailureKind::ProviderRejectedRequest => evidence.reason == R::UpstreamStatus
-                    && evidence.upstream_http_status.is_some_and(|status| status != 429 && status < 500),
+                GatewayFailureKind::ProviderRateLimited => {
+                    evidence.upstream_http_status == Some(429)
+                }
+                GatewayFailureKind::ProviderRejectedRequest => {
+                    evidence.reason == R::UpstreamStatus
+                        && evidence
+                            .upstream_http_status
+                            .is_some_and(|status| status != 429 && status < 500)
+                }
                 GatewayFailureKind::ProviderResponseTooLarge => evidence.reason == R::ResponseSize,
-                GatewayFailureKind::InvalidProviderResponse => matches!(evidence.reason, R::RequestPreparation | R::BodyRead | R::MalformedJson | R::ModelMismatch | R::InvalidChoice),
-                GatewayFailureKind::TemporarilyUnavailable => matches!(evidence.reason, R::RequestPreparation | R::Timeout | R::Connect | R::Transport)
-                    || (evidence.reason == R::UpstreamStatus && evidence.upstream_http_status.is_some_and(|status| status >= 500)),
-                GatewayFailureKind::ProviderUnconfigured => evidence.reason == R::RequestPreparation,
+                GatewayFailureKind::InvalidProviderResponse => matches!(
+                    evidence.reason,
+                    R::RequestPreparation
+                        | R::BodyRead
+                        | R::MalformedJson
+                        | R::ModelMismatch
+                        | R::InvalidChoice
+                ),
+                GatewayFailureKind::TemporarilyUnavailable => {
+                    matches!(
+                        evidence.reason,
+                        R::RequestPreparation | R::Timeout | R::Connect | R::Transport
+                    ) || (evidence.reason == R::UpstreamStatus
+                        && evidence
+                            .upstream_http_status
+                            .is_some_and(|status| status >= 500))
+                }
+                GatewayFailureKind::ProviderUnconfigured => {
+                    evidence.reason == R::RequestPreparation
+                }
                 _ => false,
             }
         }),
