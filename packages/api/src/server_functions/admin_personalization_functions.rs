@@ -34,6 +34,8 @@ pub struct AdminPersonalizationCapabilityDto {
     pub model: String,
     pub configured: bool,
     pub circuit: String,
+    #[serde(default)]
+    pub last_provider_verified_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -75,6 +77,7 @@ pub struct AdminGatewayFailureDto {
     pub execution_generation: i32,
     pub attempt_number: i32,
     pub recorded_at: String,
+    pub operation: String,
     pub stage: String,
     pub diagnostic_code: String,
     pub gateway_http_status: i32,
@@ -181,11 +184,12 @@ async fn load_personalization_capability() -> AdminPersonalizationCapabilityDto 
     let fallback = AdminPersonalizationCapabilityDto {
         gateway_reachable: false,
         llm_mode: "unavailable".to_string(),
-        llm_profile: DEEPSEEK_CHAT_V1.id.to_string(),
-        provider: DEEPSEEK_CHAT_V1.provider.as_str().to_string(),
-        model: DEEPSEEK_CHAT_V1.model.to_string(),
+        llm_profile: "unavailable".to_string(),
+        provider: "unavailable".to_string(),
+        model: "unavailable".to_string(),
         configured: false,
         circuit: "unavailable".to_string(),
+        last_provider_verified_at: None,
     };
 
     let client = match reqwest::Client::builder()
@@ -218,17 +222,17 @@ async fn load_personalization_capability() -> AdminPersonalizationCapabilityDto 
         llm_profile: value
             .get("llm_profile")
             .and_then(|item| item.as_str())
-            .unwrap_or(DEEPSEEK_CHAT_V1.id.as_ref())
+            .unwrap_or("unavailable")
             .to_string(),
         provider: value
             .get("llm_provider")
             .and_then(|item| item.as_str())
-            .unwrap_or(DEEPSEEK_CHAT_V1.provider.as_str())
+            .unwrap_or("unavailable")
             .to_string(),
         model: value
             .get("llm_model")
             .and_then(|item| item.as_str())
-            .unwrap_or(DEEPSEEK_CHAT_V1.model.as_ref())
+            .unwrap_or("unavailable")
             .to_string(),
         configured: value
             .get("llm_configured")
@@ -239,6 +243,12 @@ async fn load_personalization_capability() -> AdminPersonalizationCapabilityDto 
             .and_then(|item| item.as_str())
             .unwrap_or("unavailable")
             .to_string(),
+        last_provider_verified_at: value
+            .get("last_llm_verified_ms")
+            .and_then(|item| item.as_i64())
+            .filter(|timestamp| *timestamp > 0)
+            .and_then(chrono::DateTime::<chrono::Utc>::from_timestamp_millis)
+            .map(|timestamp| timestamp.to_rfc3339()),
     }
 }
 
@@ -405,6 +415,7 @@ fn job_dto(job: AdminPersonalizationJobRecord) -> AdminPersonalizationJobDto {
                 execution_generation: failure.execution_generation,
                 attempt_number: failure.attempt_number,
                 recorded_at: failure.recorded_at.to_rfc3339(),
+                operation: failure.operation,
                 stage: failure.stage,
                 diagnostic_code: failure.diagnostic_code,
                 gateway_http_status: failure.gateway_http_status,
@@ -528,6 +539,7 @@ pub async fn get_admin_personalization_overview(
             model: String::new(),
             configured: false,
             circuit: "unavailable".to_string(),
+            last_provider_verified_at: None,
         },
         methods: Vec::new(),
         schools: Vec::new(),
@@ -753,6 +765,7 @@ mod regeneration_capability_tests {
             model: model.to_string(),
             configured: true,
             circuit: "closed".to_string(),
+            last_provider_verified_at: None,
         }
     }
 

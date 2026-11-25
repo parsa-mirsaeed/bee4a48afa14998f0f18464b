@@ -654,6 +654,8 @@ struct AppState {
     llm_breaker: Arc<CircuitBreaker>,
     embedding_quota: Arc<QuotaLimiter<Uuid>>,
     llm_quota: Arc<QuotaLimiter<Uuid>>,
+    // A validated response is historical evidence, never an active health probe.
+    last_llm_verified_ms: Arc<std::sync::atomic::AtomicI64>,
 }
 
 impl AppState {
@@ -699,10 +701,25 @@ impl AppState {
             )),
             embedding_quota: Arc::new(QuotaLimiter::new(config.embedding_quota)),
             llm_quota: Arc::new(QuotaLimiter::new(config.llm_quota)),
+            last_llm_verified_ms: Arc::new(std::sync::atomic::AtomicI64::new(0)),
             config: Arc::new(config),
             client,
             custom_llm_client,
         })
+    }
+
+    fn mark_llm_verified(&self) {
+        self.last_llm_verified_ms.fetch_max(
+            chrono::Utc::now().timestamp_millis(),
+            std::sync::atomic::Ordering::Relaxed,
+        );
+    }
+
+    fn last_llm_verified_ms(&self) -> Option<i64> {
+        let timestamp = self
+            .last_llm_verified_ms
+            .load(std::sync::atomic::Ordering::Relaxed);
+        (timestamp > 0).then_some(timestamp)
     }
 
     async fn embed(
@@ -781,6 +798,7 @@ impl AppState {
         match forward_chat(self, &request, &mut evidence).await {
             Ok(response) => {
                 self.llm_breaker.success().await;
+                self.mark_llm_verified();
                 tracing::info!(
                     request_id = %context.request_id,
                     school_id = %context.school_id,
@@ -894,6 +912,7 @@ impl AppState {
         match forward_native_pdf(self, &payload, &mut evidence).await {
             Ok(response) => {
                 self.llm_breaker.success().await;
+                self.mark_llm_verified();
                 tracing::info!(
                     request_id = %context.request_id,
                     school_id = %context.school_id,
@@ -1065,6 +1084,7 @@ struct HealthResponse {
     llm_model: String,
     llm_configured: bool,
     llm_circuit: &'static str,
+    last_llm_verified_ms: Option<i64>,
     external_providers_required_for_health: bool,
 }
 
@@ -1117,6 +1137,7 @@ async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
             .and_then(|provider| provider.api_key.as_ref())
             .is_some(),
         llm_circuit: state.llm_breaker.status().await,
+        last_llm_verified_ms: state.last_llm_verified_ms(),
         external_providers_required_for_health: false,
     })
 }
@@ -2646,6 +2667,7 @@ mod tests {
         config.circuit_open_for = Duration::from_secs(30);
         let state = AppState::new(config).unwrap();
         let error = state.chat(&context(), chat_request()).await.unwrap_err();
+        assert!(state.last_llm_verified_ms().is_none());
         let evidence = error.provider_evidence.expect("transport evidence");
         assert_eq!(evidence.dispatch, ProviderDispatch::Attempted);
         assert_eq!(evidence.reason, ProviderFailureReason::Timeout);
@@ -2725,10 +2747,15 @@ mod tests {
         });
 
         let state = AppState::new(config).expect("state");
+        let Json(before) = health(State(state.clone())).await;
+        assert!(before.last_llm_verified_ms.is_none());
         let response = state
             .chat(&context(), chat_request())
             .await
             .expect("connected LLM must work with local embeddings");
+        let Json(after) = health(State(state.clone())).await;
+        assert!(after.last_llm_verified_ms.is_some());
+        assert!(!after.external_providers_required_for_health);
 
         assert_eq!(response.model, DEEPSEEK_CHAT_V1.model);
         assert_eq!(response.choices.len(), 1);

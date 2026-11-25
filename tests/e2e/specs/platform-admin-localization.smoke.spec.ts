@@ -512,6 +512,12 @@ for (const locale of ['en', 'fa'] as const) {
       await expect(history).toContainText(/Observed upstream HTTP status|وضعیت HTTP مشاهده‌شده ارائه‌دهنده/);
       await expect(history).toContainText('502');
       await expect(history).toContainText('200');
+      await expect(history).toContainText(/Assignment personalization chat|گفت‌وگوی شخصی‌سازی تکلیف/);
+      await expect(page.getByText(/Last validated provider response|آخرین پاسخ معتبر ارائه‌دهنده/)).toBeVisible();
+      await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+      await history.getByRole('button', { name: /Copy request reference|کپی شناسه پیگیری درخواست/ }).click();
+      await expect(history.getByRole('status')).toHaveText(/Request reference copied|شناسه پیگیری درخواست کپی شد/);
+      expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(requestId);
     } finally {
       runFixtureSql(`DELETE FROM assignment_personalization_gateway_failures WHERE request_id = '${requestId}'`);
     }

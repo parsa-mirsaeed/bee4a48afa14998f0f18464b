@@ -144,6 +144,7 @@ pub struct AdminGatewayFailureRecord {
     pub execution_generation: i32,
     pub attempt_number: i32,
     pub recorded_at: DateTime<Utc>,
+    pub operation: String,
     pub stage: String,
     pub diagnostic_code: String,
     pub gateway_http_status: i32,
@@ -377,7 +378,7 @@ impl AssignmentPersonalizationJobRepository {
                 SELECT jsonb_agg(to_jsonb(safe) ORDER BY safe.recorded_at DESC, safe.request_id) AS records
                 FROM (
                     SELECT d.request_id, d.execution_generation, d.attempt_number,
-                           d.recorded_at, d.stage, d.diagnostic_code, d.gateway_http_status,
+                           d.recorded_at, d.operation, d.stage, d.diagnostic_code, d.gateway_http_status,
                            d.gateway_elapsed_ms, d.retry_after_seconds, d.scheduled_retry_at,
                            d.provider_dispatch_state, d.provider_failure_reason,
                            d.provider_transport_attempts, d.upstream_http_status

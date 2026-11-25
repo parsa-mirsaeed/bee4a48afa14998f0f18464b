@@ -10,6 +10,8 @@ CREATE TABLE public.assignment_personalization_gateway_failures (
     -- immutable execution generation. A fresh claim lease distinguishes them.
     UNIQUE (job_id, execution_generation, attempt_number, lease_owner),
     recorded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    -- This history belongs to the assignment-personalization chat worker.
+    operation TEXT NOT NULL DEFAULT 'personalization_chat' CHECK (operation = 'personalization_chat'),
     stage TEXT NOT NULL CHECK (stage IN (
         'queued', 'paused', 'authorizing', 'building_student_context',
         'retrieving_context', 'ai_gateway', 'provider', 'validating_response',
