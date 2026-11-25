@@ -2441,10 +2441,7 @@ mod tests {
         );
         expire_reopened_circuit(&state.llm_breaker);
         let _chat_slot = state.llm_slots.acquire().await.unwrap();
-        assert_cancelled_admission_reopens(
-            &state.llm_breaker,
-            state.chat(&fresh, chat_request()),
-        );
+        assert_cancelled_admission_reopens(&state.llm_breaker, state.chat(&fresh, chat_request()));
 
         let mut config = pdf_test_config(Url::parse("http://127.0.0.1:9/v1/").unwrap());
         config.native_pdf_enabled = true;
