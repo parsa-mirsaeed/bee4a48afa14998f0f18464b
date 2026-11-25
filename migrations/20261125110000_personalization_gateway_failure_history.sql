@@ -21,9 +21,10 @@ CREATE TABLE public.assignment_personalization_gateway_failures (
         'ai_temporarily_unavailable', 'gateway_shutting_down', 'circuit_open',
         'provider_rate_limited', 'quota_exceeded', 'provider_unconfigured',
         'llm_disabled', 'invalid_provider_response', 'provider_response_too_large',
-        'provider_rejected_request', 'gateway_error'
+        'provider_rejected_request', 'gateway_error', 'invalid_gateway_response',
+        'gateway_transport_timeout', 'gateway_transport_connect', 'gateway_transport_other'
     )),
-    gateway_http_status INTEGER NOT NULL CHECK (gateway_http_status BETWEEN 100 AND 599),
+    gateway_http_status INTEGER CHECK (gateway_http_status BETWEEN 100 AND 599),
     gateway_elapsed_ms BIGINT NOT NULL CHECK (gateway_elapsed_ms BETWEEN 0 AND 86400000),
     retry_after_seconds INTEGER CHECK (retry_after_seconds BETWEEN 1 AND 3600),
     scheduled_retry_at TIMESTAMPTZ,
@@ -34,6 +35,12 @@ CREATE TABLE public.assignment_personalization_gateway_failures (
     )),
     provider_transport_attempts INTEGER CHECK (provider_transport_attempts BETWEEN 0 AND 4),
     upstream_http_status INTEGER CHECK (upstream_http_status BETWEEN 100 AND 599),
+    CHECK (
+        (diagnostic_code IN ('gateway_transport_timeout','gateway_transport_connect','gateway_transport_other')
+            AND gateway_http_status IS NULL AND provider_dispatch_state = 'unknown')
+        OR (diagnostic_code NOT IN ('gateway_transport_timeout','gateway_transport_connect','gateway_transport_other')
+            AND gateway_http_status IS NOT NULL)
+    ),
     CHECK (
         (provider_dispatch_state = 'unknown' AND provider_failure_reason IS NULL AND provider_transport_attempts IS NULL AND upstream_http_status IS NULL)
         OR (provider_dispatch_state = 'blocked' AND (provider_failure_reason IS NULL OR provider_failure_reason = 'request_preparation')

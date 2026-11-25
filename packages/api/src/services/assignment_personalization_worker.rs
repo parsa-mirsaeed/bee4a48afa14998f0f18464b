@@ -332,7 +332,7 @@ async fn handle_processing_failure(
             job_id = %job.id,
             request_id = %failure.request_id,
             attempt = job.attempt_count,
-            gateway_http_status = failure.gateway_http_status,
+            gateway_http_status = ?failure.gateway_http_status,
             error_code = failure.kind.code(),
             retry_after_seconds = ?failure.retry_after_seconds,
             "Assignment personalization gateway failure correlation"
@@ -451,8 +451,12 @@ fn classify_llm_failure(error: &LlmError) -> FailureAction {
                 G::InvalidProviderResponse => (P::ProviderInvalidResponse, 0),
                 G::ProviderResponseTooLarge => (P::ProviderResponseTooLarge, 0),
                 G::ProviderRejectedRequest => (P::ProviderRejectedRequest, 0),
-                G::TemporarilyUnavailable | G::ShuttingDown => (P::GatewayUnavailable, 10),
-                G::Unknown => (P::InvalidGatewayResponse, 5),
+                G::TemporarilyUnavailable
+                | G::ShuttingDown
+                | G::GatewayTransportTimeout
+                | G::GatewayTransportConnect
+                | G::GatewayTransportOther => (P::GatewayUnavailable, 10),
+                G::Unknown | G::InvalidGatewayResponse => (P::InvalidGatewayResponse, 5),
             };
             FailureAction::Record {
                 kind,
@@ -799,7 +803,16 @@ mod tests {
     async fn local_mock_gateway_faults_drive_worker_retry_policy() {
         let timeout =
             mock_gateway_error(MockGatewayFault::Timeout, Duration::from_millis(40)).await;
-        assert!(matches!(timeout, LlmError::RequestFailed(_)));
+        assert!(matches!(
+            timeout,
+            LlmError::GatewayFailure(crate::services::llm_service::GatewayFailure {
+                kind: GatewayFailureKind::GatewayTransportTimeout,
+                gateway_http_status: None,
+                provider_evidence: None,
+                request_id,
+                ..
+            }) if !request_id.is_nil()
+        ));
         assert_eq!(
             classify_llm_failure(&timeout),
             FailureAction::Record {
@@ -828,7 +841,15 @@ mod tests {
 
         let invalid =
             mock_gateway_error(MockGatewayFault::InvalidJson, Duration::from_secs(1)).await;
-        assert!(matches!(invalid, LlmError::ParseError(_)));
+        assert!(matches!(
+            invalid,
+            LlmError::GatewayFailure(crate::services::llm_service::GatewayFailure {
+                kind: GatewayFailureKind::InvalidGatewayResponse,
+                gateway_http_status: Some(200),
+                provider_evidence: None,
+                ..
+            })
+        ));
         assert!(!format!("{invalid}").contains("provider-secret-sentinel"));
         assert_eq!(
             classify_llm_failure(&invalid),

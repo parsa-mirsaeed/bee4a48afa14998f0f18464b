@@ -147,7 +147,7 @@ pub struct AdminGatewayFailureRecord {
     pub operation: String,
     pub stage: String,
     pub diagnostic_code: String,
-    pub gateway_http_status: i32,
+    pub gateway_http_status: Option<i32>,
     pub gateway_elapsed_ms: i64,
     pub retry_after_seconds: Option<i32>,
     pub scheduled_retry_at: Option<DateTime<Utc>>,
@@ -992,7 +992,7 @@ impl AssignmentPersonalizationJobRepository {
             .bind(job.attempt_count)
             .bind(active.try_get::<String, _>("processing_stage")?)
             .bind(failure.kind.code())
-            .bind(i32::from(failure.gateway_http_status))
+            .bind(failure.gateway_http_status.map(i32::from))
             .bind(failure.gateway_elapsed_ms.min(86_400_000) as i64)
             .bind(
                 failure

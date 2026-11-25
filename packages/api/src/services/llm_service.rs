@@ -39,6 +39,11 @@ pub enum GatewayFailureKind {
     InvalidProviderResponse,
     ProviderResponseTooLarge,
     ProviderRejectedRequest,
+    // App-observed failures. These cannot be selected by a gateway body.
+    GatewayTransportTimeout,
+    GatewayTransportConnect,
+    GatewayTransportOther,
+    InvalidGatewayResponse,
     Unknown,
 }
 
@@ -71,6 +76,10 @@ impl GatewayFailureKind {
             Self::InvalidProviderResponse => "invalid_provider_response",
             Self::ProviderResponseTooLarge => "provider_response_too_large",
             Self::ProviderRejectedRequest => "provider_rejected_request",
+            Self::GatewayTransportTimeout => "gateway_transport_timeout",
+            Self::GatewayTransportConnect => "gateway_transport_connect",
+            Self::GatewayTransportOther => "gateway_transport_other",
+            Self::InvalidGatewayResponse => "invalid_gateway_response",
             Self::Unknown => "gateway_error",
         }
     }
@@ -80,8 +89,9 @@ impl GatewayFailureKind {
 pub struct GatewayFailure {
     pub kind: GatewayFailureKind,
     pub request_id: Uuid,
-    /// Internal gateway status, not the external provider's HTTP status.
-    pub gateway_http_status: u16,
+    /// Observed internal gateway status; absent when no response arrived.
+    /// This is never the external provider's HTTP status.
+    pub gateway_http_status: Option<u16>,
     pub retry_after_seconds: Option<u64>,
     /// App-to-gateway round trip, not external provider latency.
     pub gateway_elapsed_ms: u64,
@@ -92,6 +102,42 @@ impl std::fmt::Display for GatewayFailure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.kind.code())
     }
+}
+
+fn app_observed_gateway_failure(
+    kind: GatewayFailureKind,
+    request_id: Uuid,
+    started: Instant,
+    status: Option<u16>,
+) -> LlmError {
+    let failure = GatewayFailure {
+        kind,
+        request_id,
+        gateway_http_status: status,
+        retry_after_seconds: None,
+        gateway_elapsed_ms: started.elapsed().as_millis().min(86_400_000) as u64,
+        // No authenticated gateway failure envelope was received. The app
+        // cannot know whether the external provider was contacted.
+        provider_evidence: None,
+    };
+    tracing::warn!(
+        %request_id,
+        gateway_http_status = ?status,
+        error_code = kind.code(),
+        "App observed an internal gateway failure"
+    );
+    LlmError::GatewayFailure(failure)
+}
+
+fn gateway_transport_failure(error: &reqwest::Error, request_id: Uuid, started: Instant) -> LlmError {
+    let kind = if error.is_timeout() {
+        GatewayFailureKind::GatewayTransportTimeout
+    } else if error.is_connect() {
+        GatewayFailureKind::GatewayTransportConnect
+    } else {
+        GatewayFailureKind::GatewayTransportOther
+    };
+    app_observed_gateway_failure(kind, request_id, started, None)
 }
 
 async fn gateway_failure(
@@ -117,7 +163,7 @@ async fn gateway_failure(
     let failure = GatewayFailure {
         kind,
         request_id,
-        gateway_http_status: status,
+        gateway_http_status: Some(status),
         retry_after_seconds,
         gateway_elapsed_ms: started.elapsed().as_millis().min(86_400_000) as u64,
         provider_evidence: provider_evidence.filter(|evidence| {
@@ -750,32 +796,34 @@ impl ExternalLlmClient {
             .header("x-edutalent-request-id", request_id.to_string())
             .json(&request)
             .send()
-            .await?;
+            .await
+            .map_err(|error| gateway_transport_failure(&error, request_id, started))?;
         if !response.status().is_success() {
             return Err(gateway_failure(response, request_id, started).await);
         }
+        let status = response.status().as_u16();
+        let invalid = || {
+            app_observed_gateway_failure(
+                GatewayFailureKind::InvalidGatewayResponse,
+                request_id,
+                started,
+                Some(status),
+            )
+        };
         let completion = response
             .json::<GatewayChatResponse>()
             .await
-            .map_err(|error| LlmError::ParseError(error.to_string()))?;
+            .map_err(|_| invalid())?;
         if completion.model != self.config.model || completion.choices.len() != 1 {
-            return Err(LlmError::InvalidResponse(
-                "Gateway returned the wrong model or choice count".to_string(),
-            ));
+            return Err(invalid());
         }
         let usage = completion.usage.clone();
-        let choice = completion
-            .choices
-            .into_iter()
-            .next()
-            .ok_or_else(|| LlmError::InvalidResponse("No completion choice".to_string()))?;
+        let choice = completion.choices.into_iter().next().ok_or_else(invalid)?;
         if choice.index != 0
             || choice.message.role != "assistant"
             || choice.message.content.trim().is_empty()
         {
-            return Err(LlmError::InvalidResponse(
-                "Invalid completion choice".to_string(),
-            ));
+            return Err(invalid());
         }
         Ok((choice.message.content, usage))
     }

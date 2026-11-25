@@ -1576,7 +1576,7 @@ async fn deterministic_provider_contract_error_is_terminal_with_safe_code() {
     let failure = crate::services::llm_service::GatewayFailure {
         kind: crate::services::llm_service::GatewayFailureKind::InvalidProviderResponse,
         request_id: Uuid::new_v4(),
-        gateway_http_status: 502,
+        gateway_http_status: Some(502),
         retry_after_seconds: None,
         gateway_elapsed_ms: 26_327,
         provider_evidence: Some(crate::ai_gateway_protocol::ProviderFailureEvidence {
@@ -1652,7 +1652,7 @@ async fn deterministic_provider_contract_error_is_terminal_with_safe_code() {
     let diagnostic = &record.gateway_failures[0];
     assert_eq!(diagnostic.request_id, failure.request_id);
     assert_eq!(diagnostic.diagnostic_code, "invalid_provider_response");
-    assert_eq!(diagnostic.gateway_http_status, 502);
+    assert_eq!(diagnostic.gateway_http_status, Some(502));
     assert_eq!(diagnostic.gateway_elapsed_ms, 26_327);
     assert_eq!(diagnostic.provider_dispatch_state, "responded");
     assert_eq!(
@@ -1717,7 +1717,7 @@ async fn deterministic_provider_contract_error_is_terminal_with_safe_code() {
     let blocked = crate::services::llm_service::GatewayFailure {
         kind: crate::services::llm_service::GatewayFailureKind::CircuitOpen,
         request_id: Uuid::new_v4(),
-        gateway_http_status: 503,
+        gateway_http_status: Some(503),
         retry_after_seconds: Some(30),
         gateway_elapsed_ms: 1,
         provider_evidence: None,
@@ -1770,13 +1770,42 @@ async fn deterministic_provider_contract_error_is_terminal_with_safe_code() {
     assert!(refusal.upstream_http_status.is_none());
     assert!(refusal.scheduled_retry_at.is_some());
 
+    // App-to-gateway timeout: no HTTP response and no external dispatch proof.
+    prioritize_assignment_jobs(fixture.pool.as_ref(), fixture.assignment_id).await;
+    let timed_out = claim_next(fixture.pool.as_ref(), Uuid::new_v4())
+        .await
+        .unwrap();
+    assert_eq!(timed_out.id, claimed.id);
+    let timeout = crate::services::llm_service::GatewayFailure {
+        kind: crate::services::llm_service::GatewayFailureKind::GatewayTransportTimeout,
+        request_id: Uuid::new_v4(),
+        gateway_http_status: None,
+        retry_after_seconds: None,
+        gateway_elapsed_ms: 400,
+        provider_evidence: None,
+    };
+    let disposition = run_as(
+        fixture.pool.as_ref(),
+        actor(fixture.teacher_user, "Teacher", fixture.school_id),
+        repository.record_failure_with_gateway(
+            &timed_out,
+            PersonalizationFailureKind::GatewayUnavailable,
+            10,
+            5,
+            Some(timeout),
+        ),
+    )
+    .await
+    .unwrap();
+    assert_eq!(disposition, PersonalizationFailureDisposition::Requeued);
+
     // Recovery clears the current error, not the immutable failure history.
     prioritize_assignment_jobs(fixture.pool.as_ref(), fixture.assignment_id).await;
     let recovered = claim_next(fixture.pool.as_ref(), Uuid::new_v4())
         .await
         .unwrap();
     assert_eq!(recovered.id, claimed.id);
-    assert_eq!(recovered.attempt_count, retried.attempt_count + 1);
+    assert_eq!(recovered.attempt_count, timed_out.attempt_count + 1);
     run_as(
         fixture.pool.as_ref(),
         actor(fixture.teacher_user, "Teacher", fixture.school_id),
@@ -1801,11 +1830,21 @@ async fn deterministic_provider_contract_error_is_terminal_with_safe_code() {
         .unwrap();
     assert_eq!(record.status, "succeeded");
     assert!(record.last_error_code.is_none());
-    assert_eq!(record.gateway_failures.len(), 2);
+    assert_eq!(record.gateway_failures.len(), 3);
     assert!(record
         .gateway_failures
         .iter()
         .any(|item| item.request_id == failure.request_id));
+    let transport = record
+        .gateway_failures
+        .iter()
+        .find(|item| item.request_id == timeout.request_id)
+        .unwrap();
+    assert_eq!(transport.diagnostic_code, "gateway_transport_timeout");
+    assert!(transport.gateway_http_status.is_none());
+    assert_eq!(transport.provider_dispatch_state, "unknown");
+    assert!(transport.upstream_http_status.is_none());
+    assert!(transport.provider_transport_attempts.is_none());
 
     // Seed additional synthetic historical refusals to prove the bounded
     // operator projection. Actual claim/append authorization is tested above
@@ -1856,7 +1895,7 @@ async fn deterministic_provider_contract_error_is_terminal_with_safe_code() {
     .fetch_one(&*fixture.pool)
     .await
     .unwrap();
-    assert_eq!(stored_count, 23);
+    assert_eq!(stored_count, 24);
 }
 
 #[cfg(feature = "server")]

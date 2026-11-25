@@ -80,7 +80,7 @@ pub struct AdminGatewayFailureDto {
     pub operation: String,
     pub stage: String,
     pub diagnostic_code: String,
-    pub gateway_http_status: i32,
+    pub gateway_http_status: Option<i32>,
     pub gateway_elapsed_ms: i64,
     pub retry_after_seconds: Option<i32>,
     pub scheduled_retry_at: Option<String>,

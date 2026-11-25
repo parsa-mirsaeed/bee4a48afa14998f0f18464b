@@ -64,7 +64,14 @@ fn delivery_label(value: &str, locale: Locale) -> String {
 
 fn failure_label(code: Option<&str>, locale: Locale) -> String {
     let key = match code {
-        Some("gateway_unavailable" | "ai_temporarily_unavailable" | "gateway_shutting_down") => {
+        Some(
+            "gateway_unavailable"
+            | "ai_temporarily_unavailable"
+            | "gateway_shutting_down"
+            | "gateway_transport_timeout"
+            | "gateway_transport_connect"
+            | "gateway_transport_other",
+        ) => {
             "platform_admin.personalization.failure.gateway_unavailable"
         }
         Some("provider_unconfigured" | "llm_disabled") => {
@@ -1082,7 +1089,7 @@ fn PersonalizationJobCard(
                                 CompactField { label: t("platform_admin.personalization.diagnostic_code", locale), value: failure.diagnostic_code.clone() }
                                 CompactField { label: t("platform_admin.personalization.gateway_request_id", locale), value: failure.request_id.clone() }
                                 CompactField { label: t("platform_admin.personalization.gateway_recorded", locale), value: failure.recorded_at.clone() }
-                                CompactField { label: t("platform_admin.personalization.gateway_http_status", locale), value: failure.gateway_http_status.to_string() }
+                                CompactField { label: t("platform_admin.personalization.gateway_http_status", locale), value: failure.gateway_http_status.map(|status| status.to_string()).unwrap_or_else(|| t("platform_admin.personalization.gateway_unknown", locale)) }
                                 CompactField { label: t("platform_admin.personalization.gateway_elapsed_ms", locale), value: failure.gateway_elapsed_ms.to_string() }
                                 CompactField { label: t("platform_admin.personalization.gateway_attempt", locale), value: format!("v{} / {}", failure.execution_generation, failure.attempt_number) }
                                 CompactField { label: t("platform_admin.personalization.gateway_operation", locale), value: if failure.operation == "personalization_chat" { t("platform_admin.personalization.gateway_operation_chat", locale) } else { t("platform_admin.personalization.gateway_unknown", locale) } }
