@@ -651,7 +651,7 @@ fn SchoolPolicyCard(
                             option {
                                 value: "{profile}",
                                 selected: true,
-                                "{profile} · {t("platform_admin.personalization.profile_not_available", locale)}"
+                                {format!("{} · {}", profile(), t("platform_admin.personalization.profile_not_available", locale))}
                             }
                         }
                         for method in methods.iter() {
@@ -829,7 +829,7 @@ fn TeacherPolicyCard(
                                 option {
                                     value: "{profile}",
                                     selected: true,
-                                    "{profile} · {t("platform_admin.personalization.profile_not_available", locale)}"
+                                    {format!("{} · {}", profile(), t("platform_admin.personalization.profile_not_available", locale))}
                                 }
                             }
                             for method in methods.iter() {
