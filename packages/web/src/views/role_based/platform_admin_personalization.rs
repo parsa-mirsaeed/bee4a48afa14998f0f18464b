@@ -597,6 +597,11 @@ fn SchoolPolicyCard(
                     p { class: "mt-1 text-xs text-gray-500",
                         {format!("{} · v{}", t("platform_admin.personalization.effective", locale), policy.policy_version)}
                     }
+                    p { class: "mt-1 break-all text-sm", "data-testid": "saved-school-profile",
+                        {t("platform_admin.personalization.saved_profile", locale)}
+                        ": "
+                        bdi { "{policy.llm_profile_id}" }
+                    }
                 }
                 button {
                     r#type: "button",
@@ -642,8 +647,19 @@ fn SchoolPolicyCard(
                         value: "{profile}",
                         disabled: busy(),
                         onchange: move |event| profile.set(event.value()),
+                        if !methods.iter().any(|method| method.profile_id == profile()) {
+                            option {
+                                value: "{profile}",
+                                selected: true,
+                                "{profile} · {t("platform_admin.personalization.profile_not_available", locale)}"
+                            }
+                        }
                         for method in methods.iter() {
-                            option { value: "{method.profile_id}", "{method.profile_id} · {method.model}" }
+                            option {
+                                value: "{method.profile_id}",
+                                selected: profile() == method.profile_id,
+                                "{method.profile_id} · {method.model}"
+                            }
                         }
                     }
                 }
@@ -809,8 +825,19 @@ fn TeacherPolicyCard(
                             value: "{profile}",
                             disabled: busy(),
                             onchange: move |event| profile.set(event.value()),
+                            if !methods.iter().any(|method| method.profile_id == profile()) {
+                                option {
+                                    value: "{profile}",
+                                    selected: true,
+                                    "{profile} · {t("platform_admin.personalization.profile_not_available", locale)}"
+                                }
+                            }
                             for method in methods.iter() {
-                                option { value: "{method.profile_id}", "{method.profile_id} · {method.model}" }
+                                option {
+                                    value: "{method.profile_id}",
+                                    selected: profile() == method.profile_id,
+                                    "{method.profile_id} · {method.model}"
+                                }
                             }
                         }
                     }

@@ -479,3 +479,27 @@ for (const scenario of [
     }
   });
 }
+
+for (const locale of ['en', 'fa'] as const) {
+  test(`saved non-default personalization profile is selected after reload in ${locale} @smoke @platform-admin @personalization @i18n`, async ({ page }) => {
+    const original = runFixtureSql(`SELECT llm_profile_id FROM assignment_personalization_school_policies WHERE school_id = '${SCHOOL_A_ID}'`);
+    expect(original).toMatch(/^(deepseek-chat-v1|deepseek-v41-flash-v1|custom-v1:[A-Za-z0-9][A-Za-z0-9._:/-]{0,95})$/);
+    try {
+      for (const profile of ['deepseek-v41-flash-v1', 'custom-v1:gpt-6-luna']) {
+        runFixtureSql(`UPDATE assignment_personalization_school_policies SET llm_profile_id = '${profile}', policy_version = policy_version + 1 WHERE school_id = '${SCHOOL_A_ID}'`);
+        await openAdminRoute(page, locale, '/dashboard/personalization');
+        const card = page.locator('article').filter({ has: page.getByText('E2E School A', { exact: true }) });
+        const profileSelect = card.locator('select').first();
+        await expect(card.getByTestId('saved-school-profile')).toContainText(profile);
+        await expect(profileSelect).toHaveValue(profile);
+        await expect(profileSelect.locator('option:checked')).toHaveAttribute('value', profile);
+        await page.reload();
+        await expect(profileSelect).toHaveValue(profile);
+        // Opening the view must not silently rewrite a saved custom profile.
+        expect(runFixtureSql(`SELECT llm_profile_id FROM assignment_personalization_school_policies WHERE school_id = '${SCHOOL_A_ID}'`)).toBe(profile);
+      }
+    } finally {
+      runFixtureSql(`UPDATE assignment_personalization_school_policies SET llm_profile_id = '${original}', policy_version = policy_version + 1 WHERE school_id = '${SCHOOL_A_ID}'`);
+    }
+  });
+}
