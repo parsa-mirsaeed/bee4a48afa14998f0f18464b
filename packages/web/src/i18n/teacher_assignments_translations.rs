@@ -5,6 +5,8 @@ pub(crate) fn teacher_assignments_translation(
     locale: Locale,
 ) -> Option<&'static str> {
     match (locale, key) {
+        (Locale::En, "teacher.assignments.support_reference") => Some("Support reference"),
+        (Locale::Fa, "teacher.assignments.support_reference") => Some("شناسه پیگیری پشتیبانی"),
         (Locale::En, "teacher.assignments.deleted_notice") => Some("Assignment deleted."),
         (Locale::Fa, "teacher.assignments.deleted_notice") => Some("تکلیف حذف شد."),
         (Locale::En, "teacher.assignments.delete_failed") => {

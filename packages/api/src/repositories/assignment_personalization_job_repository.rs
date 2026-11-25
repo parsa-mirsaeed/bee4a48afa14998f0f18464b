@@ -122,6 +122,7 @@ pub struct PersonalizationQueueSummary {
     pub total: i64,
     pub max_attempt_count: i32,
     pub last_completed_at: Option<DateTime<Utc>>,
+    pub latest_failed_job_id: Option<Uuid>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -1092,7 +1093,14 @@ impl AssignmentPersonalizationJobRepository {
                 COUNT(*) FILTER (WHERE status = 'cancelled') AS cancelled,
                 COUNT(*) AS total,
                 COALESCE(MAX(attempt_count), 0) AS max_attempt_count,
-                MAX(completed_at) AS last_completed_at
+                MAX(completed_at) AS last_completed_at,
+                (SELECT failed.id
+                 FROM assignment_personalization_jobs failed
+                 WHERE failed.requested_by = $1
+                   AND failed.school_id = (SELECT school_id FROM users WHERE id = $1)
+                   AND failed.status = 'failed'
+                 ORDER BY failed.completed_at DESC NULLS LAST, failed.id DESC
+                 LIMIT 1) AS latest_failed_job_id
             FROM assignment_personalization_jobs
             WHERE requested_by = $1
               AND school_id = (SELECT school_id FROM users WHERE id = $1)
@@ -1111,6 +1119,7 @@ impl AssignmentPersonalizationJobRepository {
             total: row.try_get("total")?,
             max_attempt_count: row.try_get("max_attempt_count")?,
             last_completed_at: row.try_get("last_completed_at")?,
+            latest_failed_job_id: row.try_get("latest_failed_job_id")?,
         })
     }
 }

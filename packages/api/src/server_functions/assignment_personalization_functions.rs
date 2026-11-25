@@ -23,10 +23,12 @@ pub struct AssignmentPersonalizationStatusResponse {
     pub total: i64,
     pub max_attempt_count: i32,
     pub last_completed_at: Option<String>,
+    #[serde(default)]
+    pub latest_failed_job_id: Option<String>,
 }
 
 /// Teacher-facing queue health for the authenticated teacher only. The response
-/// deliberately contains counters and timestamps only: no prompts, provider
+/// contains counters, timestamps and one opaque failed-job support reference: no prompts, provider
 /// payloads, generated text, student identifiers, or raw failure bodies.
 #[server(endpoint = "assignments/personalization_status")]
 pub async fn get_assignment_personalization_status(
@@ -64,6 +66,7 @@ pub async fn get_assignment_personalization_status(
             total: summary.total,
             max_attempt_count: summary.max_attempt_count,
             last_completed_at: summary.last_completed_at.map(|value| value.to_rfc3339()),
+            latest_failed_job_id: summary.latest_failed_job_id.map(|id| id.to_string()),
         })
     }
 

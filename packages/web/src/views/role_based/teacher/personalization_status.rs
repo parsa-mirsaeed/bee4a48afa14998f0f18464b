@@ -35,6 +35,12 @@ pub fn PersonalizationQueueStatusPanel() -> Element {
                                     class: "mt-1 text-sm text-purple-800 dark:text-purple-300",
                                     "✓ {summary.succeeded}/{summary.total} {locale.t(\"assignments.completed\")} · … {active} {locale.t(\"teachers.status.active\")} · ! {summary.failed} {locale.t(\"common.error\")}"
                                 }
+                                if let Some(reference) = &summary.latest_failed_job_id {
+                                    p { class: "mt-1 break-all text-xs text-purple-800 dark:text-purple-300",
+                                        "{locale.t(\"teacher.assignments.support_reference\")}: "
+                                        bdi { "{reference}" }
+                                    }
+                                }
                             }
                         }
                     }

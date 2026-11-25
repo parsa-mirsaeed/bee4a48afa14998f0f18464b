@@ -367,6 +367,7 @@ async fn publication_enqueues_atomically_and_duplicate_publish_is_idempotent() {
     assert_eq!(summary.total, 2);
     assert_eq!(summary.queued, 2);
     assert_eq!(summary.failed, 0);
+    assert!(summary.latest_failed_job_id.is_none());
 
     let persisted = sqlx::query(
         r#"
@@ -814,6 +815,7 @@ async fn retry_backoff_is_bounded_and_cross_school_status_is_isolated() {
     .await
     .expect("other teacher summary");
     assert_eq!(other_summary.total, 0);
+    assert!(other_summary.latest_failed_job_id.is_none());
 }
 
 #[cfg(feature = "server")]
@@ -1614,6 +1616,14 @@ async fn deterministic_provider_contract_error_is_terminal_with_safe_code() {
     );
     assert_eq!(row.get::<i32, _>("attempt_count"), claimed.attempt_count);
     assert!(row.get::<bool, _>("completed"));
+    let summary = run_as(
+        fixture.pool.as_ref(),
+        actor(fixture.teacher_user, "Teacher", fixture.school_id),
+        repository.summary_for_teacher(fixture.teacher_user),
+    )
+    .await
+    .unwrap();
+    assert_eq!(summary.latest_failed_job_id, Some(claimed.id));
     let stale = run_as(
         fixture.pool.as_ref(),
         actor(fixture.teacher_user, "Teacher", fixture.school_id),
@@ -1831,6 +1841,14 @@ async fn deterministic_provider_contract_error_is_terminal_with_safe_code() {
     assert_eq!(record.status, "succeeded");
     assert!(record.last_error_code.is_none());
     assert_eq!(record.gateway_failures.len(), 3);
+    let summary = run_as(
+        fixture.pool.as_ref(),
+        actor(fixture.teacher_user, "Teacher", fixture.school_id),
+        repository.summary_for_teacher(fixture.teacher_user),
+    )
+    .await
+    .unwrap();
+    assert!(summary.latest_failed_job_id.is_none());
     assert!(record
         .gateway_failures
         .iter()
