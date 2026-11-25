@@ -122,10 +122,12 @@ async fn gateway_failure(
             use crate::ai_gateway_protocol::ProviderFailureReason as R;
             match kind {
                 GatewayFailureKind::ProviderRateLimited => evidence.upstream_http_status == Some(429),
-                GatewayFailureKind::ProviderRejectedRequest => evidence.reason == R::UpstreamStatus,
+                GatewayFailureKind::ProviderRejectedRequest => evidence.reason == R::UpstreamStatus
+                    && evidence.upstream_http_status.is_some_and(|status| status != 429 && status < 500),
                 GatewayFailureKind::ProviderResponseTooLarge => evidence.reason == R::ResponseSize,
                 GatewayFailureKind::InvalidProviderResponse => matches!(evidence.reason, R::RequestPreparation | R::BodyRead | R::MalformedJson | R::ModelMismatch | R::InvalidChoice),
-                GatewayFailureKind::TemporarilyUnavailable => matches!(evidence.reason, R::RequestPreparation | R::Timeout | R::Connect | R::Transport | R::UpstreamStatus),
+                GatewayFailureKind::TemporarilyUnavailable => matches!(evidence.reason, R::RequestPreparation | R::Timeout | R::Connect | R::Transport)
+                    || (evidence.reason == R::UpstreamStatus && evidence.upstream_http_status.is_some_and(|status| status >= 500)),
                 GatewayFailureKind::ProviderUnconfigured => evidence.reason == R::RequestPreparation,
                 _ => false,
             }

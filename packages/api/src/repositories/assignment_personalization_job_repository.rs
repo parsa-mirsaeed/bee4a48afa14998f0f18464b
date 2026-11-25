@@ -393,7 +393,7 @@ impl AssignmentPersonalizationJobRepository {
                           (SELECT first_failure.request_id
                            FROM public.assignment_personalization_gateway_failures first_failure
                            WHERE first_failure.job_id = listed.job_id
-                             AND first_failure.provider_dispatch_state <> 'blocked'
+                             AND first_failure.provider_dispatch_state IN ('attempted', 'responded')
                            ORDER BY first_failure.recorded_at, first_failure.request_id
                            LIMIT 1)
                       )

@@ -47,6 +47,9 @@ CREATE TABLE public.assignment_personalization_gateway_failures (
 );
 CREATE INDEX assignment_personalization_gateway_failures_job_time_idx
     ON public.assignment_personalization_gateway_failures (job_id, recorded_at DESC, request_id);
+CREATE INDEX assignment_personalization_gateway_failures_observed_idx
+    ON public.assignment_personalization_gateway_failures (job_id, recorded_at, request_id)
+    WHERE provider_dispatch_state IN ('attempted', 'responded');
 ALTER TABLE public.assignment_personalization_gateway_failures ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.assignment_personalization_gateway_failures FORCE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE public.assignment_personalization_gateway_failures FROM PUBLIC;
