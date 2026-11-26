@@ -359,6 +359,80 @@ async fn submit_work(
     })
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct StudentSubmissionEligibility {
+    pub max_attempts: i16,
+    pub used_attempts: i64,
+    pub remaining_attempts: i64,
+    pub can_submit: bool,
+    pub graded: bool,
+    pub policy_version: i64,
+    pub accepted_revision: Option<uuid::Uuid>,
+}
+
+#[server(endpoint = "submissions/eligibility")]
+pub async fn get_student_submission_eligibility(
+    assignment_id: String,
+) -> Result<StudentSubmissionEligibility, ServerFnError> {
+    #[cfg(feature = "server")]
+    {
+        let Extension(user): Extension<UserInfo> = extract()
+            .await
+            .map_err(|_| ServerFnError::new("Unauthorized"))?;
+        require_student(&user)?;
+        let state = extract_server_state().map_err(map_state_error)?;
+        let user_id = Uuid::parse_str(&user.id).map_err(|_| ServerFnError::new("Unauthorized"))?;
+        let assignment_id = Uuid::parse_str(&assignment_id)
+            .map_err(|_| ServerFnError::new("Invalid assignment ID"))?;
+        let row = sqlx::query(
+            r#"
+            SELECT a.max_submission_attempts, a.submission_policy_version,
+                   (SELECT count(*) FROM submission_attempts h
+                     WHERE h.custom_assignment_id=ca.id) AS used_attempts,
+                   (SELECT h.submission_revision FROM submission_attempts h
+                     WHERE h.custom_assignment_id=ca.id
+                     ORDER BY h.attempt_number DESC LIMIT 1) AS accepted_revision,
+                   (ca.graded_at IS NOT NULL OR EXISTS (
+                       SELECT 1 FROM submissions s
+                       WHERE s.custom_assignment_id=ca.id AND s.grade IS NOT NULL
+                   )) AS graded
+            FROM custom_assignments ca
+            JOIN assignments a ON a.id=ca.assignment_id
+            JOIN class_sections cs ON cs.id=a.class_section_id
+            JOIN students st ON st.id=ca.student_id
+            JOIN users u ON u.id=st.user_id
+            JOIN roles r ON r.id=u.role_id
+            JOIN enrollments e ON e.student_id=st.id AND e.class_section_id=cs.id
+            WHERE ca.id=$1 AND u.id=$2 AND u.is_active
+              AND r.name::text='Student'
+              AND st.school_id=u.school_id AND cs.school_id=u.school_id
+              AND a.status='Published'::assignment_status
+            "#,
+        )
+        .bind(assignment_id)
+        .bind(user_id)
+        .fetch_optional(&*state.services.pool)
+        .await
+        .map_err(map_database_error)?
+        .ok_or_else(|| ServerFnError::new("Assignment not found"))?;
+        let max_attempts: i16 = row.get("max_submission_attempts");
+        let used_attempts: i64 = row.get("used_attempts");
+        let graded: bool = row.get("graded");
+        let remaining_attempts = (i64::from(max_attempts) - used_attempts).max(0);
+        Ok(StudentSubmissionEligibility {
+            max_attempts,
+            used_attempts,
+            remaining_attempts,
+            can_submit: !graded && remaining_attempts > 0,
+            graded,
+            policy_version: row.get("submission_policy_version"),
+            accepted_revision: row.get("accepted_revision"),
+        })
+    }
+    #[cfg(not(feature = "server"))]
+    Err(ServerFnError::new("Server only"))
+}
+
 #[server(endpoint = "submissions/get_for_assignment")]
 pub async fn get_submission_for_assignment(
     assignment_id: String,

@@ -31,7 +31,13 @@ pub fn SubmissionFiles(
     });
     use_effect(move || match current.read().as_ref() {
         Some(Ok(files)) => {
-            attachments.set(files.clone());
+            // Accepted originals are read-only and never silently carried into a new draft.
+            attachments.set(
+                files.iter()
+                    .filter(|file| (file.status != AttachmentStatus::Submitted) == editable)
+                    .cloned()
+                    .collect(),
+            );
             loaded.set(true);
         }
         Some(Err(_)) => {

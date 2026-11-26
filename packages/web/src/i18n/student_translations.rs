@@ -222,6 +222,22 @@ pub(crate) fn student_translation(key: &'static str, locale: Locale) -> Option<&
         (Locale::Fa, "student.classes.materials_load_error") => {
             Some("بارگذاری منابع کلاس ممکن نشد.")
         }
+        (Locale::En, "student.assignments.accepted_work") => Some("Latest accepted submission"),
+        (Locale::Fa, "student.assignments.accepted_work") => Some("آخرین ارسال پذیرفته‌شده"),
+        (Locale::En, "student.assignments.attempt_number") => Some("Attempt number"),
+        (Locale::Fa, "student.assignments.attempt_number") => Some("شماره ارسال"),
+        (Locale::En, "student.assignments.attempts_used") => Some("Attempts used / allowed"),
+        (Locale::Fa, "student.assignments.attempts_used") => Some("دفعات استفاده‌شده / مجاز"),
+        (Locale::En, "student.assignments.attempts_remaining") => Some("Attempts remaining"),
+        (Locale::Fa, "student.assignments.attempts_remaining") => Some("دفعات باقی‌مانده"),
+        (Locale::En, "student.assignments.start_next_attempt") => Some("Start a new attempt"),
+        (Locale::Fa, "student.assignments.start_next_attempt") => Some("شروع ارسال دوباره"),
+        (Locale::En, "student.assignments.graded_locked") => Some("This assignment is graded and cannot be submitted again."),
+        (Locale::Fa, "student.assignments.graded_locked") => Some("این تکلیف نمره‌گذاری شده و امکان ارسال دوباره ندارد."),
+        (Locale::En, "student.assignments.attempt_limit_reached") => Some("No submission attempts remain. Your accepted work is preserved."),
+        (Locale::Fa, "student.assignments.attempt_limit_reached") => Some("فرصت ارسال دیگری باقی نمانده است. تکلیف پذیرفته‌شده شما حفظ می‌شود."),
+        (Locale::En, "student.assignments.eligibility_error") => Some("Unable to check submission eligibility. Try again before submitting."),
+        (Locale::Fa, "student.assignments.eligibility_error") => Some("بررسی امکان ارسال ممکن نشد. پیش از ارسال دوباره تلاش کنید."),
         _ => None,
     }
 }
@@ -294,6 +310,14 @@ mod tests {
         "student.assignments.saved_work_load_error",
         "student.assignments.submitting",
         "student.assignments.submit_work",
+        "student.assignments.accepted_work",
+        "student.assignments.attempt_number",
+        "student.assignments.attempts_used",
+        "student.assignments.attempts_remaining",
+        "student.assignments.start_next_attempt",
+        "student.assignments.graded_locked",
+        "student.assignments.attempt_limit_reached",
+        "student.assignments.eligibility_error",
         "student.grades.recorded_title",
         "student.grades.recorded_description",
         "student.grades.load_error",
