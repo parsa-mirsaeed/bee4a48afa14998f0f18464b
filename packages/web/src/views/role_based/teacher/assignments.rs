@@ -8,8 +8,8 @@ use crate::views::role_based::components::DashboardSection;
 use crate::views::role_based::shared::common::Modal;
 use api::domain::AssignmentStatus;
 use api::server_functions::assignment_functions::{
-    create_assignment, delete_assignment, get_assignment_by_id, AssignmentResponse,
-    CreateAssignmentPayload,
+    create_assignment, delete_assignment, get_assignment_by_id, get_assignment_submission_policy,
+    update_assignment_submission_policy, AssignmentResponse, CreateAssignmentPayload,
 };
 use api::server_functions::assignment_workflow::{
     get_teacher_assignment_class_options, publish_assignment_guided, PublishAssignmentOutcome,
@@ -316,6 +316,7 @@ fn CreateAssignmentModal(on_close: EventHandler, on_created: EventHandler) -> El
     let mut subject_id = use_signal(String::new);
     let mut due_date = use_signal(String::new);
     let mut material_ids = use_signal(Vec::<String>::new);
+    let attempt_limit = use_signal(|| 1_i16);
     let mut busy = use_signal(|| false);
     let mut error = use_signal(|| None::<String>);
     let locale = use_locale();
@@ -369,6 +370,7 @@ fn CreateAssignmentModal(on_close: EventHandler, on_created: EventHandler) -> El
             title: title().trim().to_string(),
             body: body().trim().to_string(),
             due_at,
+            max_submission_attempts: Some(attempt_limit()),
             material_ids: if material_ids().is_empty() {
                 None
             } else {
@@ -444,6 +446,7 @@ fn CreateAssignmentModal(on_close: EventHandler, on_created: EventHandler) -> El
                     if !class_id().is_empty() {
                         MaterialPicker { resource: materials, selected: material_ids }
                     }
+                    SubmissionAttemptLimitFields { limit: attempt_limit, disabled: busy() }
                     GovernedKnowledgeSummary { resource: governed_knowledge }
                     div { class: "flex justify-end gap-3",
                         button { class: "rounded-lg border border-gray-300 px-4 py-2 dark:border-gray-700", disabled: busy(), onclick: move |_| on_close.call(()), "{locale.t(\"common.cancel\")}" }
@@ -631,6 +634,7 @@ fn AssignmentDetail(
         locale.t("teacher.assignments.status_prefix")
     );
     let due_text = format!("{} {due_date}", locale.t("teacher.assignments.due_prefix"));
+    let editing_policy = use_signal(|| false);
 
     rsx! {
         div { class: "space-y-5",
@@ -641,12 +645,136 @@ fn AssignmentDetail(
             }
             div { class: "rounded-lg bg-gray-50 p-4 text-sm whitespace-pre-wrap dark:bg-gray-800", "{item.body}" }
             p { class: "text-sm text-gray-500", "{due_text}" }
+            SubmissionPolicyEditor {
+                assignment_id: item.id.clone(),
+                editable: item.status == "Draft" || item.status == "Published",
+                busy,
+                editing: editing_policy,
+            }
             div { class: "flex justify-end gap-3",
-                if item.status == "Draft" {
+                if item.status == "Draft" && !editing_policy() {
                     button { class: "rounded-lg bg-primary px-4 py-2 font-medium text-white disabled:opacity-50", disabled: busy(), onclick: move |_| on_publish.call(()),
                         if busy() { "{locale.t(\"teacher.assignments.publishing\")}" } else { "{locale.t(\"teacher.assignments.publish\")}" }
                     }
                 }
+            }
+        }
+    }
+}
+
+
+#[component]
+fn SubmissionAttemptLimitFields(mut limit: Signal<i16>, disabled: bool) -> Element {
+    let locale = use_locale();
+    rsx! {
+        fieldset { class: "space-y-2", disabled,
+            legend { class: "text-sm font-medium", "{locale.t(\"teacher.assignments.attempt_policy\")}" }
+            label { class: "flex min-h-[44px] items-center gap-2",
+                input { r#type: "radio", name: "submission-attempt-policy", checked: limit() == 1, onchange: move |_| limit.set(1) }
+                "{locale.t(\"teacher.assignments.one_attempt\")}"
+            }
+            label { class: "flex min-h-[44px] items-center gap-2",
+                input { r#type: "radio", name: "submission-attempt-policy", checked: limit() > 1, onchange: move |_| if limit() == 1 { limit.set(2) } }
+                "{locale.t(\"teacher.assignments.multiple_attempts\")}"
+            }
+            if limit() > 1 {
+                label { class: "block text-sm font-medium", r#for: "submission-total-attempts", "{locale.t(\"teacher.assignments.total_attempts\")}" }
+                select {
+                    id: "submission-total-attempts",
+                    class: "min-h-[44px] w-full rounded-lg border border-gray-300 bg-white px-3 py-2 dark:border-gray-700 dark:bg-gray-900",
+                    value: "{limit}",
+                    onchange: move |event| {
+                        if let Ok(value) = event.value().parse::<i16>() {
+                            if (2..=10).contains(&value) {
+                                limit.set(value);
+                            }
+                        }
+                    },
+                    for count in 2..=10 {
+                        option { value: "{count}", "{count}" }
+                    }
+                }
+            }
+            p { class: "text-sm text-gray-600 dark:text-gray-300", "{locale.t(\"teacher.assignments.attempt_helper\")}" }
+        }
+    }
+}
+
+#[component]
+fn SubmissionPolicyEditor(
+    assignment_id: String,
+    editable: bool,
+    mut busy: Signal<bool>,
+    mut editing: Signal<bool>,
+) -> Element {
+    let locale = use_locale();
+    let id_for_fetch = assignment_id.clone();
+    let mut policy = use_resource(move || {
+        let id = id_for_fetch.clone();
+        async move { get_assignment_submission_policy(id).await }
+    });
+    let mut limit = use_signal(|| 1_i16);
+    let mut error = use_signal(|| false);
+    let mut saved = use_signal(|| false);
+    rsx! {
+        section { class: "space-y-3 rounded-lg border border-gray-200 p-4 dark:border-gray-700",
+            h4 { class: "font-medium", "{locale.t(\"teacher.assignments.attempt_policy\")}" }
+            match policy.read().as_ref() {
+                None => rsx! { p { role: "status", "{locale.t(\"teacher.assignments.details_loading\")}" } },
+                Some(Err(_)) => rsx! {
+                    p { role: "alert", "{locale.t(\"teacher.assignments.policy_load_error\")}" }
+                    button { class: "min-h-[44px] underline", disabled: busy(), onclick: move |_| policy.restart(), "{locale.t(\"teacher.assignments.try_again\")}" }
+                },
+                Some(Ok(current)) => {
+                    let max = current.max_attempts;
+                    let version = current.version;
+                    let id = assignment_id.clone();
+                    rsx! {
+                        p { class: "text-sm", "{locale.t(\"teacher.assignments.total_attempts\")}: {max}" }
+                        if editing() && editable {
+                            SubmissionAttemptLimitFields { limit, disabled: busy() }
+                            if limit() < max {
+                                p { class: "text-sm text-amber-800 dark:text-amber-200", "{locale.t(\"teacher.assignments.policy_lower_warning\")}" }
+                            }
+                            div { class: "flex flex-wrap justify-end gap-2",
+                                button { class: "min-h-[44px] rounded-lg border border-gray-300 px-4 py-2 dark:border-gray-700", disabled: busy(), onclick: move |_| { editing.set(false); error.set(false); }, "{locale.t(\"common.cancel\")}" }
+                                button {
+                                    class: "min-h-[44px] rounded-lg bg-primary px-4 py-2 text-white disabled:opacity-50",
+                                    disabled: busy() || limit() == max,
+                                    onclick: move |_| {
+                                        if busy() || limit() == max { return; }
+                                        let id = id.clone();
+                                        let chosen = limit();
+                                        busy.set(true);
+                                        error.set(false);
+                                        saved.set(false);
+                                        spawn(async move {
+                                            match update_assignment_submission_policy(id, version, chosen).await {
+                                                Ok(_) => { editing.set(false); saved.set(true); }
+                                                Err(_) => { editing.set(false); error.set(true); }
+                                            }
+                                            policy.restart();
+                                            busy.set(false);
+                                        });
+                                    },
+                                    "{locale.t(\"teacher.assignments.policy_save\")}"
+                                }
+                            }
+                        } else if editable {
+                            button {
+                                class: "min-h-[44px] rounded-lg border border-gray-300 px-4 py-2 dark:border-gray-700",
+                                disabled: busy(),
+                                onclick: move |_| { limit.set(max); editing.set(true); error.set(false); saved.set(false); },
+                                "{locale.t(\"teacher.assignments.policy_edit\")}"
+                            }
+                        }
+                    }
+                },
+            }
+            if error() {
+                p { role: "alert", class: "text-sm text-red-700 dark:text-red-300", "{locale.t(\"teacher.assignments.policy_save_error\")}" }
+            } else if saved() {
+                p { role: "status", class: "text-sm", "{locale.t(\"teacher.assignments.policy_saved\")}" }
             }
         }
     }

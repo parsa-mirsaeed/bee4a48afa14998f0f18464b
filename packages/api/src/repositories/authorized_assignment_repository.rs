@@ -296,6 +296,21 @@ impl AuthorizedAssignmentRepository {
         actor: AuthorizedTeacher,
         request: CreateAssignmentRequest,
     ) -> RepositoryResult<AssignmentWithDetails> {
+        self.create_with_submission_policy_for_teacher(actor, request, 1)
+            .await
+    }
+
+    pub async fn create_with_submission_policy_for_teacher(
+        &self,
+        actor: AuthorizedTeacher,
+        request: CreateAssignmentRequest,
+        max_attempts: i16,
+    ) -> RepositoryResult<AssignmentWithDetails> {
+        if !(1..=10).contains(&max_attempts) {
+            return Err(RepositoryError::Validation(
+                "Invalid submission attempt limit".into(),
+            ));
+        }
         let material_ids = parse_material_ids(request.material_ids.as_deref())?;
         self.verify_material_scope(actor, request.class_section_id, &material_ids)
             .await?;
@@ -304,11 +319,12 @@ impl AuthorizedAssignmentRepository {
             r#"
             INSERT INTO assignments (
                 teacher_id, class_section_id, subject_id, lecture_id,
-                lecture_title, lecture_number, title, body, due_at, status, material_ids
+                lecture_title, lecture_number, title, body, due_at, status, material_ids,
+                max_submission_attempts
             )
             SELECT
                 $1, cs.id, cs.subject_id, $5, $6, $7, $8, $9, $10,
-                'Draft'::assignment_status, $11
+                'Draft'::assignment_status, $11, $12
             FROM class_sections cs
             JOIN teaching_assignments ta
               ON ta.class_section_id = cs.id
@@ -339,6 +355,7 @@ impl AuthorizedAssignmentRepository {
         .bind(request.body.trim())
         .bind(request.due_at)
         .bind(&material_ids)
+        .bind(max_attempts)
         .fetch_optional(&*self.pool)
         .await?
         .ok_or(RepositoryError::Unauthorized)?;

@@ -86,6 +86,8 @@ pub struct CreateAssignmentPayload {
     pub body: String,
     pub due_at: DateTime<Utc>,
     pub material_ids: Option<Vec<String>>,
+    #[serde(default)]
+    pub max_submission_attempts: Option<i16>,
 }
 
 #[server(endpoint = "assignments/get_all")]
@@ -129,6 +131,7 @@ pub async fn create_assignment(
 ) -> Result<AssignmentResponse, ServerFnError> {
     #[cfg(feature = "server")]
     {
+        let max_attempts = payload.max_submission_attempts.unwrap_or(1);
         let request = CreateAssignmentRequest {
             class_section_id: parse_uuid(&payload.class_section_id, "class section")?.into(),
             subject_id: parse_uuid(&payload.subject_id, "subject")?.into(),
@@ -150,7 +153,7 @@ pub async fn create_assignment(
 
         let (repository, actor) = authorized_teacher().await?;
         repository
-            .create_for_teacher(actor, request)
+            .create_with_submission_policy_for_teacher(actor, request, max_attempts)
             .await
             .map(assignment_to_response)
             .map_err(repository_error)

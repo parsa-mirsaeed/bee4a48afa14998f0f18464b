@@ -185,6 +185,28 @@ pub(crate) fn teacher_assignments_translation(
         (Locale::Fa, "teacher.assignments.publish_failed") => {
             Some("انتشار تکلیف ممکن نشد. صفحه را تازه‌سازی کنید و دوباره تلاش کنید.")
         }
+        (Locale::En, "teacher.assignments.attempt_policy") => Some("Submission attempts"),
+        (Locale::Fa, "teacher.assignments.attempt_policy") => Some("دفعات ارسال تکلیف"),
+        (Locale::En, "teacher.assignments.one_attempt") => Some("One attempt"),
+        (Locale::Fa, "teacher.assignments.one_attempt") => Some("یک بار ارسال"),
+        (Locale::En, "teacher.assignments.multiple_attempts") => Some("Multiple attempts"),
+        (Locale::Fa, "teacher.assignments.multiple_attempts") => Some("چند بار ارسال"),
+        (Locale::En, "teacher.assignments.total_attempts") => Some("Total allowed attempts"),
+        (Locale::Fa, "teacher.assignments.total_attempts") => Some("تعداد کل دفعات مجاز"),
+        (Locale::En, "teacher.assignments.attempt_helper") => Some("The limit includes the first submission. Graded work cannot be reopened by changing this limit."),
+        (Locale::Fa, "teacher.assignments.attempt_helper") => Some("این محدودیت شامل نخستین ارسال نیز می‌شود. تغییر آن تکلیف نمره‌گذاری‌شده را باز نمی‌کند."),
+        (Locale::En, "teacher.assignments.policy_lower_warning") => Some("Previously accepted attempts are kept, even when the limit is reduced."),
+        (Locale::Fa, "teacher.assignments.policy_lower_warning") => Some("با کاهش محدودیت، ارسال‌های پذیرفته‌شده قبلی حفظ می‌شوند."),
+        (Locale::En, "teacher.assignments.policy_edit") => Some("Change attempt limit"),
+        (Locale::Fa, "teacher.assignments.policy_edit") => Some("تغییر محدودیت ارسال"),
+        (Locale::En, "teacher.assignments.policy_save") => Some("Save attempt limit"),
+        (Locale::Fa, "teacher.assignments.policy_save") => Some("ذخیره محدودیت ارسال"),
+        (Locale::En, "teacher.assignments.policy_saved") => Some("Attempt limit saved."),
+        (Locale::Fa, "teacher.assignments.policy_saved") => Some("محدودیت ارسال ذخیره شد."),
+        (Locale::En, "teacher.assignments.policy_load_error") => Some("The attempt limit could not be loaded."),
+        (Locale::Fa, "teacher.assignments.policy_load_error") => Some("بارگذاری محدودیت ارسال ممکن نشد."),
+        (Locale::En, "teacher.assignments.policy_save_error") => Some("The attempt limit could not be saved. Check the current limit and try again."),
+        (Locale::Fa, "teacher.assignments.policy_save_error") => Some("ذخیره محدودیت ارسال ممکن نشد. محدودیت فعلی را بررسی کنید و دوباره تلاش کنید."),
         _ => None,
     }
 }
@@ -239,6 +261,17 @@ mod tests {
         "teacher.assignments.publish_conflict",
         "teacher.assignments.publish_unavailable",
         "teacher.assignments.publish_failed",
+        "teacher.assignments.attempt_policy",
+        "teacher.assignments.one_attempt",
+        "teacher.assignments.multiple_attempts",
+        "teacher.assignments.total_attempts",
+        "teacher.assignments.attempt_helper",
+        "teacher.assignments.policy_lower_warning",
+        "teacher.assignments.policy_edit",
+        "teacher.assignments.policy_save",
+        "teacher.assignments.policy_saved",
+        "teacher.assignments.policy_load_error",
+        "teacher.assignments.policy_save_error",
     ];
 
     const EXISTING_KEYS: &[&str] = &[
