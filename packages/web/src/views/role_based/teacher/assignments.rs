@@ -662,7 +662,6 @@ fn AssignmentDetail(
     }
 }
 
-
 #[component]
 fn SubmissionAttemptLimitFields(mut limit: Signal<i16>, disabled: bool) -> Element {
     let locale = use_locale();

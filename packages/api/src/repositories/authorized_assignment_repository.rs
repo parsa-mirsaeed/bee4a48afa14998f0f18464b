@@ -285,7 +285,8 @@ impl AuthorizedAssignmentRepository {
             return Ok(policy);
         }
         // Distinguish a stale/unavailable policy only for an authorized reader.
-        self.submission_policy_for_teacher(actor, assignment_id).await?;
+        self.submission_policy_for_teacher(actor, assignment_id)
+            .await?;
         Err(RepositoryError::Duplicate {
             entity: "submission policy version or assignment state".into(),
         })
@@ -1478,7 +1479,9 @@ mod tests {
             )
         );
         assert_ne!(first_policy.is_ok(), second_policy.is_ok());
-        let effective = first_policy.or(second_policy).expect("one policy edit wins");
+        let effective = first_policy
+            .or(second_policy)
+            .expect("one policy edit wins");
         assert_eq!(effective.1, 3);
         assert!([4, 5].contains(&effective.0));
 

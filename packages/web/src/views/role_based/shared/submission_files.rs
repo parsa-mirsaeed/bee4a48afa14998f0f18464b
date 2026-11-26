@@ -33,7 +33,8 @@ pub fn SubmissionFiles(
         Some(Ok(files)) => {
             // Accepted originals are read-only and never silently carried into a new draft.
             attachments.set(
-                files.iter()
+                files
+                    .iter()
                     .filter(|file| (file.status != AttachmentStatus::Submitted) == editable)
                     .cloned()
                     .collect(),
