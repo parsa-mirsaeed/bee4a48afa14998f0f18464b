@@ -198,14 +198,18 @@ async fn private_originals_enforce_actor_school_state_and_cleanup_boundaries() {
     .split_once("-- END LEGACY ATTEMPT BACKFILL")
     .unwrap()
     .0;
-    tx.execute("ALTER TABLE public.submission_attempts DISABLE TRIGGER submission_attempt_append_guard")
-        .await
-        .unwrap();
+    tx.execute(
+        "ALTER TABLE public.submission_attempts DISABLE TRIGGER submission_attempt_append_guard",
+    )
+    .await
+    .unwrap();
     tx.execute(backfill).await.unwrap();
     tx.execute(backfill).await.unwrap();
-    tx.execute("ALTER TABLE public.submission_attempts ENABLE TRIGGER submission_attempt_append_guard")
-        .await
-        .unwrap();
+    tx.execute(
+        "ALTER TABLE public.submission_attempts ENABLE TRIGGER submission_attempt_append_guard",
+    )
+    .await
+    .unwrap();
     assert_eq!(
         sqlx::query_scalar::<_, i64>(
             "SELECT count(*) FROM submission_attempts WHERE custom_assignment_id=$1",
@@ -338,12 +342,19 @@ async fn private_originals_enforce_actor_school_state_and_cleanup_boundaries() {
         "work"
     );
     // The assigned teacher can lower a policy without erasing existing work.
-    tx.execute(format!(r#"
+    tx.execute(
+        format!(
+            r#"
         SET LOCAL app.user_id='{teacher_user}'; SET LOCAL app.user_role='Teacher';
         UPDATE assignments SET max_submission_attempts=1 WHERE id='{assignment}';
         SET LOCAL app.user_id='{student_user}'; SET LOCAL app.user_role='Student';
         SAVEPOINT exhausted_attempt;
-    "#).as_str()).await.unwrap();
+    "#
+        )
+        .as_str(),
+    )
+    .await
+    .unwrap();
     let forged_revision = Uuid::new_v4();
     assert!(tx.execute(format!(r#"
         UPDATE submissions SET revision='{forged_revision}', content='{{"text":"not accepted"}}'

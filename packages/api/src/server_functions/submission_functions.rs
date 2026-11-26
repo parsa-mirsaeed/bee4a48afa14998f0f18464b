@@ -222,28 +222,33 @@ async fn submit_work(
             return Err(ServerFnError::new("attachment_conflict"));
         }
         if selected {
-            if status == "submitted"
-                && row.get::<Option<Uuid>, _>("submission_id") != existing_id
-            {
+            if status == "submitted" && row.get::<Option<Uuid>, _>("submission_id") != existing_id {
                 return Err(ServerFnError::new("attachment_conflict"));
             }
             selected_bytes += row.get::<i64, _>("byte_size");
         }
     }
-    if selected_ids
-        .iter()
-        .any(|id| !attachments.iter().any(|row| row.get::<Uuid, _>("id") == *id))
-    {
+    if selected_ids.iter().any(|id| {
+        !attachments
+            .iter()
+            .any(|row| row.get::<Uuid, _>("id") == *id)
+    }) {
         return Err(ServerFnError::new("attachment_conflict"));
     }
     use crate::server_functions::submission_attachment_functions::{
         MAX_SUBMISSION_FILES, MAX_SUBMISSION_FILE_BYTES,
     };
-    if selected_ids.len() > MAX_SUBMISSION_FILES || selected_bytes > MAX_SUBMISSION_FILE_BYTES as i64
+    if selected_ids.len() > MAX_SUBMISSION_FILES
+        || selected_bytes > MAX_SUBMISSION_FILE_BYTES as i64
     {
         return Err(ServerFnError::new("attachment_limit"));
     }
-    if content_json["text"].as_str().unwrap_or_default().trim().is_empty() && selected_ids.is_empty()
+    if content_json["text"]
+        .as_str()
+        .unwrap_or_default()
+        .trim()
+        .is_empty()
+        && selected_ids.is_empty()
     {
         return Err(ServerFnError::new("Invalid submission content"));
     }
