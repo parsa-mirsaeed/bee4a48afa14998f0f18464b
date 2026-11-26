@@ -39,6 +39,12 @@ pub struct AssignmentResponse {
     pub published_at: Option<DateTime<Utc>>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AssignmentSubmissionPolicy {
+    pub max_attempts: i16,
+    pub version: i64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PersonalizedAssignmentResponse {
     pub id: String,
@@ -356,6 +362,52 @@ pub async fn update_assignment(
             .await
             .map(assignment_to_response)
             .map_err(repository_error)
+    }
+
+    #[cfg(not(feature = "server"))]
+    Err(ServerFnError::new("Server only"))
+}
+
+#[server(endpoint = "assignments/submission_policy")]
+pub async fn get_assignment_submission_policy(
+    assignment_id: String,
+) -> Result<AssignmentSubmissionPolicy, ServerFnError> {
+    #[cfg(feature = "server")]
+    {
+        let id = parse_assignment_id(&assignment_id)?;
+        let (repository, actor) = authorized_teacher().await?;
+        let (max_attempts, version) = repository
+            .submission_policy_for_teacher(actor, id)
+            .await
+            .map_err(repository_error)?;
+        Ok(AssignmentSubmissionPolicy {
+            max_attempts,
+            version,
+        })
+    }
+
+    #[cfg(not(feature = "server"))]
+    Err(ServerFnError::new("Server only"))
+}
+
+#[server(endpoint = "assignments/update_submission_policy")]
+pub async fn update_assignment_submission_policy(
+    assignment_id: String,
+    expected_version: i64,
+    max_attempts: i16,
+) -> Result<AssignmentSubmissionPolicy, ServerFnError> {
+    #[cfg(feature = "server")]
+    {
+        let id = parse_assignment_id(&assignment_id)?;
+        let (repository, actor) = authorized_teacher().await?;
+        let (max_attempts, version) = repository
+            .update_submission_policy_for_teacher(actor, id, expected_version, max_attempts)
+            .await
+            .map_err(repository_error)?;
+        Ok(AssignmentSubmissionPolicy {
+            max_attempts,
+            version,
+        })
     }
 
     #[cfg(not(feature = "server"))]
