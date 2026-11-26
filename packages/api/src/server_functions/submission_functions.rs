@@ -30,6 +30,9 @@ pub struct SubmissionResponse {
     pub status: String,
     pub submitted_at: Option<String>,
     pub message: String,
+    pub attempt_number: i16,
+    pub accepted_revision: uuid::Uuid,
+    pub accepted_file_count: i64,
 }
 
 #[server(endpoint = "submissions/submit")]
@@ -128,7 +131,15 @@ async fn submit_work(
     // Replay the original receipt even after a later attempt or grading.
     if let Some(token) = request_id {
         let receipt = sqlx::query(
-            "SELECT submission_id, request_fingerprint, accepted_at FROM submission_attempts WHERE custom_assignment_id=$1 AND request_id=$2",
+            r#"
+            SELECT h.submission_id, h.request_fingerprint, h.accepted_at,
+                   h.attempt_number, h.submission_revision,
+                   (SELECT count(*) FROM submission_attempt_originals original
+                    WHERE original.custom_assignment_id=h.custom_assignment_id
+                      AND original.attempt_number=h.attempt_number) AS accepted_file_count
+            FROM submission_attempts h
+            WHERE h.custom_assignment_id=$1 AND h.request_id=$2
+            "#,
         )
         .bind(custom_assignment_id)
         .bind(token)
@@ -152,6 +163,9 @@ async fn submit_work(
                         .to_rfc3339(),
                 ),
                 message: "Assignment submitted successfully".into(),
+                attempt_number: receipt.get("attempt_number"),
+                accepted_revision: receipt.get("submission_revision"),
+                accepted_file_count: receipt.get("accepted_file_count"),
             };
             transaction.commit().await.map_err(map_database_error)?;
             return Ok(response);
@@ -339,6 +353,9 @@ async fn submit_work(
         status: "submitted".to_string(),
         submitted_at: Some(submitted_at.to_rfc3339()),
         message: "Assignment submitted successfully".to_string(),
+        attempt_number,
+        accepted_revision: revision,
+        accepted_file_count: selected_ids.len() as i64,
     })
 }
 
@@ -360,12 +377,18 @@ pub async fn get_submission_for_assignment(
 
         let submission = sqlx::query(
             r#"
-            SELECT submission.id, submission.revision,
-                   submission.content,
-                   submission.submitted_at,
-                   CAST(submission.grade AS DOUBLE PRECISION) AS grade,
+            SELECT submission.id, attempt.submission_revision AS revision,
+                   attempt.accepted_content AS content,
+                   attempt.accepted_at AS submitted_at,
+                   attempt.attempt_number,
+                   (SELECT count(*) FROM submission_attempt_originals original
+                    WHERE original.custom_assignment_id=attempt.custom_assignment_id
+                      AND original.attempt_number=attempt.attempt_number) AS accepted_file_count,
+                   CASE WHEN submission.revision=attempt.submission_revision
+                       THEN CAST(submission.grade AS DOUBLE PRECISION) END AS grade,
                    COALESCE(submission.grade_scale, 100::SMALLINT) AS grade_scale,
-                   submission.feedback
+                   CASE WHEN submission.revision=attempt.submission_revision
+                       THEN submission.feedback END AS feedback
             FROM custom_assignments ca
             JOIN assignments a ON a.id = ca.assignment_id
             JOIN class_sections cs ON cs.id = a.class_section_id
@@ -375,8 +398,16 @@ pub async fn get_submission_for_assignment(
             JOIN enrollments enrollment
               ON enrollment.student_id = student.id
              AND enrollment.class_section_id = a.class_section_id
-            LEFT JOIN submissions submission
-              ON submission.custom_assignment_id = ca.id
+            JOIN LATERAL (
+                SELECT h.* FROM submission_attempts h
+                WHERE h.custom_assignment_id=ca.id AND h.student_id=student.id
+                  AND h.school_id=cs.school_id
+                ORDER BY h.attempt_number DESC
+                LIMIT 1
+            ) attempt ON TRUE
+            JOIN submissions submission
+              ON submission.id = attempt.submission_id
+             AND submission.custom_assignment_id = ca.id
              AND submission.student_id = student.id
             WHERE ca.id = $1
               AND student.user_id = $2
@@ -410,6 +441,8 @@ pub async fn get_submission_for_assignment(
                 submitted_at: submitted_at.map(|value| value.to_rfc3339()),
                 grade: grade.map(|value| format_grade_points(value, grade_scale)),
                 feedback: row.get("feedback"),
+                attempt_number: row.get("attempt_number"),
+                accepted_file_count: row.get("accepted_file_count"),
             }
         }))
     }
@@ -430,6 +463,8 @@ pub struct StudentSubmission {
     pub submitted_at: Option<String>,
     pub grade: Option<String>,
     pub feedback: Option<String>,
+    pub attempt_number: i16,
+    pub accepted_file_count: i64,
 }
 
 #[cfg(feature = "server")]
