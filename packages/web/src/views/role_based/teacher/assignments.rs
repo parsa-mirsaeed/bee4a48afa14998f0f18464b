@@ -3,6 +3,7 @@
 use crate::i18n::{
     assignment_status_label, format_product_date, format_product_date_text, use_locale, Locale,
 };
+use super::personalization_status::PersonalizationQueueStatusPanel;
 use crate::views::role_based::components::DashboardSection;
 use crate::views::role_based::shared::common::Modal;
 use api::domain::AssignmentStatus;
@@ -62,6 +63,7 @@ pub fn AssignmentsList() -> Element {
 
     rsx! {
         div { class: "et-teacher-assignments space-y-6",
+            PersonalizationQueueStatusPanel {}
             if let Some((success, message)) = notice() {
                 div {
                     class: if success {
