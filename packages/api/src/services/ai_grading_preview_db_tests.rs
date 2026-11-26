@@ -2429,8 +2429,17 @@ async fn school_and_teacher_authorization_matrix() {
         actor_school: Uuid,
         submission_id: Uuid,
         points: f64,
+        expected_revision: Option<Uuid>,
     ) -> Result<bool, dioxus::prelude::ServerFnError> {
         use crate::rls_context::{AuthorizedActor, AuthorizedTx};
+        let revision = match expected_revision {
+            Some(revision) => revision,
+            None => sqlx::query_scalar("SELECT revision FROM public.submissions WHERE id=$1")
+                .bind(submission_id)
+                .fetch_one(raw)
+                .await
+                .expect("read fixture revision"),
+        };
         let actor = AuthorizedActor::new(actor_id, actor_role, Some(actor_school))
             .expect("valid teacher-grade test actor");
         let tx = AuthorizedTx::begin(raw, actor)
@@ -2442,6 +2451,7 @@ async fn school_and_teacher_authorization_matrix() {
                 &scoped,
                 actor_id,
                 submission_id,
+                revision,
                 points,
                 Some("Teacher-reviewed".to_string()),
             ),
@@ -2458,7 +2468,7 @@ async fn school_and_teacher_authorization_matrix() {
         (student_a_user, "Student", school_a, submissions[0]),
     ] {
         assert!(
-            manual_grade_as(&pool, actor, role, school, target, 90.0)
+            manual_grade_as(&pool, actor, role, school, target, 90.0, None)
                 .await
                 .is_err(),
             "unassigned, cross-school, or student grading must fail closed"
@@ -2472,6 +2482,20 @@ async fn school_and_teacher_authorization_matrix() {
     .await
     .expect("read unchanged grade after denied cases");
     assert_eq!(before_manual, (None, None));
+    assert!(
+        manual_grade_as(
+            &pool,
+            teacher_a_user,
+            "Teacher",
+            school_a,
+            submissions[0],
+            90.0,
+            Some(Uuid::new_v4()),
+        )
+        .await
+        .is_err(),
+        "a stale reviewed revision cannot publish a grade"
+    );
 
     assert!(
         manual_grade_as(
@@ -2480,7 +2504,8 @@ async fn school_and_teacher_authorization_matrix() {
             "Teacher",
             school_a,
             submissions[0],
-            90.0
+            90.0,
+            None,
         )
         .await
         .expect("assigned teacher may grade"),
@@ -2506,7 +2531,8 @@ async fn school_and_teacher_authorization_matrix() {
             "Teacher",
             school_a,
             submissions[0],
-            f64::NAN
+            f64::NAN,
+            None,
         )
         .await
         .is_err(),

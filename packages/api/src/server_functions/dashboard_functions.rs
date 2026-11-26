@@ -2066,6 +2066,7 @@ pub async fn get_child_attendance_for_parent(
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TeacherSubmissionInfo {
     pub id: String,
+    pub revision: uuid::Uuid,
     pub custom_assignment_id: String,
     pub assignment_title: String,
     pub class_name: String,
@@ -2110,6 +2111,7 @@ pub async fn get_pending_submissions_for_teacher(
             r#"
             SELECT 
                 s.id as submission_id,
+                s.revision,
                 s.custom_assignment_id,
                 a.title as assignment_title,
                 cs.name as class_name,
@@ -2155,6 +2157,7 @@ pub async fn get_pending_submissions_for_teacher(
 
                 TeacherSubmissionInfo {
                     id: row.get::<Uuid, _>("submission_id").to_string(),
+                    revision: row.get("revision"),
                     custom_assignment_id: row.get::<Uuid, _>("custom_assignment_id").to_string(),
                     assignment_title: row.get("assignment_title"),
                     class_name: row.get("class_name"),
@@ -2222,6 +2225,7 @@ pub async fn get_submissions_for_assignment(
             r#"
             SELECT 
                 s.id as submission_id,
+                s.revision,
                 s.custom_assignment_id,
                 a.title as assignment_title,
                 cs.name as class_name,
@@ -2265,6 +2269,7 @@ pub async fn get_submissions_for_assignment(
 
                 TeacherSubmissionInfo {
                     id: row.get::<Uuid, _>("submission_id").to_string(),
+                    revision: row.get("revision"),
                     custom_assignment_id: row.get::<Uuid, _>("custom_assignment_id").to_string(),
                     assignment_title: row.get("assignment_title"),
                     class_name: row.get("class_name"),
@@ -2296,6 +2301,7 @@ pub async fn get_submissions_for_assignment(
 #[server(endpoint = "teacher/submissions/grade")]
 pub async fn grade_submission(
     submission_id: String,
+    expected_revision: uuid::Uuid,
     grade: f64,
     feedback: Option<String>,
 ) -> Result<bool, ServerFnError> {
@@ -2309,11 +2315,19 @@ pub async fn grade_submission(
             Uuid::parse_str(&user.id).map_err(|_| ServerFnError::new("grading.forbidden"))?;
         let submission_uuid =
             Uuid::parse_str(&submission_id).map_err(|_| ServerFnError::new("grading.forbidden"))?;
-        save_authorized_manual_grade(&pool, user_id, submission_uuid, grade, feedback).await
+        save_authorized_manual_grade(
+            &pool,
+            user_id,
+            submission_uuid,
+            expected_revision,
+            grade,
+            feedback,
+        )
+        .await
     }
     #[cfg(not(feature = "server"))]
     {
-        let _ = (submission_id, grade, feedback);
+        let _ = (submission_id, expected_revision, grade, feedback);
         Ok(false)
     }
 }
@@ -2325,10 +2339,11 @@ pub(crate) async fn save_authorized_manual_grade(
     pool: &AuthorizedPool,
     user_id: Uuid,
     submission_uuid: Uuid,
+    expected_revision: Uuid,
     grade: f64,
     feedback: Option<String>,
 ) -> Result<bool, ServerFnError> {
-    if !(0.0..=100.0).contains(&grade) || submission_uuid.is_nil() {
+    if !(0.0..=100.0).contains(&grade) || submission_uuid.is_nil() || expected_revision.is_nil() {
         return Err(ServerFnError::new("grading.forbidden"));
     }
     // The live authenticated Teacher must belong to the same active school,
@@ -2340,7 +2355,7 @@ pub(crate) async fn save_authorized_manual_grade(
         .map_err(|_| ServerFnError::new("grading.unavailable"))?;
     let target = sqlx::query(
         r#"
-        SELECT s.custom_assignment_id, t.id AS teacher_id
+        SELECT s.custom_assignment_id, s.revision, t.id AS teacher_id
         FROM public.submissions s
         JOIN public.custom_assignments ca
           ON ca.id = s.custom_assignment_id AND ca.student_id = s.student_id
@@ -2378,11 +2393,15 @@ pub(crate) async fn save_authorized_manual_grade(
 
     let assignment_id: Uuid = target.get("custom_assignment_id");
     let teacher_id: Uuid = target.get("teacher_id");
+    let current_revision: Uuid = target.get("revision");
+    if current_revision != expected_revision {
+        return Err(ServerFnError::new("grading.stale_submission"));
+    }
     let grade_updated = sqlx::query(
         r#"
         UPDATE public.submissions
         SET grade = $1, grade_scale = 100, feedback = $2, graded_by = $3
-        WHERE id = $4 AND custom_assignment_id = $5
+        WHERE id = $4 AND custom_assignment_id = $5 AND revision = $6
         "#,
     )
     .bind(grade)
@@ -2390,6 +2409,7 @@ pub(crate) async fn save_authorized_manual_grade(
     .bind(teacher_id)
     .bind(submission_uuid)
     .bind(assignment_id)
+    .bind(expected_revision)
     .execute(&mut *transaction)
     .await
     .map_err(|_| ServerFnError::new("grading.unavailable"))?;
