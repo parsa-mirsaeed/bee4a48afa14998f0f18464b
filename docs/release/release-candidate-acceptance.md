@@ -5,12 +5,21 @@ Plan item: **PR-15 — P0 final exact-head production acceptance**.
 ## Frozen candidate basis
 
 - Historical frozen baseline before the acceptance fixes: `a70f22b5e46be1d07fe29205e844b64363314b49`. This is historical context, not proof of the current candidate.
-- Current implementation base: the exact `main` base SHA recorded on the candidate pull request; use the authoritative repository `parsa-mirsaeed/bee4a48afa14998f0f18464b`.
+- Current implementation base: the exact `main` base SHA recorded on the candidate pull request; use the authoritative repository `pemerald0/bee4a48afa14998f0f18464b`.
 - Candidate branch: resolved from the current pull-request event; no retired branch is authoritative.
 - Exact candidate head SHA: resolved from the pull-request event and written by the Final Release Acceptance workflow; do not substitute an older run or merge-preview SHA.
 - Candidate scope: final release evidence/orchestration only; no product feature is being added by PR-15.
 
 Any commit after a final proof starts invalidates that proof for release-candidate purposes. The workflow concurrency cancels superseded proof and every reused/dispatched run is required to report the exact current PR head SHA.
+
+## November 2026 bounded corrective candidate
+
+- Corrective product baseline: `738dea2ab4b35603141073bbd09e739c008d9e49` (all seven corrective PRs #171, #172, #174, #175, #176, #177 and #178 merged).
+- This acceptance PR changes documentation only. Its exact head, not the baseline or a prior PR head, is the release proof identity.
+- Final corrective PR #178 passed AI Change Proof and substantive Full Validation on its own exact head, including 208 final browser tests. These results establish entry context, not proof for this new candidate.
+- Track outstanding acceptance in issues #170 and #173. No product feature or external acceptance requirement is changed here.
+- Local synthetic acceptance remains outstanding: verify the immutable packaged identity, normal teacher/student/parent/manager/admin workflows, keyboard and Storage corrections, exact Luna chat and native PDF behavior, localized policy and diagnostic truth, tenant isolation, restart and AI-off core, and resource headroom. Use approved synthetic inputs only and school opt-in/budgets for external inference. No VPS rollout is authorized by this record.
+- Product GO is withheld until the integrated exact-head evidence and local acceptance are complete. Human/external contracted-production acceptance remains separate in PR #2.
 
 ## Entry criteria
 
