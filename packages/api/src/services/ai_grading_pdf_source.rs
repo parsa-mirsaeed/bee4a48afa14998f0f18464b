@@ -43,6 +43,12 @@ SELECT cs.school_id, s.id AS submission_id, s.revision AS submission_revision,
 FROM public.submissions s
 JOIN public.custom_assignments ca
   ON ca.id=s.custom_assignment_id AND ca.student_id=s.student_id
+LEFT JOIN LATERAL (
+    SELECT h.attempt_number, h.submission_id, h.submission_revision
+    FROM public.submission_attempts h
+    WHERE h.custom_assignment_id=s.custom_assignment_id
+    ORDER BY h.attempt_number DESC LIMIT 1
+) accepted ON TRUE
 JOIN public.assignments a ON a.id=ca.assignment_id
 JOIN public.class_sections cs ON cs.id=a.class_section_id
 JOIN public.teachers t ON t.id=a.teacher_id AND t.school_id=cs.school_id
@@ -80,11 +86,28 @@ WHERE s.id=$1 AND teacher_user.id=$2
   AND ca.submitted_at IS NOT NULL
   AND s.submitted_at IS NOT NULL
   AND ca.graded_at IS NULL AND s.grade IS NULL AND s.graded_by IS NULL
+  AND (accepted.attempt_number IS NULL OR (
+      accepted.submission_id=s.id AND accepted.submission_revision=s.revision
+  ))
+  AND (accepted.attempt_number IS NULL OR EXISTS (
+      SELECT 1 FROM public.submission_attempt_originals original
+      WHERE original.custom_assignment_id=ca.id
+        AND original.attempt_number=accepted.attempt_number
+        AND original.submission_id=s.id
+        AND original.attachment_id=attachment.id
+  ))
   AND (SELECT count(*) FROM public.submission_attachments other_attachment
        WHERE other_attachment.custom_assignment_id=ca.id
          AND other_attachment.student_id=ca.student_id
          AND other_attachment.school_id=cs.school_id
-         AND other_attachment.status <> 'removed')=1
+         AND other_attachment.status <> 'removed'
+         AND (accepted.attempt_number IS NULL OR EXISTS (
+             SELECT 1 FROM public.submission_attempt_originals original
+             WHERE original.custom_assignment_id=ca.id
+               AND original.attempt_number=accepted.attempt_number
+               AND original.submission_id=s.id
+               AND original.attachment_id=other_attachment.id
+         )))=1
 LIMIT 1
 "#;
 

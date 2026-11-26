@@ -139,17 +139,37 @@ async fn generate(
     // Check before fetching originals/inference and again before completing
     // the lease. Text-only jobs retain their existing behavior.
     let has_original: bool = sqlx::query_scalar(
-        "SELECT EXISTS ( \
-            SELECT 1 FROM public.submission_attachments attachment \
-            JOIN public.submissions submission \
-              ON submission.custom_assignment_id=attachment.custom_assignment_id \
-            WHERE submission.id=$1 AND attachment.school_id=$2 \
-              AND attachment.student_id=submission.student_id \
-              AND attachment.status <> 'removed' \
-        )",
+        r#"
+        SELECT EXISTS (
+            SELECT 1 FROM public.submission_attachments attachment
+            JOIN public.submissions submission
+              ON submission.custom_assignment_id=attachment.custom_assignment_id
+            LEFT JOIN LATERAL (
+                SELECT h.attempt_number, h.submission_id, h.submission_revision
+                FROM public.submission_attempts h
+                WHERE h.custom_assignment_id=submission.custom_assignment_id
+                ORDER BY h.attempt_number DESC LIMIT 1
+            ) accepted ON TRUE
+            WHERE submission.id=$1 AND attachment.school_id=$2
+              AND submission.revision=$3
+              AND attachment.student_id=submission.student_id
+              AND attachment.status <> 'removed'
+              AND (accepted.attempt_number IS NULL OR (
+                  accepted.submission_id=submission.id AND accepted.submission_revision=submission.revision
+              ))
+              AND (accepted.attempt_number IS NULL OR EXISTS (
+                  SELECT 1 FROM public.submission_attempt_originals original
+                  WHERE original.custom_assignment_id=submission.custom_assignment_id
+                    AND original.attempt_number=accepted.attempt_number
+                    AND original.submission_id=submission.id
+                    AND original.attachment_id=attachment.id
+              ))
+        )
+        "#,
     )
     .bind(job.submission_id)
     .bind(job.school_id)
+    .bind(job.revision)
     .fetch_one(pool)
     .await?;
     if has_original
