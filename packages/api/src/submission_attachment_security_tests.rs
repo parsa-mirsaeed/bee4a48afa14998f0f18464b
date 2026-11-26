@@ -301,6 +301,76 @@ async fn private_originals_enforce_actor_school_state_and_cleanup_boundaries() {
             expected
         );
     }
+    // Prove the runtime append policies (not only migration-owner backfill).
+    // A new revision can append precisely one next receipt; the original
+    // receipt and bytes remain immutable and an over-limit append rolls back.
+    let second_revision = Uuid::new_v4();
+    let second_request = Uuid::new_v4();
+    tx.execute(format!(r#"
+        SET LOCAL app.user_id='{student_user}'; SET LOCAL app.user_role='Student'; SET LOCAL app.school_id='{school}';
+        UPDATE submissions SET content='{{"text":"second work"}}', revision='{second_revision}',
+          last_submit_request='{second_request}', last_submit_fingerprint='second-fingerprint', submitted_at=NOW()
+          WHERE id='{submission}';
+        INSERT INTO submission_attempts(custom_assignment_id,student_id,school_id,submission_id,attempt_number,submission_revision,request_id,request_fingerprint,accepted_content,accepted_at)
+          SELECT custom_assignment_id,student_id,'{school}',id,2,revision,last_submit_request,last_submit_fingerprint,content,submitted_at
+          FROM submissions WHERE id='{submission}';
+        INSERT INTO submission_attempt_originals(custom_assignment_id,attempt_number,submission_id,attachment_id)
+          VALUES('{custom}',2,'{submission}','{attachment}');
+    "#).as_str()).await.unwrap();
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM submission_attempts WHERE custom_assignment_id=$1",
+        )
+        .bind(custom)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap(),
+        2
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, String>(
+            "SELECT accepted_content->>'text' FROM submission_attempts WHERE custom_assignment_id=$1 AND attempt_number=1",
+        )
+        .bind(custom)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap(),
+        "work"
+    );
+    // The assigned teacher can lower a policy without erasing existing work.
+    tx.execute(format!(r#"
+        SET LOCAL app.user_id='{teacher_user}'; SET LOCAL app.user_role='Teacher';
+        UPDATE assignments SET max_submission_attempts=1 WHERE id='{assignment}';
+        SET LOCAL app.user_id='{student_user}'; SET LOCAL app.user_role='Student';
+        SAVEPOINT exhausted_attempt;
+    "#).as_str()).await.unwrap();
+    let forged_revision = Uuid::new_v4();
+    assert!(tx.execute(format!(r#"
+        UPDATE submissions SET revision='{forged_revision}', content='{{"text":"not accepted"}}'
+          WHERE id='{submission}';
+        INSERT INTO submission_attempts(custom_assignment_id,student_id,school_id,submission_id,attempt_number,submission_revision,accepted_content,accepted_at)
+          SELECT custom_assignment_id,student_id,'{school}',id,3,revision,content,submitted_at
+          FROM submissions WHERE id='{submission}';
+    "#).as_str()).await.is_err());
+    tx.execute("ROLLBACK TO exhausted_attempt;").await.unwrap();
+    assert_eq!(
+        sqlx::query_scalar::<_, Uuid>("SELECT revision FROM submissions WHERE id=$1")
+            .bind(submission)
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap(),
+        second_revision
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM submission_attempts WHERE custom_assignment_id=$1",
+        )
+        .bind(custom)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap(),
+        2
+    );
     // A queue caller receives no submitted originals, even under the bounded
     // elevated scheduler context. No-school ordinary actor is denied above.
     tx.execute(format!("SET LOCAL app.user_id='{outsider}';SET LOCAL app.user_role='system_job';SET LOCAL app.school_id='';SET LOCAL app.elevated_operation='true';").as_str()).await.unwrap();

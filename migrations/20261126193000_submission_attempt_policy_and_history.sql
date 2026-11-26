@@ -114,8 +114,8 @@ ON CONFLICT (custom_assignment_id, attempt_number, attachment_id) DO NOTHING;
 
 -- No direct Data API privileges. Production's constrained app role still
 -- requires the exact relationship policies below. No app insert/update/delete
--- policy yet: later commits in this same draft must supply the locked finalize
--- path before this feature can become merge-ready.
+-- policy at the legacy backfill boundary; the exact append policies below
+-- apply only to runtime finalization. No update/delete policies.
 ALTER TABLE public.submission_attempts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.submission_attempts FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.submission_attempt_originals ENABLE ROW LEVEL SECURITY;
