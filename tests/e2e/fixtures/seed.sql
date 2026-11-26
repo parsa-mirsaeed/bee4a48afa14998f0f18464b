@@ -554,6 +554,13 @@ INSERT INTO custom_assignments(id,assignment_id,student_id,due_at,status) VALUES
 INSERT INTO assignments(id,teacher_id,class_section_id,subject_id,title,body,due_at,status,published_at) VALUES('f0600000-0000-0000-0000-000000000290','c0000000-0000-0000-0000-0000000000c2','e0000000-0000-0000-0000-0000000000c1','d0000000-0000-0000-0000-0000000000a1','E2E Attachment 290','Submit your work.',NOW()+INTERVAL '14 days','Published',NOW()) ON CONFLICT DO NOTHING;
 INSERT INTO custom_assignments(id,assignment_id,student_id,due_at,status) VALUES('f1600000-0000-0000-0000-000000000290','f0600000-0000-0000-0000-000000000290','c0000000-0000-0000-0000-0000000000c3',NOW()+INTERVAL '14 days','Assigned') ON CONFLICT DO NOTHING;
 
+-- Legacy unsubmitted rows have a timestamp but no accepted receipt. The
+-- first finalization must accept them without inventing a consumed attempt.
+INSERT INTO submissions(id,custom_assignment_id,student_id,content,submitted_at) VALUES
+ ('f2600000-0000-0000-0000-000000000190','f1600000-0000-0000-0000-000000000190','c0000000-0000-0000-0000-0000000000c3','{"text":"legacy draft"}'::jsonb,NOW()-INTERVAL '1 hour'),
+ ('f2600000-0000-0000-0000-000000000290','f1600000-0000-0000-0000-000000000290','c0000000-0000-0000-0000-0000000000c3','{"text":"legacy draft"}'::jsonb,NOW()-INTERVAL '1 hour')
+ON CONFLICT DO NOTHING;
+
 -- Dedicated PDF grading denial fixtures, separate from file-browser acceptance
 -- cases so the desktop/mobile projects do not share submission state.
 INSERT INTO assignments(id,teacher_id,class_section_id,subject_id,title,body,due_at,status,published_at) VALUES

@@ -23,6 +23,7 @@ pub fn SubmissionFiles(
 ) -> Element {
     let locale = use_locale();
     let mut pending = use_signal(Vec::<LocalFile>::new);
+    let mut reused_originals = use_signal(Vec::<Uuid>::new);
     let mut error = use_signal(|| false);
     let mut epoch = use_signal(|| 0_u64);
     let mut current = use_resource(move || {
@@ -35,7 +36,14 @@ pub fn SubmissionFiles(
             attachments.set(
                 files
                     .iter()
-                    .filter(|file| (file.status != AttachmentStatus::Submitted) == editable)
+                    .filter(|file| {
+                        if editable {
+                            file.status != AttachmentStatus::Submitted
+                                || reused_originals().contains(&file.id)
+                        } else {
+                            file.status == AttachmentStatus::Submitted
+                        }
+                    })
                     .cloned()
                     .collect(),
             );
@@ -47,7 +55,14 @@ pub fn SubmissionFiles(
         }
         None => {}
     });
-    use_effect(move || unuploaded.set(!pending().is_empty()));
+    use_effect(move || {
+        unuploaded.set(
+            !pending().is_empty()
+                || attachments()
+                    .iter()
+                    .any(|file| file.status == AttachmentStatus::Pending),
+        );
+    });
     let upload = move |_| {
         if busy() || pending().is_empty() {
             return;
@@ -115,7 +130,45 @@ pub fn SubmissionFiles(
             if !loaded() {
                 button { class:"et-ui-button et-ui-button--md et-ui-button--secondary", disabled:busy(), onclick:move |_|{error.set(false);current.restart();}, "{locale.t(\"common.refresh\")}" }
             }
-            for file in attachments().into_iter().filter(|f| !pending().iter().any(|p| p.reserved_id==Some(f.id))) {
+            if editable {
+                if let Some(Ok(remote)) = current.read().as_ref() {
+                    if remote.iter().any(|f| f.status == AttachmentStatus::Submitted) {
+                        fieldset { class:"space-y-2 rounded-lg border border-gray-200 p-3 dark:border-gray-700", disabled:busy() || !loaded(),
+                            legend { class:"font-medium", "{locale.t(\"submission.files.reuse_title\")}" }
+                            p { class:"text-sm text-gray-600 dark:text-gray-300", "{locale.t(\"submission.files.reuse_help\")}" }
+                            for file in remote.iter().filter(|f| f.status == AttachmentStatus::Submitted).cloned() {
+                                div { key:"{file.id}",class:"flex flex-wrap items-center gap-2",
+                                    label { class:"flex min-h-[44px] min-w-0 items-center gap-2",
+                                        input {
+                                            r#type:"checkbox",
+                                            checked:reused_originals().contains(&file.id),
+                                            onchange:move |_|{
+                                                if busy() || !loaded() {return;}
+                                                let id=file.id;
+                                                if reused_originals().contains(&id) {
+                                                    reused_originals.with_mut(|ids|ids.retain(|value|*value!=id));
+                                                } else {
+                                                    let remote=attachments();
+                                                    let local=pending();
+                                                    let distinct_local=local.iter().filter(|p| !remote.iter().any(|f| p.reserved_id==Some(f.id)));
+                                                    let count=remote.len()+distinct_local.clone().count()+1;
+                                                    let bytes=remote.iter().map(|f|f.byte_size).sum::<i64>()+distinct_local.map(|p|p.bytes.len() as i64).sum::<i64>()+file.byte_size;
+                                                    if count>MAX_SUBMISSION_FILES || bytes>MAX_SUBMISSION_FILE_BYTES as i64 {
+                                                        error.set(true);return;
+                                                    }
+                                                    reused_originals.with_mut(|ids|ids.push(id));
+                                                }
+                                            }
+                                        }
+                                        span { class:"min-w-0 break-all", "{file.filename}" }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            for file in attachments().into_iter().filter(|f| (!editable || f.status!=AttachmentStatus::Submitted) && !pending().iter().any(|p| p.reserved_id==Some(f.id))) {
                 div { key:"{file.id}",class:"flex flex-wrap items-center gap-3 rounded-lg border p-3",
                     span { class:"min-w-0 break-all", "{file.filename}" }
                     bdi { dir:"ltr", class:"text-sm", "{file.byte_size} B" }

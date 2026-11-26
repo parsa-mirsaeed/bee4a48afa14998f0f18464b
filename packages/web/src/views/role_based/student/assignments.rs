@@ -403,8 +403,7 @@ fn AssignmentWorkModal(
     let mut content = use_signal(String::new);
     let mut initialized = use_signal(|| false);
     let mut revision = use_signal(|| None::<uuid::Uuid>);
-    let baseline_text = use_signal(String::new);
-    let mut request_id = use_signal(uuid::Uuid::new_v4);
+    let mut finalization_intent = use_signal(|| None::<(String, Vec<uuid::Uuid>, uuid::Uuid)>);
     let attachments = use_signal(
         Vec::<api::server_functions::submission_attachment_functions::SubmissionAttachment>::new,
     );
@@ -441,8 +440,22 @@ fn AssignmentWorkModal(
         let id = id_for_submit.clone();
         let save_failed_error = save_failed_error.clone();
         let expected_revision = revision();
-        let token = request_id();
-        let ids = attachments().iter().map(|a| a.id).collect();
+        let mut ids: Vec<_> = attachments().iter().map(|a| a.id).collect();
+        ids.sort_unstable();
+        // A lost response must replay the same request. Changed text or file
+        // references are a new intent and never reuse the previous token.
+        let token = match finalization_intent() {
+            Some((previous_text, previous_ids, token))
+                if previous_text == text && previous_ids == ids =>
+            {
+                token
+            }
+            _ => {
+                let token = uuid::Uuid::new_v4();
+                finalization_intent.set(Some((text.clone(), ids.clone(), token)));
+                token
+            }
+        };
         spawn(async move {
             match finalize_student_submission(id, text, token, expected_revision, ids).await {
                 Ok(_) => on_saved.call(()),
@@ -459,7 +472,7 @@ fn AssignmentWorkModal(
             return;
         }
         #[cfg(target_arch = "wasm32")]
-        if content() != baseline_text() || unuploaded() {
+        if !content().is_empty() || unuploaded() || !attachments().is_empty() {
             let accepted = web_sys::window()
                 .and_then(|w| {
                     w.confirm_with_message(&locale.t("submission.files.discard"))
@@ -503,7 +516,7 @@ fn AssignmentWorkModal(
                             id: "student-assignment-work",
                             class: "min-h-64 w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 dark:border-gray-700 dark:bg-gray-900",
                             value: "{content}",
-                            oninput: move |event| {content.set(event.value());request_id.set(uuid::Uuid::new_v4());},
+                            oninput: move |event| content.set(event.value()),
                             disabled: busy() || !eligible,
                         }
                     }

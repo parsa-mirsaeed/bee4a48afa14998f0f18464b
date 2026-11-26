@@ -2131,6 +2131,17 @@ pub async fn get_pending_submissions_for_teacher(
             JOIN users u ON st.user_id = u.id
             WHERE a.teacher_id = $1 
             AND s.grade IS NULL
+            AND ca.status IN ('Submitted'::custom_status, 'Graded'::custom_status)
+            AND ca.submitted_at IS NOT NULL
+            AND s.id = COALESCE((
+                SELECT h.submission_id FROM submission_attempts h
+                WHERE h.custom_assignment_id=ca.id
+                ORDER BY h.attempt_number DESC LIMIT 1
+            ), (
+                SELECT latest.id FROM submissions latest
+                WHERE latest.custom_assignment_id=ca.id
+                ORDER BY latest.submitted_at DESC,latest.id DESC LIMIT 1
+            ))
             ORDER BY s.submitted_at ASC
             LIMIT 50
             "#,
@@ -2244,6 +2255,17 @@ pub async fn get_submissions_for_assignment(
             JOIN students st ON s.student_id = st.id
             JOIN users u ON st.user_id = u.id
             WHERE a.id = $1
+            AND ca.status IN ('Submitted'::custom_status, 'Graded'::custom_status)
+            AND ca.submitted_at IS NOT NULL
+            AND s.id = COALESCE((
+                SELECT h.submission_id FROM submission_attempts h
+                WHERE h.custom_assignment_id=ca.id
+                ORDER BY h.attempt_number DESC LIMIT 1
+            ), (
+                SELECT latest.id FROM submissions latest
+                WHERE latest.custom_assignment_id=ca.id
+                ORDER BY latest.submitted_at DESC,latest.id DESC LIMIT 1
+            ))
             ORDER BY s.submitted_at ASC
             "#,
         )
@@ -2398,12 +2420,19 @@ pub(crate) async fn save_authorized_manual_grade(
     let current_revision: Option<Uuid> = sqlx::query_scalar(
         r#"
         SELECT s.revision FROM public.submissions s
+        LEFT JOIN LATERAL (
+            SELECT h.submission_id,h.submission_revision
+            FROM public.submission_attempts h
+            WHERE h.custom_assignment_id=$2
+            ORDER BY h.attempt_number DESC LIMIT 1
+        ) accepted ON TRUE
         WHERE s.id = $1 AND s.custom_assignment_id = $2
-          AND s.id = (
+          AND s.id = COALESCE(accepted.submission_id, (
               SELECT latest.id FROM public.submissions latest
               WHERE latest.custom_assignment_id = $2
               ORDER BY latest.submitted_at DESC, latest.id DESC LIMIT 1
-          )
+          ))
+          AND (accepted.submission_revision IS NULL OR accepted.submission_revision=s.revision)
         FOR UPDATE OF s
         "#,
     )

@@ -192,7 +192,21 @@ async fn submit_work(
     }
 
     let existing_submission = sqlx::query(
-        "SELECT id, revision, grade IS NOT NULL AS graded FROM submissions WHERE custom_assignment_id=$1 AND student_id=$2 ORDER BY submitted_at DESC,id DESC LIMIT 1 FOR UPDATE",
+        r#"
+        SELECT s.id, s.revision, s.grade IS NOT NULL AS graded
+        FROM submissions s
+        LEFT JOIN LATERAL (
+            SELECT h.submission_id, h.submission_revision
+            FROM submission_attempts h
+            WHERE h.custom_assignment_id=$1
+            ORDER BY h.attempt_number DESC LIMIT 1
+        ) accepted ON TRUE
+        WHERE s.custom_assignment_id=$1 AND s.student_id=$2
+          AND (accepted.submission_id IS NULL OR (
+              s.id=accepted.submission_id AND s.revision=accepted.submission_revision
+          ))
+        ORDER BY s.submitted_at DESC,s.id DESC LIMIT 1 FOR UPDATE OF s
+        "#,
     )
     .bind(custom_assignment_id)
     .bind(student_id)
@@ -205,12 +219,19 @@ async fn submit_work(
                 "This assignment has already been graded",
             ));
         }
-        // Legacy callers have no expected revision and cannot safely replace
-        // accepted work. Explicit finalize is required for additional attempts.
-        if request_id.is_none() || Some(existing.get::<Uuid, _>("revision")) != expected_revision {
+        // Unsubmitted legacy rows do not consume an attempt or need a
+        // client revision. Once a receipt exists, only explicit finalize
+        // with the latest accepted revision may advance it.
+        if attempts_used > 0 {
+            if request_id.is_none()
+                || Some(existing.get::<Uuid, _>("revision")) != expected_revision
+            {
+                return Err(ServerFnError::new("submission_conflict"));
+            }
+        } else if expected_revision.is_some() {
             return Err(ServerFnError::new("submission_conflict"));
         }
-    } else if expected_revision.is_some() {
+    } else if expected_revision.is_some() || attempts_used > 0 {
         return Err(ServerFnError::new("submission_conflict"));
     }
 

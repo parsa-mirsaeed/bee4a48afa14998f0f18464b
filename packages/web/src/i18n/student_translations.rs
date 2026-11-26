@@ -2,6 +2,10 @@ use super::Locale;
 
 pub(crate) fn student_translation(key: &'static str, locale: Locale) -> Option<&'static str> {
     match (locale, key) {
+        (Locale::En, "submission.files.reuse_title") => Some("Reuse accepted originals"),
+        (Locale::Fa, "submission.files.reuse_title") => Some("استفاده دوباره از فایل‌های پذیرفته‌شده"),
+        (Locale::En, "submission.files.reuse_help") => Some("Select files to include in this new attempt. Previous accepted work stays unchanged."),
+        (Locale::Fa, "submission.files.reuse_help") => Some("فایل‌های موردنظر برای ارسال جدید را انتخاب کنید. ارسال‌های پذیرفته‌شده قبلی بدون تغییر می‌مانند."),
         (Locale::En, "submission.files.title") => Some("Files"),
         (Locale::Fa, "submission.files.title") => Some("فایل‌ها"),
         (Locale::En, "submission.files.error") => Some("Unable to upload files. Check the formats and limits, then retry. Your text is preserved."),
