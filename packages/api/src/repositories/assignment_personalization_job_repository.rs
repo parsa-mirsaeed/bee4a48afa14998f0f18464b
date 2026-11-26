@@ -47,6 +47,11 @@ pub enum PersonalizationFailureKind {
     GatewayUnavailable,
     ConfigurationUnavailable,
     RateLimited,
+    QuotaExceeded,
+    CircuitOpen,
+    ProviderInvalidResponse,
+    ProviderResponseTooLarge,
+    ProviderRejectedRequest,
     InvalidGatewayResponse,
     ProcessingUnavailable,
     ContentRejected,
@@ -58,6 +63,11 @@ impl PersonalizationFailureKind {
             Self::GatewayUnavailable => "gateway_unavailable",
             Self::ConfigurationUnavailable => "provider_unconfigured",
             Self::RateLimited => "rate_limited",
+            Self::QuotaExceeded => "quota_exceeded",
+            Self::CircuitOpen => "circuit_open",
+            Self::ProviderInvalidResponse => "invalid_provider_response",
+            Self::ProviderResponseTooLarge => "provider_response_too_large",
+            Self::ProviderRejectedRequest => "provider_rejected_request",
             Self::InvalidGatewayResponse => "invalid_gateway_response",
             Self::ProcessingUnavailable => "processing_unavailable",
             Self::ContentRejected => "content_rejected",
@@ -69,6 +79,13 @@ impl PersonalizationFailureKind {
             Self::GatewayUnavailable => "AI gateway is temporarily unavailable",
             Self::ConfigurationUnavailable => "AI personalization provider is not configured",
             Self::RateLimited => "AI personalization is temporarily rate limited",
+            Self::QuotaExceeded => "School AI quota is temporarily exhausted",
+            Self::CircuitOpen => "AI provider circuit is waiting for recovery",
+            Self::ProviderInvalidResponse => {
+                "AI provider response did not match the required contract"
+            }
+            Self::ProviderResponseTooLarge => "AI provider response exceeded the configured limit",
+            Self::ProviderRejectedRequest => "AI provider rejected the request",
             Self::InvalidGatewayResponse => "AI gateway returned an invalid response",
             Self::ProcessingUnavailable => "Personalization processing is temporarily unavailable",
             Self::ContentRejected => "Personalization input was rejected by safety limits",
@@ -76,7 +93,14 @@ impl PersonalizationFailureKind {
     }
 
     pub fn retryable(self) -> bool {
-        !matches!(self, Self::ContentRejected | Self::ConfigurationUnavailable)
+        !matches!(
+            self,
+            Self::ContentRejected
+                | Self::ConfigurationUnavailable
+                | Self::ProviderInvalidResponse
+                | Self::ProviderResponseTooLarge
+                | Self::ProviderRejectedRequest
+        )
     }
 }
 
@@ -965,6 +989,11 @@ mod tests {
             PersonalizationFailureKind::GatewayUnavailable,
             PersonalizationFailureKind::ConfigurationUnavailable,
             PersonalizationFailureKind::RateLimited,
+            PersonalizationFailureKind::QuotaExceeded,
+            PersonalizationFailureKind::CircuitOpen,
+            PersonalizationFailureKind::ProviderInvalidResponse,
+            PersonalizationFailureKind::ProviderResponseTooLarge,
+            PersonalizationFailureKind::ProviderRejectedRequest,
             PersonalizationFailureKind::InvalidGatewayResponse,
             PersonalizationFailureKind::ProcessingUnavailable,
             PersonalizationFailureKind::ContentRejected,
@@ -988,5 +1017,9 @@ mod tests {
         assert!(!PersonalizationFailureKind::ContentRejected.retryable());
         assert!(!PersonalizationFailureKind::ConfigurationUnavailable.retryable());
         assert!(PersonalizationFailureKind::RateLimited.retryable());
+        assert!(PersonalizationFailureKind::CircuitOpen.retryable());
+        assert!(!PersonalizationFailureKind::ProviderInvalidResponse.retryable());
+        assert!(!PersonalizationFailureKind::ProviderResponseTooLarge.retryable());
+        assert!(!PersonalizationFailureKind::ProviderRejectedRequest.retryable());
     }
 }

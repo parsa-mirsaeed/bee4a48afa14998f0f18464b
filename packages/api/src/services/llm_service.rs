@@ -25,6 +25,99 @@ pub const DEFAULT_ASSIGNMENT_SPECIALIZATION_INSTRUCTIONS: &str =
     "Adapt difficulty, scope, format, and scaffolding to the learner profile while preserving the original learning objective, required knowledge, and grading intent.";
 pub const MAX_ASSIGNMENT_SPECIALIZATION_INSTRUCTIONS_CHARS: usize = 4_000;
 
+/// Allowlisted internal-gateway failure categories. Never retain arbitrary
+/// provider response bodies, messages, URLs or credentials.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GatewayFailureKind {
+    TemporarilyUnavailable,
+    ShuttingDown,
+    CircuitOpen,
+    ProviderRateLimited,
+    SchoolQuotaExceeded,
+    ProviderUnconfigured,
+    LlmDisabled,
+    InvalidProviderResponse,
+    ProviderResponseTooLarge,
+    ProviderRejectedRequest,
+    Unknown,
+}
+
+impl GatewayFailureKind {
+    fn from_code(code: &str) -> Self {
+        match code {
+            "ai_temporarily_unavailable" => Self::TemporarilyUnavailable,
+            "gateway_shutting_down" => Self::ShuttingDown,
+            "circuit_open" => Self::CircuitOpen,
+            "provider_rate_limited" => Self::ProviderRateLimited,
+            "quota_exceeded" => Self::SchoolQuotaExceeded,
+            "provider_unconfigured" => Self::ProviderUnconfigured,
+            "llm_disabled" => Self::LlmDisabled,
+            "invalid_provider_response" => Self::InvalidProviderResponse,
+            "provider_response_too_large" => Self::ProviderResponseTooLarge,
+            "provider_rejected_request" => Self::ProviderRejectedRequest,
+            _ => Self::Unknown,
+        }
+    }
+
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::TemporarilyUnavailable => "ai_temporarily_unavailable",
+            Self::ShuttingDown => "gateway_shutting_down",
+            Self::CircuitOpen => "circuit_open",
+            Self::ProviderRateLimited => "provider_rate_limited",
+            Self::SchoolQuotaExceeded => "quota_exceeded",
+            Self::ProviderUnconfigured => "provider_unconfigured",
+            Self::LlmDisabled => "llm_disabled",
+            Self::InvalidProviderResponse => "invalid_provider_response",
+            Self::ProviderResponseTooLarge => "provider_response_too_large",
+            Self::ProviderRejectedRequest => "provider_rejected_request",
+            Self::Unknown => "gateway_error",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GatewayFailure {
+    pub kind: GatewayFailureKind,
+    pub request_id: Uuid,
+    /// Internal gateway status, not the external provider's HTTP status.
+    pub gateway_http_status: u16,
+    pub retry_after_seconds: Option<u64>,
+}
+
+impl std::fmt::Display for GatewayFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.kind.code())
+    }
+}
+
+async fn gateway_failure(response: reqwest::Response, request_id: Uuid) -> LlmError {
+    let status = response.status().as_u16();
+    let body = response.json::<GatewayErrorEnvelope>().await.ok();
+    let kind = GatewayFailureKind::from_code(
+        body.as_ref()
+            .map(|item| item.error.code.as_str())
+            .unwrap_or("gateway_error"),
+    );
+    let retry_after_seconds = body
+        .and_then(|item| item.error.retry_after_seconds)
+        .map(|seconds| seconds.clamp(1, 3_600));
+    let failure = GatewayFailure {
+        kind,
+        request_id,
+        gateway_http_status: status,
+        retry_after_seconds,
+    };
+    tracing::warn!(
+        %request_id,
+        gateway_http_status = status,
+        error_code = kind.code(),
+        ?retry_after_seconds,
+        "AI gateway returned a controlled failure"
+    );
+    LlmError::GatewayFailure(failure)
+}
+
 #[derive(Debug, Error)]
 pub enum LlmError {
     #[error("Missing AI gateway token")]
@@ -41,6 +134,8 @@ pub enum LlmError {
     RateLimited { retry_after_seconds: u64 },
     #[error("AI service temporarily unavailable")]
     TemporarilyUnavailable,
+    #[error("AI gateway failure: {0}")]
+    GatewayFailure(GatewayFailure),
     #[error("AI personalization provider is not configured")]
     ConfigurationUnavailable,
     #[error("Invalid response structure: {0}")]
@@ -596,42 +691,18 @@ impl ExternalLlmClient {
         let gateway_url = self.config.chat_url();
         #[cfg(test)]
         let gateway_url = self.test_chat_url.as_deref().unwrap_or(&gateway_url);
+        let request_id = Uuid::new_v4();
         let response = self
             .client
             .post(gateway_url)
             .bearer_auth(&self.config.api_key)
             .header("x-edutalent-school-id", school_id.to_string())
-            .header("x-edutalent-request-id", Uuid::new_v4().to_string())
+            .header("x-edutalent-request-id", request_id.to_string())
             .json(&request)
             .send()
             .await?;
-        let status = response.status();
-        if !status.is_success() {
-            let body = response.json::<GatewayErrorEnvelope>().await.ok();
-            let code = body
-                .as_ref()
-                .map(|value| value.error.code.as_str())
-                .unwrap_or("gateway_error");
-            let retry_after = body
-                .as_ref()
-                .and_then(|value| value.error.retry_after_seconds)
-                .unwrap_or(60);
-            return match code {
-                "provider_rate_limited" | "quota_exceeded" => Err(LlmError::RateLimited {
-                    retry_after_seconds: retry_after,
-                }),
-                "llm_disabled" | "provider_unconfigured" => Err(LlmError::ConfigurationUnavailable),
-                "ai_temporarily_unavailable"
-                | "circuit_open"
-                | "gateway_shutting_down"
-                | "invalid_provider_response"
-                | "provider_response_too_large"
-                | "provider_rejected_request" => Err(LlmError::TemporarilyUnavailable),
-                _ => Err(LlmError::ApiError {
-                    status: status.as_u16(),
-                    message: code.to_string(),
-                }),
-            };
+        if !response.status().is_success() {
+            return Err(gateway_failure(response, request_id).await);
         }
         let completion = response
             .json::<GatewayChatResponse>()
@@ -809,27 +880,18 @@ impl ExternalLlmClient {
             .and_then(|url| url.strip_suffix("/v1/chat/completions"))
             .map(|base| format!("{base}/v1/grading/pdf"))
             .unwrap_or(gateway_url);
+        let request_id = Uuid::new_v4();
         let response = self
             .client
             .post(gateway_url)
             .bearer_auth(&self.config.api_key)
             .header("x-edutalent-school-id", meta.school_id.to_string())
-            .header("x-edutalent-request-id", Uuid::new_v4().to_string())
+            .header("x-edutalent-request-id", request_id.to_string())
             .json(&request)
             .send()
             .await?;
         if !response.status().is_success() {
-            let status = response.status();
-            let code = response
-                .json::<GatewayErrorEnvelope>()
-                .await
-                .ok()
-                .map(|body| body.error.code)
-                .unwrap_or_else(|| "native_pdf_gateway_error".to_string());
-            return Err(LlmError::ApiError {
-                status: status.as_u16(),
-                message: code.chars().take(64).collect(),
-            });
+            return Err(gateway_failure(response, request_id).await);
         }
         let body = response.json::<GatewayChatResponse>().await.map_err(|_| {
             LlmError::InvalidResponse("Malformed native PDF gateway response".to_string())

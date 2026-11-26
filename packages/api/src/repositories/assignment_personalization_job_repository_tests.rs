@@ -1561,3 +1561,43 @@ async fn admin_regeneration_snapshots_current_policy_without_mutating_old_failed
         "original retry must not resurrect old generation"
     );
 }
+
+#[cfg(feature = "server")]
+#[tokio::test]
+async fn deterministic_provider_contract_error_is_terminal_with_safe_code() {
+    let _queue_guard = QUEUE_TEST_LOCK.lock().await;
+    let fixture = queue_fixture(1).await;
+    prioritize_assignment_jobs(fixture.pool.as_ref(), fixture.assignment_id).await;
+    let claimed = claim_next(fixture.pool.as_ref(), Uuid::new_v4())
+        .await
+        .unwrap();
+    assert_eq!(claimed.assignment_id, fixture.assignment_id);
+    let repository = AssignmentPersonalizationJobRepository::new(fixture.pool.clone());
+    let disposition = run_as(
+        fixture.pool.as_ref(),
+        actor(fixture.teacher_user, "Teacher", fixture.school_id),
+        repository.record_failure(
+            &claimed,
+            PersonalizationFailureKind::ProviderInvalidResponse,
+            0,
+            5,
+        ),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        disposition,
+        PersonalizationFailureDisposition::FailedPermanently
+    );
+    let row = sqlx::query("SELECT status, last_error_code, attempt_count, completed_at IS NOT NULL AS completed FROM assignment_personalization_jobs WHERE id = $1")
+        .bind(claimed.id)
+        .fetch_one(&*fixture.pool)
+        .await.unwrap();
+    assert_eq!(row.get::<String, _>("status"), "failed");
+    assert_eq!(
+        row.get::<String, _>("last_error_code"),
+        "invalid_provider_response"
+    );
+    assert_eq!(row.get::<i32, _>("attempt_count"), claimed.attempt_count);
+    assert!(row.get::<bool, _>("completed"));
+}

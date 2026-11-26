@@ -426,6 +426,11 @@ for (const scenario of [
     await expect(failedJob).toContainText(copy.failed);
     await expect(failedJob).toContainText(copy.queuedAt);
     await expect(failedJob).toContainText(copy.failure);
+    const diagnostics = failedJob.locator('details').filter({ has: page.locator('summary').filter({ hasText: /Technical diagnostic details|جزئیات فنی خطا/ }) });
+    await expect(diagnostics).toBeVisible();
+    await diagnostics.locator('summary').click();
+    await expect(diagnostics).toContainText('gateway_unavailable');
+    await expect(diagnostics).toContainText(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/);
     await expect(failedJob.getByRole('button', { name: copy.retryFailedScope, exact: true })).toBeVisible();
 
     const runningJob = page.locator('article').filter({
