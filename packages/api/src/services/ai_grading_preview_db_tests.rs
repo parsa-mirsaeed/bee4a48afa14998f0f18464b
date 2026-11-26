@@ -2424,7 +2424,7 @@ async fn school_and_teacher_authorization_matrix() {
     // accepted PDF, a disabled PDF school, or a separate unfinished draft.
     // Use the actual Student RLS append path, not a privileged history seed.
     sqlx::query(
-        "UPDATE public.assignments a SET max_submission_attempts=2 \
+        "UPDATE public.assignments a SET max_submission_attempts=3 \
          FROM public.custom_assignments ca WHERE ca.id=$1 AND a.id=ca.assignment_id",
     )
     .bind(custom_id)
@@ -2495,6 +2495,22 @@ async fn school_and_teacher_authorization_matrix() {
                 )
                 .bind(submissions[0])
                 .bind(school_a)
+                .execute(&scoped)
+                .await?;
+                // This is a third-attempt draft, not part of the accepted text.
+                sqlx::query(
+                    r#"
+                    INSERT INTO public.submission_attachments (
+                        custom_assignment_id,student_id,school_id,request_id,
+                        filename,media_type,byte_size,sha256
+                    )
+                    VALUES ($1,$2,$3,$4,'new-draft.png','image/png',20,repeat('d',64))
+                    "#,
+                )
+                .bind(custom_id)
+                .bind(student_a)
+                .bind(school_a)
+                .bind(Uuid::new_v4())
                 .execute(&scoped)
                 .await?;
                 Ok::<(), sqlx::Error>(())

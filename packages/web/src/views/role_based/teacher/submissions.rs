@@ -377,7 +377,6 @@ fn GradeSubmissionModal(
         is_submitting.set(true);
         error_msg.set(None);
         spawn(async move {
-
             let feedback_opt = if feedback.trim().is_empty() {
                 None
             } else {
