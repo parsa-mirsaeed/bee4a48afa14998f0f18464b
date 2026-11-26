@@ -30,19 +30,28 @@ if [[ "${current_database}" != "edutalent_ci" ]]; then
   fi
 fi
 
-# Resetting the dedicated schema before migrations is simpler and safer than a
-# growing FK-ordered delete list. It guarantees browser-created users,
-# enrollments, submissions, audit rows, and other mutable fixture state cannot
-# leak into the next run on a reused CI database.
+# Reset both application-owned schemas in this dedicated fixture database.
+# The migration ledger is in public, while native PDF budget tables are in
+# edutalent_internal. Keeping the latter after clearing the ledger breaks the
+# second release acceptance pass. Leave the external auth stub untouched.
 psql "${DATABASE_URL}" -v ON_ERROR_STOP=1 <<'SQL'
+BEGIN;
+DROP SCHEMA IF EXISTS edutalent_internal CASCADE;
 DROP SCHEMA IF EXISTS public CASCADE;
 CREATE SCHEMA public AUTHORIZATION CURRENT_USER;
 GRANT ALL ON SCHEMA public TO public;
+COMMIT;
 SQL
 
 relation_count="$(psql "${DATABASE_URL}" -v ON_ERROR_STOP=1 -Atqc "SELECT COUNT(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relkind IN ('r','p','v','m','S','f')")"
 if [[ "${relation_count}" != "0" ]]; then
   echo "Browser fixture reset did not leave an empty public schema; refusing to continue." >&2
+  exit 1
+fi
+
+internal_schema_count="$(psql "${DATABASE_URL}" -v ON_ERROR_STOP=1 -Atqc "SELECT COUNT(*) FROM pg_namespace WHERE nspname = 'edutalent_internal'")"
+if [[ "${internal_schema_count}" != "0" ]]; then
+  echo "Browser fixture reset left the internal application schema; refusing to continue." >&2
   exit 1
 fi
 

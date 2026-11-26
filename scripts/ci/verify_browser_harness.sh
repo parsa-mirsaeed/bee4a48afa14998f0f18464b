@@ -35,6 +35,9 @@ grep -q 'current_database.*!=.*edutalent_ci' scripts/ci/reset_browser_fixture_db
 grep -q 'E2E_ALLOW_FIXTURE_RESET' scripts/ci/reset_browser_fixture_db.sh
 grep -q 'standalone ci/e2e/test marker' scripts/ci/reset_browser_fixture_db.sh
 grep -q 'DROP SCHEMA IF EXISTS public CASCADE' scripts/ci/reset_browser_fixture_db.sh
+grep -q 'DROP SCHEMA IF EXISTS edutalent_internal CASCADE' scripts/ci/reset_browser_fixture_db.sh
+grep -q 'internal_schema_count' scripts/ci/reset_browser_fixture_db.sh
+! grep -Eiq 'DROP SCHEMA( IF EXISTS)? auth([[:space:];]|$)' scripts/ci/reset_browser_fixture_db.sh
 
 reset_line="$(grep -n 'bash scripts/ci/reset_browser_fixture_db.sh' scripts/ci/run_browser_e2e.sh | cut -d: -f1)"
 migration_line="$(grep -n 'bash scripts/ci/apply_migrations.sh' scripts/ci/run_browser_e2e.sh | cut -d: -f1)"

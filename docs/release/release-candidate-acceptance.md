@@ -15,7 +15,8 @@ Any commit after a final proof starts invalidates that proof for release-candida
 ## November 2026 bounded corrective candidate
 
 - Corrective product baseline: `738dea2ab4b35603141073bbd09e739c008d9e49` (all seven corrective PRs #171, #172, #174, #175, #176, #177 and #178 merged).
-- This acceptance PR changes documentation only. Its exact head, not the baseline or a prior PR head, is the release proof identity.
+- This acceptance PR changes the release record and the isolated CI browser fixture reset only. Its exact head, not the baseline or a prior PR head, is the release proof identity.
+- First candidate `5a29bbddf132c9b5872bec0553e1a7725128cb5b`: preflight, database, Rust and the first 208 browser tests passed, but the second browser pass failed because the public migration ledger was reset while `edutalent_internal` persisted. Reset both application-owned schemas only in the guarded disposable browser fixture, preserving the external auth stub and historical migration checksums. Both full browser passes remain mandatory.
 - Final corrective PR #178 passed AI Change Proof and substantive Full Validation on its own exact head, including 208 final browser tests. These results establish entry context, not proof for this new candidate.
 - Track outstanding acceptance in issues #170 and #173. No product feature or external acceptance requirement is changed here.
 - Local synthetic acceptance remains outstanding: verify the immutable packaged identity, normal teacher/student/parent/manager/admin workflows, keyboard and Storage corrections, exact Luna chat and native PDF behavior, localized policy and diagnostic truth, tenant isolation, restart and AI-off core, and resource headroom. Use approved synthetic inputs only and school opt-in/budgets for external inference. No VPS rollout is authorized by this record.
