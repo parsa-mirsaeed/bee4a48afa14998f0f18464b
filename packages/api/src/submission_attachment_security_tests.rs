@@ -13,6 +13,12 @@ async fn private_originals_enforce_actor_school_state_and_cleanup_boundaries() {
         .await
         .unwrap();
     let mut tx = pool.begin().await.unwrap();
+    // This fixture replays migration DDL and advances a grading-triggered
+    // revision. Serialize it with the PDF grading operator-DDL fixture only.
+    sqlx::query("SELECT pg_advisory_xact_lock(18640004)")
+        .execute(&mut *tx)
+        .await
+        .expect("lock shared grading/attachment schema fixture");
     let school = Uuid::new_v4();
     let other_school = Uuid::new_v4();
     let student = Uuid::new_v4();

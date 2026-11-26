@@ -124,6 +124,13 @@ async fn school_and_teacher_authorization_matrix() {
     let pool = PgPool::connect(&url)
         .await
         .expect("connect test PostgreSQL");
+    // Hold a separate transaction-scoped lock across the operator DDL phases.
+    // The attachment history fixture takes the same lock before touching rows.
+    let mut schema_fixture = pool.begin().await.expect("begin schema fixture lock");
+    sqlx::query("SELECT pg_advisory_xact_lock(18640004)")
+        .execute(&mut *schema_fixture)
+        .await
+        .expect("lock shared grading/attachment schema fixture");
     let suffix = Uuid::new_v4().simple().to_string();
     let school_a = Uuid::new_v4();
     let school_b = Uuid::new_v4();
@@ -2512,4 +2519,8 @@ async fn school_and_teacher_authorization_matrix() {
             .await
             .expect("unchanged official grade");
     assert_eq!(unchanged_grade, Some(90.0));
+    schema_fixture
+        .rollback()
+        .await
+        .expect("release schema fixture lock");
 }
