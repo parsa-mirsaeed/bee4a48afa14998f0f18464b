@@ -8,7 +8,8 @@
 
 use crate::ai_gateway_protocol::{
     GatewayChatRequest, GatewayChatResponse, GatewayEmbeddingRequest, GatewayEmbeddingResponse,
-    GatewayErrorBody, GatewayErrorEnvelope, GatewayNativePdfRequest,
+    GatewayErrorBody, GatewayErrorEnvelope, GatewayNativePdfRequest, ProviderDispatch,
+    ProviderFailureEvidence, ProviderFailureReason, PROVIDER_EVIDENCE_HEADER,
 };
 use crate::services::embedding_profile::{
     resolve_embedding_profile, EmbeddingProfile, EmbeddingProviderKind,
@@ -714,6 +715,8 @@ struct AppState {
     llm_breaker: Arc<CircuitBreaker>,
     embedding_quota: Arc<QuotaLimiter<Uuid>>,
     llm_quota: Arc<QuotaLimiter<Uuid>>,
+    // A validated response is historical evidence, never an active health probe.
+    last_llm_verified_ms: Arc<std::sync::atomic::AtomicI64>,
 }
 
 impl AppState {
@@ -759,10 +762,25 @@ impl AppState {
             )),
             embedding_quota: Arc::new(QuotaLimiter::new(config.embedding_quota)),
             llm_quota: Arc::new(QuotaLimiter::new(config.llm_quota)),
+            last_llm_verified_ms: Arc::new(std::sync::atomic::AtomicI64::new(0)),
             config: Arc::new(config),
             client,
             custom_llm_client,
         })
+    }
+
+    fn mark_llm_verified(&self) {
+        self.last_llm_verified_ms.fetch_max(
+            chrono::Utc::now().timestamp_millis(),
+            std::sync::atomic::Ordering::Relaxed,
+        );
+    }
+
+    fn last_llm_verified_ms(&self) -> Option<i64> {
+        let timestamp = self
+            .last_llm_verified_ms
+            .load(std::sync::atomic::Ordering::Relaxed);
+        (timestamp > 0).then_some(timestamp)
     }
 
     async fn embed(
@@ -835,9 +853,11 @@ impl AppState {
             .await
             .map_err(|_| unavailable("gateway_shutting_down"))?;
         let started = Instant::now();
-        match forward_chat(self, &request).await {
+        let mut evidence = initial_provider_evidence();
+        match forward_chat(self, &request, &mut evidence).await {
             Ok(response) => {
                 circuit.success();
+                self.mark_llm_verified();
                 tracing::info!(
                     request_id = %context.request_id,
                     school_id = %context.school_id,
@@ -856,9 +876,13 @@ impl AppState {
                     model = %request.model,
                     error_code = failure.code(),
                     elapsed_ms = started.elapsed().as_millis(),
+                    provider_dispatch = evidence.dispatch.as_str(),
+                    provider_reason = evidence.reason.as_str(),
+                    upstream_http_status = ?evidence.upstream_http_status,
+                    transport_attempts = evidence.transport_attempts,
                     "AI gateway LLM request failed"
                 );
-                Err(failure.http_error())
+                Err(failure.http_error().with_provider_evidence(evidence))
             }
         }
     }
@@ -941,9 +965,11 @@ impl AppState {
             .await
             .map_err(|_| unavailable("gateway_shutting_down"))?;
         let started = Instant::now();
-        match forward_native_pdf(self, &payload).await {
+        let mut evidence = initial_provider_evidence();
+        match forward_native_pdf(self, &payload, &mut evidence).await {
             Ok(response) => {
                 circuit.success();
+                self.mark_llm_verified();
                 tracing::info!(
                     request_id = %context.request_id,
                     school_id = %context.school_id,
@@ -958,9 +984,13 @@ impl AppState {
                     request_id = %context.request_id,
                     school_id = %context.school_id,
                     error_code = failure.code(),
+                    provider_dispatch = evidence.dispatch.as_str(),
+                    provider_reason = evidence.reason.as_str(),
+                    upstream_http_status = ?evidence.upstream_http_status,
+                    transport_attempts = evidence.transport_attempts,
                     "Native PDF grading provider request failed"
                 );
-                Err(failure.http_error())
+                Err(failure.http_error().with_provider_evidence(evidence))
             }
         }
     }
@@ -978,6 +1008,7 @@ struct HttpError {
     code: &'static str,
     message: &'static str,
     retry_after_seconds: Option<u64>,
+    provider_evidence: Option<ProviderFailureEvidence>,
 }
 
 impl HttpError {
@@ -987,6 +1018,7 @@ impl HttpError {
             code,
             message,
             retry_after_seconds: None,
+            provider_evidence: None,
         }
     }
 
@@ -994,11 +1026,18 @@ impl HttpError {
         self.retry_after_seconds = Some(seconds);
         self
     }
+
+    fn with_provider_evidence(mut self, evidence: ProviderFailureEvidence) -> Self {
+        if evidence.is_valid() {
+            self.provider_evidence = Some(evidence);
+        }
+        self
+    }
 }
 
 impl IntoResponse for HttpError {
     fn into_response(self) -> Response {
-        (
+        let mut response = (
             self.status,
             Json(GatewayErrorEnvelope {
                 error: GatewayErrorBody {
@@ -1008,7 +1047,17 @@ impl IntoResponse for HttpError {
                 },
             }),
         )
-            .into_response()
+            .into_response();
+        if let Some(evidence) = self.provider_evidence {
+            if let Ok(serialized) = serde_json::to_string(&evidence) {
+                if let Ok(value) = axum::http::HeaderValue::from_str(&serialized) {
+                    response
+                        .headers_mut()
+                        .insert(PROVIDER_EVIDENCE_HEADER, value);
+                }
+            }
+        }
+        response
     }
 }
 
@@ -1090,6 +1139,7 @@ struct HealthResponse {
     llm_model: String,
     llm_configured: bool,
     llm_circuit: &'static str,
+    last_llm_verified_ms: Option<i64>,
     external_providers_required_for_health: bool,
 }
 
@@ -1142,6 +1192,7 @@ async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
             .and_then(|provider| provider.api_key.as_ref())
             .is_some(),
         llm_circuit: state.llm_breaker.status().await,
+        last_llm_verified_ms: state.last_llm_verified_ms(),
         external_providers_required_for_health: false,
     })
 }
@@ -1397,9 +1448,76 @@ fn chat_provider_payload(
     Ok(payload)
 }
 
+fn initial_provider_evidence() -> ProviderFailureEvidence {
+    ProviderFailureEvidence {
+        dispatch: ProviderDispatch::Blocked,
+        reason: ProviderFailureReason::RequestPreparation,
+        transport_attempts: 0,
+        upstream_http_status: None,
+    }
+}
+
+fn mark_provider_send(evidence: &mut ProviderFailureEvidence) {
+    evidence.dispatch = ProviderDispatch::Attempted;
+    evidence.reason = ProviderFailureReason::Transport;
+    evidence.transport_attempts = evidence.transport_attempts.saturating_add(1);
+    evidence.upstream_http_status = None;
+}
+
+fn mark_provider_transport_failure(evidence: &mut ProviderFailureEvidence, error: &reqwest::Error) {
+    evidence.reason = if error.is_timeout() {
+        ProviderFailureReason::Timeout
+    } else if error.is_connect() {
+        ProviderFailureReason::Connect
+    } else {
+        ProviderFailureReason::Transport
+    };
+}
+
+fn mark_provider_response(evidence: &mut ProviderFailureEvidence, status: ProviderStatus) {
+    evidence.dispatch = ProviderDispatch::Responded;
+    evidence.reason = ProviderFailureReason::UpstreamStatus;
+    evidence.upstream_http_status = Some(status.as_u16());
+}
+
+async fn diagnosed_chat_body(
+    response: reqwest::Response,
+    maximum: usize,
+    evidence: &mut ProviderFailureEvidence,
+) -> Result<GatewayChatResponse, ProviderFailure> {
+    let body = bounded_body(response, maximum).await.map_err(|failure| {
+        evidence.reason = if matches!(failure, ProviderFailure::ResponseTooLarge) {
+            ProviderFailureReason::ResponseSize
+        } else {
+            ProviderFailureReason::BodyRead
+        };
+        failure
+    })?;
+    serde_json::from_slice(&body).map_err(|_| {
+        evidence.reason = ProviderFailureReason::MalformedJson;
+        ProviderFailure::InvalidResponse
+    })
+}
+
+fn validate_diagnosed_chat_response(
+    provider: &Provider,
+    response: &GatewayChatResponse,
+    evidence: &mut ProviderFailureEvidence,
+) -> Result<(), ProviderFailure> {
+    validate_chat_response(provider, response).map_err(|failure| {
+        evidence.reason = if response.model != provider.model {
+            ProviderFailureReason::ModelMismatch
+        } else {
+            ProviderFailureReason::InvalidChoice
+        };
+        failure
+    })
+}
+
 async fn forward_chat(
     state: &AppState,
     request: &GatewayChatRequest,
+    evidence: &mut ProviderFailureEvidence,
 ) -> Result<GatewayChatResponse, ProviderFailure> {
     let provider = state
         .config
@@ -1417,6 +1535,7 @@ async fn forward_chat(
     let client = state.custom_llm_client.as_ref().unwrap_or(&state.client);
     let payload = chat_provider_payload(&state.config.llm_profile, request)?;
     for attempt in 0..=state.config.max_retries {
+        mark_provider_send(evidence);
         match client
             .post(url.clone())
             .bearer_auth(api_key)
@@ -1425,14 +1544,19 @@ async fn forward_chat(
             .await
         {
             Ok(response) if response.status().is_success() => {
-                let body = bounded_body(response, state.config.max_provider_response_bytes).await?;
-                let mut parsed: GatewayChatResponse =
-                    serde_json::from_slice(&body).map_err(|_| ProviderFailure::InvalidResponse)?;
+                mark_provider_response(evidence, response.status());
+                let mut parsed = diagnosed_chat_body(
+                    response,
+                    state.config.max_provider_response_bytes,
+                    evidence,
+                )
+                .await?;
                 normalize_known_gapgpt_model(&state.config.llm_profile, provider, &mut parsed);
-                validate_chat_response(provider, &parsed)?;
+                validate_diagnosed_chat_response(provider, &parsed, evidence)?;
                 return Ok(parsed);
             }
             Ok(response) => {
+                mark_provider_response(evidence, response.status());
                 let failure =
                     status_failure(response.status(), retry_after_seconds(response.headers()));
                 if failure.retryable() && attempt < state.config.max_retries {
@@ -1441,10 +1565,14 @@ async fn forward_chat(
                 }
                 return Err(failure);
             }
-            Err(_) if attempt < state.config.max_retries => {
+            Err(error) if attempt < state.config.max_retries => {
+                mark_provider_transport_failure(evidence, &error);
                 sleep_before_retry(&state.config, attempt, None).await;
             }
-            Err(_) => return Err(ProviderFailure::Unavailable),
+            Err(error) => {
+                mark_provider_transport_failure(evidence, &error);
+                return Err(ProviderFailure::Unavailable);
+            }
         }
     }
     Err(ProviderFailure::Unavailable)
@@ -1479,6 +1607,7 @@ fn native_pdf_model(
 async fn forward_native_pdf(
     state: &AppState,
     payload: &Value,
+    evidence: &mut ProviderFailureEvidence,
 ) -> Result<GatewayChatResponse, ProviderFailure> {
     let provider = state
         .config
@@ -1495,24 +1624,28 @@ async fn forward_native_pdf(
     // No automatic network retry: PDF inference may be expensive and repeated
     // POST requests can charge the school twice on ambiguous timeouts.
     let client = state.custom_llm_client.as_ref().unwrap_or(&state.client);
+    mark_provider_send(evidence);
     let response = client
         .post(url)
         .bearer_auth(api_key)
         .json(payload)
         .send()
         .await
-        .map_err(|_| ProviderFailure::Unavailable)?;
+        .map_err(|error| {
+            mark_provider_transport_failure(evidence, &error);
+            ProviderFailure::Unavailable
+        })?;
+    mark_provider_response(evidence, response.status());
     if !response.status().is_success() {
         return Err(status_failure(
             response.status(),
             retry_after_seconds(response.headers()),
         ));
     }
-    let body = bounded_body(response, state.config.max_provider_response_bytes).await?;
-    let mut parsed: GatewayChatResponse =
-        serde_json::from_slice(&body).map_err(|_| ProviderFailure::InvalidResponse)?;
+    let mut parsed =
+        diagnosed_chat_body(response, state.config.max_provider_response_bytes, evidence).await?;
     normalize_known_gapgpt_model(&state.config.llm_profile, provider, &mut parsed);
-    validate_chat_response(provider, &parsed)?;
+    validate_diagnosed_chat_response(provider, &parsed, evidence)?;
     Ok(parsed)
 }
 
@@ -2715,6 +2848,159 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn chat_failures_report_only_gateway_observed_provider_evidence() {
+        let cases = [
+            (
+                StatusCode::UNAUTHORIZED,
+                "ignored-secret",
+                ProviderFailureReason::UpstreamStatus,
+            ),
+            (
+                StatusCode::TOO_MANY_REQUESTS,
+                "ignored-secret",
+                ProviderFailureReason::UpstreamStatus,
+            ),
+            (
+                StatusCode::BAD_GATEWAY,
+                "ignored-secret",
+                ProviderFailureReason::UpstreamStatus,
+            ),
+            (
+                StatusCode::OK,
+                "not-json-secret",
+                ProviderFailureReason::MalformedJson,
+            ),
+            (
+                StatusCode::OK,
+                r#"{"model":"wrong-model","choices":[{"index":0,"message":{"role":"assistant","content":"ok"}}]}"#,
+                ProviderFailureReason::ModelMismatch,
+            ),
+            (
+                StatusCode::OK,
+                r#"{"model":"deepseek-chat","choices":[]}"#,
+                ProviderFailureReason::InvalidChoice,
+            ),
+        ];
+        for (status, body, reason) in cases {
+            let router = Router::new().route(
+                "/v1/chat/completions",
+                post(move || async move { (status, body) }),
+            );
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let task = tokio::spawn(async move {
+                axum::serve(listener, router).await.unwrap();
+            });
+            let state = AppState::new(Config::test(
+                Url::parse(&format!("http://{address}/v1/")).unwrap(),
+            ))
+            .unwrap();
+            let error = state.chat(&context(), chat_request()).await.unwrap_err();
+            let response = error.into_response();
+            let header = response
+                .headers()
+                .get(PROVIDER_EVIDENCE_HEADER)
+                .unwrap()
+                .to_str()
+                .unwrap();
+            let evidence = ProviderFailureEvidence::parse(header).unwrap();
+            assert_eq!(evidence.reason, reason);
+            assert_eq!(evidence.dispatch, ProviderDispatch::Responded);
+            assert_eq!(evidence.transport_attempts, 1);
+            assert_eq!(evidence.upstream_http_status, Some(status.as_u16()));
+            assert!(!header.contains("secret"));
+            task.abort();
+        }
+    }
+
+    #[tokio::test]
+    async fn chat_timeout_and_circuit_refusal_keep_distinct_dispatch_evidence() {
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let router = Router::new().route(
+            "/v1/chat/completions",
+            post({
+                let attempts = Arc::clone(&attempts);
+                move || {
+                    let attempts = Arc::clone(&attempts);
+                    async move {
+                        attempts.fetch_add(1, Ordering::SeqCst);
+                        tokio::time::sleep(Duration::from_secs(2)).await;
+                        StatusCode::SERVICE_UNAVAILABLE
+                    }
+                }
+            }),
+        );
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let task = tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        });
+        let mut config = Config::test(Url::parse(&format!("http://{address}/v1/")).unwrap());
+        config.request_timeout = Duration::from_millis(250);
+        config.circuit_open_for = Duration::from_secs(30);
+        let state = AppState::new(config).unwrap();
+        let error = state.chat(&context(), chat_request()).await.unwrap_err();
+        assert!(state.last_llm_verified_ms().is_none());
+        let evidence = error.provider_evidence.expect("transport evidence");
+        assert_eq!(evidence.dispatch, ProviderDispatch::Attempted);
+        assert_eq!(evidence.reason, ProviderFailureReason::Timeout);
+        assert_eq!(evidence.transport_attempts, 1);
+        assert_eq!(evidence.upstream_http_status, None);
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
+        let blocked = state.chat(&context(), chat_request()).await.unwrap_err();
+        assert_eq!(blocked.code, "circuit_open");
+        assert!(blocked.provider_evidence.is_none());
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
+        task.abort();
+    }
+
+    #[tokio::test]
+    async fn native_pdf_rejection_records_observed_status_without_network_retry() {
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let router = Router::new().route(
+            "/v1/chat/completions",
+            post({
+                let attempts = Arc::clone(&attempts);
+                move || {
+                    let attempts = Arc::clone(&attempts);
+                    async move {
+                        attempts.fetch_add(1, Ordering::SeqCst);
+                        (StatusCode::SERVICE_UNAVAILABLE, "untrusted provider body")
+                    }
+                }
+            }),
+        );
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let task = tokio::spawn(async move {
+            axum::serve(listener, router).await.unwrap();
+        });
+        let mut config = pdf_test_config(Url::parse(&format!("http://{address}/v1/")).unwrap());
+        config.native_pdf_enabled = true;
+        config.max_retries = 3;
+        let state = AppState::new(config).unwrap();
+        let error = state
+            .native_pdf(&context(), pdf_request(&synthetic_pdf()))
+            .await
+            .unwrap_err();
+        let response = error.into_response();
+        let header = response
+            .headers()
+            .get(PROVIDER_EVIDENCE_HEADER)
+            .unwrap()
+            .to_str()
+            .unwrap();
+        let evidence = ProviderFailureEvidence::parse(header).unwrap();
+        assert_eq!(evidence.dispatch, ProviderDispatch::Responded);
+        assert_eq!(evidence.reason, ProviderFailureReason::UpstreamStatus);
+        assert_eq!(evidence.upstream_http_status, Some(503));
+        assert_eq!(evidence.transport_attempts, 1);
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
+        assert!(!header.contains("untrusted provider body"));
+        task.abort();
+    }
+
+    #[tokio::test]
     async fn local_embedding_mode_can_use_connected_personalization_llm() {
         let provider = spawn_chat_mock().await;
         let mut config = Config::test(provider.clone());
@@ -2734,10 +3020,15 @@ mod tests {
         });
 
         let state = AppState::new(config).expect("state");
+        let Json(before) = health(State(state.clone())).await;
+        assert!(before.last_llm_verified_ms.is_none());
         let response = state
             .chat(&context(), chat_request())
             .await
             .expect("connected LLM must work with local embeddings");
+        let Json(after) = health(State(state.clone())).await;
+        assert!(after.last_llm_verified_ms.is_some());
+        assert!(!after.external_providers_required_for_health);
 
         assert_eq!(response.model, DEEPSEEK_CHAT_V1.model);
         assert_eq!(response.choices.len(), 1);

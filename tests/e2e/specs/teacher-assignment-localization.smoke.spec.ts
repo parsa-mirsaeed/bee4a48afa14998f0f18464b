@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { test, expect, type Page } from '@playwright/test';
 import { enforceOfflineAllowlist, assertNoUnexpectedOrigins } from '../fixtures/network-policy';
 import { watchConsole, assertNoConsoleErrors } from '../fixtures/console-guard';
@@ -5,7 +6,7 @@ import { watchConsole, assertNoConsoleErrors } from '../fixtures/console-guard';
 const PASSWORD = 'e2e-password';
 const TEACHER = 'e2e-teacher-a@example.test';
 
-async function establishSession(page: Page, locale: 'en' | 'fa'): Promise<void> {
+async function establishSession(page: Page, locale: 'en' | 'fa', email = TEACHER): Promise<void> {
   await page.addInitScript((selectedLocale) => {
     localStorage.setItem('edutalent_locale', selectedLocale);
   }, locale);
@@ -15,7 +16,7 @@ async function establishSession(page: Page, locale: 'en' | 'fa'): Promise<void> 
   // the first hydrated Dioxus document avoids an unrelated full-document teardown
   // race that can surface as WASM `unreachable` and can stall mobile navigation.
   const response = await page.request.post('/api/auth/login', {
-    data: { email: TEACHER, password: PASSWORD },
+    data: { email, password: PASSWORD },
   });
   expect(response.ok(), `teacher session setup failed with HTTP ${response.status()}`).toBeTruthy();
 }
@@ -124,3 +125,41 @@ for (const scenario of [
     }
   });
 }
+
+// Read the existing synthetic failed-job fixture; do not modify queue state.
+function latestFailedJob(teacherId: string): string {
+  const databaseUrl = process.env.DATABASE_URL;
+  if (!databaseUrl) throw new Error('DATABASE_URL is required for the teacher support-reference fixture');
+  return execFileSync('psql', [databaseUrl, '-v', 'ON_ERROR_STOP=1', '-Atqc', `
+    SELECT id FROM assignment_personalization_jobs
+    WHERE requested_by = '${teacherId}' AND status = 'failed'
+      AND school_id = (SELECT school_id FROM users WHERE id = '${teacherId}')
+    ORDER BY completed_at DESC NULLS LAST, id DESC LIMIT 1
+  `], { encoding: 'utf8' }).trim();
+}
+
+for (const locale of ['en', 'fa'] as const) {
+  test(`teacher sees only a safe failed-job support reference in ${locale} @smoke @teacher @personalization @i18n`, async ({ page }) => {
+    const expected = latestFailedJob('b0000000-0000-0000-0000-0000000000a2');
+    expect(expected).toMatch(/^[0-9a-f-]{36}$/);
+    await establishSession(page, locale);
+    await page.goto('/dashboard/assignments');
+    const panel = page.getByTestId('teacher-personalization-status');
+    const reference = panel.getByTestId('teacher-personalization-support-reference');
+    await expect(reference).toContainText(locale === 'en' ? 'Support reference' : 'شناسه پیگیری پشتیبانی');
+    await expect(reference.locator('bdi')).toHaveText(expected);
+    await expect(panel).not.toContainText(/gateway_unavailable|provider_unconfigured|model_mismatch|Gateway failure history|تاریخچه خطاهای دروازه/);
+  });
+}
+
+test('teacher in another school cannot see the failed-job support reference @smoke @teacher @personalization', async ({ page }) => {
+  const schoolAReference = latestFailedJob('b0000000-0000-0000-0000-0000000000a2');
+  expect(schoolAReference).toMatch(/^[0-9a-f-]{36}$/);
+  await establishSession(page, 'en', 'e2e-teacher-b@example.test');
+  await page.goto('/dashboard/assignments');
+  const panel = page.getByTestId('teacher-personalization-status');
+  await expect(panel).toBeVisible();
+  await expect(panel).not.toContainText(/Loading|loading/);
+  await expect(panel).not.toContainText(schoolAReference);
+  await expect(panel.getByTestId('teacher-personalization-support-reference')).toHaveCount(0);
+});

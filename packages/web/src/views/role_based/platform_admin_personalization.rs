@@ -64,11 +64,20 @@ fn delivery_label(value: &str, locale: Locale) -> String {
 
 fn failure_label(code: Option<&str>, locale: Locale) -> String {
     let key = match code {
-        Some("gateway_unavailable") => "platform_admin.personalization.failure.gateway_unavailable",
-        Some("provider_unconfigured") => {
+        Some(
+            "gateway_unavailable"
+            | "ai_temporarily_unavailable"
+            | "gateway_shutting_down"
+            | "gateway_transport_timeout"
+            | "gateway_transport_connect"
+            | "gateway_transport_other",
+        ) => "platform_admin.personalization.failure.gateway_unavailable",
+        Some("provider_unconfigured" | "llm_disabled") => {
             "platform_admin.personalization.failure.provider_unconfigured"
         }
-        Some("rate_limited") => "platform_admin.personalization.failure.rate_limited",
+        Some("rate_limited" | "provider_rate_limited") => {
+            "platform_admin.personalization.failure.rate_limited"
+        }
         Some("quota_exceeded") => "platform_admin.personalization.failure.quota_exceeded",
         Some("circuit_open") => "platform_admin.personalization.failure.circuit_open",
         Some("invalid_provider_response") => {
@@ -567,8 +576,9 @@ fn CapabilityPanel(
                 CompactField { label: t("platform_admin.personalization.profile", locale), value: capability.llm_profile }
                 CompactField { label: t("platform_admin.personalization.provider", locale), value: capability.provider }
                 CompactField { label: t("platform_admin.personalization.model", locale), value: capability.model }
-                CompactField { label: t("platform_admin.personalization.configured", locale), value: yes_no(capability.configured, locale) }
+                CompactField { label: t("platform_admin.personalization.configured", locale), value: if capability.gateway_reachable { yes_no(capability.configured, locale) } else { t("platform_admin.personalization.gateway_unknown", locale) } }
                 CompactField { label: t("platform_admin.personalization.circuit", locale), value: capability.circuit }
+                CompactField { label: t("platform_admin.personalization.last_provider_verified", locale), value: capability.last_provider_verified_at.unwrap_or_else(|| t("platform_admin.personalization.gateway_unknown", locale)) }
             }
         }
     }
@@ -1062,6 +1072,39 @@ fn PersonalizationJobCard(
                 }
             }
 
+            if !job.gateway_failures.is_empty() {
+                details { class: "mt-4 rounded-lg border border-gray-200 p-3 text-sm dark:border-gray-700",
+                    summary { class: "cursor-pointer font-medium",
+                        {t("platform_admin.personalization.gateway_history", locale)}
+                    }
+                    p { class: "mt-2 text-xs text-gray-500",
+                        {t("platform_admin.personalization.gateway_history_hint", locale)}
+                    }
+                    for failure in job.gateway_failures.iter() {
+                        div { key: "{failure.request_id}", "data-testid": "gateway-failure-record", class: "mt-3 border-t border-gray-200 pt-3 dark:border-gray-700",
+                            p { class: "font-medium", "{failure_label(Some(&failure.diagnostic_code), locale)}" }
+                            dl { class: "mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2",
+                                CompactField { label: t("platform_admin.personalization.diagnostic_code", locale), value: failure.diagnostic_code.clone() }
+                                CompactField { label: t("platform_admin.personalization.gateway_request_id", locale), value: failure.request_id.clone() }
+                                CompactField { label: t("platform_admin.personalization.gateway_recorded", locale), value: failure.recorded_at.clone() }
+                                CompactField { label: t("platform_admin.personalization.gateway_http_status", locale), value: failure.gateway_http_status.map(|status| status.to_string()).unwrap_or_else(|| t("platform_admin.personalization.gateway_unknown", locale)) }
+                                CompactField { label: t("platform_admin.personalization.gateway_elapsed_ms", locale), value: failure.gateway_elapsed_ms.to_string() }
+                                CompactField { label: t("platform_admin.personalization.gateway_attempt", locale), value: format!("v{} / {}", failure.execution_generation, failure.attempt_number) }
+                                CompactField { label: t("platform_admin.personalization.gateway_operation", locale), value: if failure.operation == "personalization_chat" { t("platform_admin.personalization.gateway_operation_chat", locale) } else { t("platform_admin.personalization.gateway_unknown", locale) } }
+                                CompactField { label: t("platform_admin.personalization.gateway_failure_stage", locale), value: stage_label(&failure.stage, locale) }
+                                CompactField { label: t("platform_admin.personalization.gateway_retry_delay", locale), value: failure.retry_after_seconds.map(|seconds| seconds.to_string()).unwrap_or_else(|| "—".to_string()) }
+                                CompactField { label: t("platform_admin.personalization.gateway_dispatch", locale), value: t(match failure.provider_dispatch_state.as_str() { "blocked" => "platform_admin.personalization.gateway_blocked", "attempted" => "platform_admin.personalization.gateway_attempted", "responded" => "platform_admin.personalization.gateway_responded", _ => "platform_admin.personalization.gateway_unknown" }, locale) }
+                                CompactField { label: t("platform_admin.personalization.gateway_provider_reason", locale), value: failure.provider_failure_reason.clone().unwrap_or_else(|| "—".to_string()) }
+                                CompactField { label: t("platform_admin.personalization.gateway_provider_status", locale), value: failure.upstream_http_status.map(|status| status.to_string()).unwrap_or_else(|| "—".to_string()) }
+                                CompactField { label: t("platform_admin.personalization.gateway_provider_attempts", locale), value: failure.provider_transport_attempts.map(|count| count.to_string()).unwrap_or_else(|| "—".to_string()) }
+                                CompactField { label: t("platform_admin.personalization.gateway_retry_at", locale), value: failure.scheduled_retry_at.clone().unwrap_or_else(|| "—".to_string()) }
+                            }
+                            CopyDiagnosticReference { reference: failure.request_id.clone() }
+                        }
+                    }
+                }
+            }
+
             if retryable {
                 button {
                     r#type: "button",
@@ -1099,6 +1142,50 @@ fn PersonalizationJobCard(
                 p { class: "mt-2 text-sm text-red-600", role: "alert",
                     {t("platform_admin.personalization.retry_error", locale)}
                 }
+            }
+        }
+    }
+}
+
+#[component]
+fn CopyDiagnosticReference(reference: String) -> Element {
+    let locale = use_locale().current();
+    let mut outcome = use_signal(|| None::<bool>);
+    rsx! {
+        button {
+            r#type: "button",
+            class: "mt-2 rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700",
+            onclick: move |_| {
+                #[cfg(target_arch = "wasm32")]
+                {
+                    use wasm_bindgen::JsCast;
+                    let reference = reference.clone();
+                    spawn(async move {
+                        let clipboard = web_sys::window()
+                            .and_then(|window| js_sys::Reflect::get(window.navigator().as_ref(), &"clipboard".into()).ok())
+                            .and_then(|value| value.dyn_into::<web_sys::Clipboard>().ok());
+                        let copied = match clipboard {
+                            Some(clipboard) => wasm_bindgen_futures::JsFuture::from(
+                                clipboard.write_text(&reference),
+                            )
+                            .await
+                            .is_ok(),
+                            None => false,
+                        };
+                        outcome.set(Some(copied));
+                    });
+                }
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    let _ = &reference;
+                    outcome.set(Some(false));
+                }
+            },
+            {t("platform_admin.personalization.copy_reference", locale)}
+        }
+        if let Some(copied) = outcome() {
+            p { role: "status", class: "mt-1 text-xs",
+                {t(if copied { "platform_admin.personalization.reference_copied" } else { "platform_admin.personalization.reference_copy_failed" }, locale)}
             }
         }
     }

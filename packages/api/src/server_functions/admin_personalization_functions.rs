@@ -34,6 +34,8 @@ pub struct AdminPersonalizationCapabilityDto {
     pub model: String,
     pub configured: bool,
     pub circuit: String,
+    #[serde(default)]
+    pub last_provider_verified_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -70,6 +72,25 @@ pub struct AdminTeacherPersonalizationPolicyDto {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AdminGatewayFailureDto {
+    pub request_id: String,
+    pub execution_generation: i32,
+    pub attempt_number: i32,
+    pub recorded_at: String,
+    pub operation: String,
+    pub stage: String,
+    pub diagnostic_code: String,
+    pub gateway_http_status: Option<i32>,
+    pub gateway_elapsed_ms: i64,
+    pub retry_after_seconds: Option<i32>,
+    pub scheduled_retry_at: Option<String>,
+    pub provider_dispatch_state: String,
+    pub provider_failure_reason: Option<String>,
+    pub provider_transport_attempts: Option<i32>,
+    pub upstream_http_status: Option<i32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AdminPersonalizationJobDto {
     pub job_id: String,
     pub execution_generation: i32,
@@ -92,6 +113,8 @@ pub struct AdminPersonalizationJobDto {
     pub delivery_policy: String,
     pub last_error_code: Option<String>,
     pub last_error_summary: Option<String>,
+    #[serde(default)]
+    pub gateway_failures: Vec<AdminGatewayFailureDto>,
     pub created_at: String,
     pub started_at: Option<String>,
     pub completed_at: Option<String>,
@@ -161,11 +184,12 @@ async fn load_personalization_capability() -> AdminPersonalizationCapabilityDto 
     let fallback = AdminPersonalizationCapabilityDto {
         gateway_reachable: false,
         llm_mode: "unavailable".to_string(),
-        llm_profile: DEEPSEEK_CHAT_V1.id.to_string(),
-        provider: DEEPSEEK_CHAT_V1.provider.as_str().to_string(),
-        model: DEEPSEEK_CHAT_V1.model.to_string(),
+        llm_profile: "unavailable".to_string(),
+        provider: "unavailable".to_string(),
+        model: "unavailable".to_string(),
         configured: false,
         circuit: "unavailable".to_string(),
+        last_provider_verified_at: None,
     };
 
     let client = match reqwest::Client::builder()
@@ -198,17 +222,17 @@ async fn load_personalization_capability() -> AdminPersonalizationCapabilityDto 
         llm_profile: value
             .get("llm_profile")
             .and_then(|item| item.as_str())
-            .unwrap_or(DEEPSEEK_CHAT_V1.id.as_ref())
+            .unwrap_or("unavailable")
             .to_string(),
         provider: value
             .get("llm_provider")
             .and_then(|item| item.as_str())
-            .unwrap_or(DEEPSEEK_CHAT_V1.provider.as_str())
+            .unwrap_or("unavailable")
             .to_string(),
         model: value
             .get("llm_model")
             .and_then(|item| item.as_str())
-            .unwrap_or(DEEPSEEK_CHAT_V1.model.as_ref())
+            .unwrap_or("unavailable")
             .to_string(),
         configured: value
             .get("llm_configured")
@@ -219,6 +243,12 @@ async fn load_personalization_capability() -> AdminPersonalizationCapabilityDto 
             .and_then(|item| item.as_str())
             .unwrap_or("unavailable")
             .to_string(),
+        last_provider_verified_at: value
+            .get("last_llm_verified_ms")
+            .and_then(|item| item.as_i64())
+            .filter(|timestamp| *timestamp > 0)
+            .and_then(chrono::DateTime::<chrono::Utc>::from_timestamp_millis)
+            .map(|timestamp| timestamp.to_rfc3339()),
     }
 }
 
@@ -377,6 +407,27 @@ fn job_dto(job: AdminPersonalizationJobRecord) -> AdminPersonalizationJobDto {
         delivery_policy: job.delivery_policy,
         last_error_code: job.last_error_code,
         last_error_summary: job.last_error_summary,
+        gateway_failures: job
+            .gateway_failures
+            .into_iter()
+            .map(|failure| AdminGatewayFailureDto {
+                request_id: failure.request_id.to_string(),
+                execution_generation: failure.execution_generation,
+                attempt_number: failure.attempt_number,
+                recorded_at: failure.recorded_at.to_rfc3339(),
+                operation: failure.operation,
+                stage: failure.stage,
+                diagnostic_code: failure.diagnostic_code,
+                gateway_http_status: failure.gateway_http_status,
+                gateway_elapsed_ms: failure.gateway_elapsed_ms,
+                retry_after_seconds: failure.retry_after_seconds,
+                scheduled_retry_at: failure.scheduled_retry_at.map(|value| value.to_rfc3339()),
+                provider_dispatch_state: failure.provider_dispatch_state,
+                provider_failure_reason: failure.provider_failure_reason,
+                provider_transport_attempts: failure.provider_transport_attempts,
+                upstream_http_status: failure.upstream_http_status,
+            })
+            .collect(),
         created_at: job.created_at.to_rfc3339(),
         started_at: job.started_at.map(|value| value.to_rfc3339()),
         completed_at: job.completed_at.map(|value| value.to_rfc3339()),
@@ -488,6 +539,7 @@ pub async fn get_admin_personalization_overview(
             model: String::new(),
             configured: false,
             circuit: "unavailable".to_string(),
+            last_provider_verified_at: None,
         },
         methods: Vec::new(),
         schools: Vec::new(),
@@ -713,6 +765,7 @@ mod regeneration_capability_tests {
             model: model.to_string(),
             configured: true,
             circuit: "closed".to_string(),
+            last_provider_verified_at: None,
         }
     }
 

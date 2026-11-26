@@ -10,6 +10,7 @@ pub fn PersonalizationQueueStatusPanel() -> Element {
 
     rsx! {
         section {
+            "data-testid": "teacher-personalization-status",
             class: "mb-4 rounded-xl border border-purple-200 bg-purple-50/70 p-4 dark:border-purple-800 dark:bg-purple-950/20",
             div {
                 class: "flex items-start justify-between gap-4",
@@ -35,12 +36,18 @@ pub fn PersonalizationQueueStatusPanel() -> Element {
                                     class: "mt-1 text-sm text-purple-800 dark:text-purple-300",
                                     "✓ {summary.succeeded}/{summary.total} {locale.t(\"assignments.completed\")} · … {active} {locale.t(\"teachers.status.active\")} · ! {summary.failed} {locale.t(\"common.error\")}"
                                 }
+                                if let Some(reference) = &summary.latest_failed_job_id {
+                                    p { "data-testid": "teacher-personalization-support-reference", class: "mt-1 break-all text-xs text-purple-800 dark:text-purple-300",
+                                        "{locale.t(\"teacher.assignments.support_reference\")}: "
+                                        bdi { "{reference}" }
+                                    }
+                                }
                             }
                         }
                     }
                 }
                 button {
-                    class: "rounded-lg border border-purple-200 bg-white px-3 py-1.5 text-xs font-medium text-purple-700 hover:bg-purple-100 dark:border-purple-700 dark:bg-purple-950 dark:text-purple-200",
+                    class: "min-h-[44px] shrink-0 rounded-lg border border-purple-200 bg-white px-3 py-1.5 text-xs font-medium text-purple-700 hover:bg-purple-100 dark:border-purple-700 dark:bg-purple-950 dark:text-purple-200",
                     onclick: move |_| status.restart(),
                     "{locale.t(\"common.retry\")}"
                 }

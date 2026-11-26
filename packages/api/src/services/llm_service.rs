@@ -7,7 +7,7 @@
 
 use crate::ai_gateway_protocol::{
     GatewayChatMessage, GatewayChatRequest, GatewayChatResponse, GatewayErrorEnvelope,
-    GatewayResponseFormat, GatewayUsage,
+    GatewayResponseFormat, GatewayUsage, ProviderFailureEvidence, PROVIDER_EVIDENCE_HEADER,
 };
 use crate::services::llm_profile::{
     resolve_llm_profile, validate_llm_profile_override, DEEPSEEK_CHAT_V1,
@@ -16,7 +16,7 @@ use reqwest::redirect::Policy as RedirectPolicy;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::env;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -39,6 +39,11 @@ pub enum GatewayFailureKind {
     InvalidProviderResponse,
     ProviderResponseTooLarge,
     ProviderRejectedRequest,
+    // App-observed failures. These cannot be selected by a gateway body.
+    GatewayTransportTimeout,
+    GatewayTransportConnect,
+    GatewayTransportOther,
+    InvalidGatewayResponse,
     Unknown,
 }
 
@@ -71,6 +76,10 @@ impl GatewayFailureKind {
             Self::InvalidProviderResponse => "invalid_provider_response",
             Self::ProviderResponseTooLarge => "provider_response_too_large",
             Self::ProviderRejectedRequest => "provider_rejected_request",
+            Self::GatewayTransportTimeout => "gateway_transport_timeout",
+            Self::GatewayTransportConnect => "gateway_transport_connect",
+            Self::GatewayTransportOther => "gateway_transport_other",
+            Self::InvalidGatewayResponse => "invalid_gateway_response",
             Self::Unknown => "gateway_error",
         }
     }
@@ -80,9 +89,13 @@ impl GatewayFailureKind {
 pub struct GatewayFailure {
     pub kind: GatewayFailureKind,
     pub request_id: Uuid,
-    /// Internal gateway status, not the external provider's HTTP status.
-    pub gateway_http_status: u16,
+    /// Observed internal gateway status; absent when no response arrived.
+    /// This is never the external provider's HTTP status.
+    pub gateway_http_status: Option<u16>,
     pub retry_after_seconds: Option<u64>,
+    /// App-to-gateway round trip, not external provider latency.
+    pub gateway_elapsed_ms: u64,
+    pub provider_evidence: Option<ProviderFailureEvidence>,
 }
 
 impl std::fmt::Display for GatewayFailure {
@@ -91,8 +104,57 @@ impl std::fmt::Display for GatewayFailure {
     }
 }
 
-async fn gateway_failure(response: reqwest::Response, request_id: Uuid) -> LlmError {
+fn app_observed_gateway_failure(
+    kind: GatewayFailureKind,
+    request_id: Uuid,
+    started: Instant,
+    status: Option<u16>,
+) -> LlmError {
+    let failure = GatewayFailure {
+        kind,
+        request_id,
+        gateway_http_status: status,
+        retry_after_seconds: None,
+        gateway_elapsed_ms: started.elapsed().as_millis().min(86_400_000) as u64,
+        // No authenticated gateway failure envelope was received. The app
+        // cannot know whether the external provider was contacted.
+        provider_evidence: None,
+    };
+    tracing::warn!(
+        %request_id,
+        gateway_http_status = ?status,
+        error_code = kind.code(),
+        "App observed an internal gateway failure"
+    );
+    LlmError::GatewayFailure(failure)
+}
+
+fn gateway_transport_failure(
+    error: &reqwest::Error,
+    request_id: Uuid,
+    started: Instant,
+) -> LlmError {
+    let kind = if error.is_timeout() {
+        GatewayFailureKind::GatewayTransportTimeout
+    } else if error.is_connect() {
+        GatewayFailureKind::GatewayTransportConnect
+    } else {
+        GatewayFailureKind::GatewayTransportOther
+    };
+    app_observed_gateway_failure(kind, request_id, started, None)
+}
+
+async fn gateway_failure(
+    response: reqwest::Response,
+    request_id: Uuid,
+    started: Instant,
+) -> LlmError {
     let status = response.status().as_u16();
+    let provider_evidence = response
+        .headers()
+        .get(PROVIDER_EVIDENCE_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .and_then(ProviderFailureEvidence::parse);
     let body = response.json::<GatewayErrorEnvelope>().await.ok();
     let kind = GatewayFailureKind::from_code(
         body.as_ref()
@@ -105,8 +167,45 @@ async fn gateway_failure(response: reqwest::Response, request_id: Uuid) -> LlmEr
     let failure = GatewayFailure {
         kind,
         request_id,
-        gateway_http_status: status,
+        gateway_http_status: Some(status),
         retry_after_seconds,
+        gateway_elapsed_ms: started.elapsed().as_millis().min(86_400_000) as u64,
+        provider_evidence: provider_evidence.filter(|evidence| {
+            use crate::ai_gateway_protocol::ProviderFailureReason as R;
+            match kind {
+                GatewayFailureKind::ProviderRateLimited => {
+                    evidence.upstream_http_status == Some(429)
+                }
+                GatewayFailureKind::ProviderRejectedRequest => {
+                    evidence.reason == R::UpstreamStatus
+                        && evidence
+                            .upstream_http_status
+                            .is_some_and(|status| status != 429 && status < 500)
+                }
+                GatewayFailureKind::ProviderResponseTooLarge => evidence.reason == R::ResponseSize,
+                GatewayFailureKind::InvalidProviderResponse => matches!(
+                    evidence.reason,
+                    R::RequestPreparation
+                        | R::BodyRead
+                        | R::MalformedJson
+                        | R::ModelMismatch
+                        | R::InvalidChoice
+                ),
+                GatewayFailureKind::TemporarilyUnavailable => {
+                    matches!(
+                        evidence.reason,
+                        R::RequestPreparation | R::Timeout | R::Connect | R::Transport
+                    ) || (evidence.reason == R::UpstreamStatus
+                        && evidence
+                            .upstream_http_status
+                            .is_some_and(|status| status >= 500))
+                }
+                GatewayFailureKind::ProviderUnconfigured => {
+                    evidence.reason == R::RequestPreparation
+                }
+                _ => false,
+            }
+        }),
     };
     tracing::warn!(
         %request_id,
@@ -692,6 +791,7 @@ impl ExternalLlmClient {
         #[cfg(test)]
         let gateway_url = self.test_chat_url.as_deref().unwrap_or(&gateway_url);
         let request_id = Uuid::new_v4();
+        let started = Instant::now();
         let response = self
             .client
             .post(gateway_url)
@@ -700,32 +800,34 @@ impl ExternalLlmClient {
             .header("x-edutalent-request-id", request_id.to_string())
             .json(&request)
             .send()
-            .await?;
+            .await
+            .map_err(|error| gateway_transport_failure(&error, request_id, started))?;
         if !response.status().is_success() {
-            return Err(gateway_failure(response, request_id).await);
+            return Err(gateway_failure(response, request_id, started).await);
         }
+        let status = response.status().as_u16();
+        let invalid = || {
+            app_observed_gateway_failure(
+                GatewayFailureKind::InvalidGatewayResponse,
+                request_id,
+                started,
+                Some(status),
+            )
+        };
         let completion = response
             .json::<GatewayChatResponse>()
             .await
-            .map_err(|error| LlmError::ParseError(error.to_string()))?;
+            .map_err(|_| invalid())?;
         if completion.model != self.config.model || completion.choices.len() != 1 {
-            return Err(LlmError::InvalidResponse(
-                "Gateway returned the wrong model or choice count".to_string(),
-            ));
+            return Err(invalid());
         }
         let usage = completion.usage.clone();
-        let choice = completion
-            .choices
-            .into_iter()
-            .next()
-            .ok_or_else(|| LlmError::InvalidResponse("No completion choice".to_string()))?;
+        let choice = completion.choices.into_iter().next().ok_or_else(invalid)?;
         if choice.index != 0
             || choice.message.role != "assistant"
             || choice.message.content.trim().is_empty()
         {
-            return Err(LlmError::InvalidResponse(
-                "Invalid completion choice".to_string(),
-            ));
+            return Err(invalid());
         }
         Ok((choice.message.content, usage))
     }
@@ -881,6 +983,7 @@ impl ExternalLlmClient {
             .map(|base| format!("{base}/v1/grading/pdf"))
             .unwrap_or(gateway_url);
         let request_id = Uuid::new_v4();
+        let started = Instant::now();
         let response = self
             .client
             .post(gateway_url)
@@ -891,7 +994,7 @@ impl ExternalLlmClient {
             .send()
             .await?;
         if !response.status().is_success() {
-            return Err(gateway_failure(response, request_id).await);
+            return Err(gateway_failure(response, request_id, started).await);
         }
         let body = response.json::<GatewayChatResponse>().await.map_err(|_| {
             LlmError::InvalidResponse("Malformed native PDF gateway response".to_string())

@@ -1,8 +1,8 @@
 use super::{
     AssignmentPersonalizationJobRepository, AssignmentPersonalizationPolicyRepository,
     AuthorizedAssignmentRepository, AuthorizedTeacher, ClaimedAssignmentPersonalizationJob,
-    PersonalizationFailureDisposition, PersonalizationFailureKind,
-    DELIVERY_ALLOW_ORIGINAL_FALLBACK, DELIVERY_REQUIRE_PERSONALIZED,
+    PersonalizationExecutionDiagnostics, PersonalizationFailureDisposition,
+    PersonalizationFailureKind, DELIVERY_ALLOW_ORIGINAL_FALLBACK, DELIVERY_REQUIRE_PERSONALIZED,
 };
 use crate::models::CreateAssignmentRequest;
 use crate::rls_context::{AuthorizedActor, AuthorizedPool, AuthorizedTx};
@@ -367,6 +367,7 @@ async fn publication_enqueues_atomically_and_duplicate_publish_is_idempotent() {
     assert_eq!(summary.total, 2);
     assert_eq!(summary.queued, 2);
     assert_eq!(summary.failed, 0);
+    assert!(summary.latest_failed_job_id.is_none());
 
     let persisted = sqlx::query(
         r#"
@@ -814,6 +815,7 @@ async fn retry_backoff_is_bounded_and_cross_school_status_is_isolated() {
     .await
     .expect("other teacher summary");
     assert_eq!(other_summary.total, 0);
+    assert!(other_summary.latest_failed_job_id.is_none());
 }
 
 #[cfg(feature = "server")]
@@ -1573,14 +1575,28 @@ async fn deterministic_provider_contract_error_is_terminal_with_safe_code() {
         .unwrap();
     assert_eq!(claimed.assignment_id, fixture.assignment_id);
     let repository = AssignmentPersonalizationJobRepository::new(fixture.pool.clone());
+    let failure = crate::services::llm_service::GatewayFailure {
+        kind: crate::services::llm_service::GatewayFailureKind::InvalidProviderResponse,
+        request_id: Uuid::new_v4(),
+        gateway_http_status: Some(502),
+        retry_after_seconds: None,
+        gateway_elapsed_ms: 26_327,
+        provider_evidence: Some(crate::ai_gateway_protocol::ProviderFailureEvidence {
+            dispatch: crate::ai_gateway_protocol::ProviderDispatch::Responded,
+            reason: crate::ai_gateway_protocol::ProviderFailureReason::ModelMismatch,
+            transport_attempts: 1,
+            upstream_http_status: Some(200),
+        }),
+    };
     let disposition = run_as(
         fixture.pool.as_ref(),
         actor(fixture.teacher_user, "Teacher", fixture.school_id),
-        repository.record_failure(
+        repository.record_failure_with_gateway(
             &claimed,
             PersonalizationFailureKind::ProviderInvalidResponse,
             0,
             5,
+            Some(failure),
         ),
     )
     .await
@@ -1600,4 +1616,477 @@ async fn deterministic_provider_contract_error_is_terminal_with_safe_code() {
     );
     assert_eq!(row.get::<i32, _>("attempt_count"), claimed.attempt_count);
     assert!(row.get::<bool, _>("completed"));
+    let summary = run_as(
+        fixture.pool.as_ref(),
+        actor(fixture.teacher_user, "Teacher", fixture.school_id),
+        repository.summary_for_teacher(fixture.teacher_user),
+    )
+    .await
+    .unwrap();
+    assert_eq!(summary.latest_failed_job_id, Some(claimed.id));
+    let stale = run_as(
+        fixture.pool.as_ref(),
+        actor(fixture.teacher_user, "Teacher", fixture.school_id),
+        repository.record_failure_with_gateway(
+            &claimed,
+            PersonalizationFailureKind::ProviderInvalidResponse,
+            0,
+            5,
+            Some(failure),
+        ),
+    )
+    .await
+    .unwrap();
+    assert_eq!(stale, PersonalizationFailureDisposition::IgnoredInactive);
+    let admin_role = role_id(&fixture.pool, "PlatformAdmin").await;
+    let admin = insert_user(
+        &fixture.pool,
+        &Uuid::new_v4().simple().to_string(),
+        "Diagnostics Admin",
+        admin_role,
+        fixture.school_id,
+    )
+    .await;
+    let listed = run_as(
+        fixture.pool.as_ref(),
+        actor(admin, "PlatformAdmin", fixture.school_id),
+        repository.list_for_platform_admin(admin, Some(fixture.school_id), None, 200),
+    )
+    .await
+    .unwrap();
+    let record = listed
+        .iter()
+        .find(|record| record.job_id == claimed.id)
+        .unwrap();
+    assert_eq!(record.gateway_failures.len(), 1);
+    let diagnostic = &record.gateway_failures[0];
+    assert_eq!(diagnostic.request_id, failure.request_id);
+    assert_eq!(diagnostic.diagnostic_code, "invalid_provider_response");
+    assert_eq!(diagnostic.gateway_http_status, Some(502));
+    assert_eq!(diagnostic.gateway_elapsed_ms, 26_327);
+    assert_eq!(diagnostic.provider_dispatch_state, "responded");
+    assert_eq!(
+        diagnostic.provider_failure_reason.as_deref(),
+        Some("model_mismatch")
+    );
+    assert_eq!(diagnostic.provider_transport_attempts, Some(1));
+    assert_eq!(diagnostic.upstream_http_status, Some(200));
+    assert!(diagnostic.scheduled_retry_at.is_none());
+    let denied = run_as(
+        fixture.pool.as_ref(),
+        actor(fixture.teacher_user, "Teacher", fixture.school_id),
+        repository.list_for_platform_admin(
+            fixture.teacher_user,
+            Some(fixture.school_id),
+            None,
+            200,
+        ),
+    )
+    .await;
+    assert!(
+        denied.is_err(),
+        "teacher must not read admin failure history"
+    );
+
+    // Explicit retry keeps the job and snapshot generation, but resets the
+    // attempt counter. A new claim must append without replacing history.
+    run_as(
+        fixture.pool.as_ref(),
+        actor(fixture.teacher_user, "Teacher", fixture.school_id),
+        repository.requeue_for_teacher(
+            fixture.teacher_user,
+            fixture.assignment_id,
+            fixture.student_ids[0],
+        ),
+    )
+    .await
+    .unwrap();
+    prioritize_assignment_jobs(fixture.pool.as_ref(), fixture.assignment_id).await;
+    let retried = claim_next(fixture.pool.as_ref(), Uuid::new_v4())
+        .await
+        .unwrap();
+    assert_eq!(retried.id, claimed.id);
+    assert_eq!(retried.attempt_count, claimed.attempt_count);
+    assert_ne!(retried.lease_owner, claimed.lease_owner);
+
+    let stale = run_as(
+        fixture.pool.as_ref(),
+        actor(fixture.teacher_user, "Teacher", fixture.school_id),
+        repository.record_failure_with_gateway(
+            &claimed,
+            PersonalizationFailureKind::ProviderInvalidResponse,
+            0,
+            5,
+            Some(failure),
+        ),
+    )
+    .await
+    .unwrap();
+    assert_eq!(stale, PersonalizationFailureDisposition::IgnoredInactive);
+
+    let blocked = crate::services::llm_service::GatewayFailure {
+        kind: crate::services::llm_service::GatewayFailureKind::CircuitOpen,
+        request_id: Uuid::new_v4(),
+        gateway_http_status: Some(503),
+        retry_after_seconds: Some(30),
+        gateway_elapsed_ms: 1,
+        provider_evidence: None,
+    };
+    let disposition = run_as(
+        fixture.pool.as_ref(),
+        actor(fixture.teacher_user, "Teacher", fixture.school_id),
+        repository.record_failure_with_gateway(
+            &retried,
+            PersonalizationFailureKind::CircuitOpen,
+            30,
+            5,
+            Some(blocked),
+        ),
+    )
+    .await
+    .unwrap();
+    assert_eq!(disposition, PersonalizationFailureDisposition::Requeued);
+    let listed = run_as(
+        fixture.pool.as_ref(),
+        actor(admin, "PlatformAdmin", fixture.school_id),
+        repository.list_for_platform_admin(admin, Some(fixture.school_id), None, 200),
+    )
+    .await
+    .unwrap();
+    let record = listed
+        .iter()
+        .find(|record| record.job_id == claimed.id)
+        .unwrap();
+    assert_eq!(record.gateway_failures.len(), 2);
+    let original = record
+        .gateway_failures
+        .iter()
+        .find(|item| item.request_id == failure.request_id)
+        .unwrap();
+    let refusal = record
+        .gateway_failures
+        .iter()
+        .find(|item| item.request_id == blocked.request_id)
+        .unwrap();
+    assert_eq!(original.execution_generation, refusal.execution_generation);
+    assert_eq!(original.attempt_number, refusal.attempt_number);
+    assert_eq!(original.upstream_http_status, Some(200));
+    assert_eq!(
+        original.provider_failure_reason.as_deref(),
+        Some("model_mismatch")
+    );
+    assert_eq!(refusal.provider_dispatch_state, "blocked");
+    assert_eq!(refusal.provider_transport_attempts, Some(0));
+    assert!(refusal.upstream_http_status.is_none());
+    assert!(refusal.scheduled_retry_at.is_some());
+
+    // App-to-gateway timeout: no HTTP response and no external dispatch proof.
+    prioritize_assignment_jobs(fixture.pool.as_ref(), fixture.assignment_id).await;
+    let timed_out = claim_next(fixture.pool.as_ref(), Uuid::new_v4())
+        .await
+        .unwrap();
+    assert_eq!(timed_out.id, claimed.id);
+    let timeout = crate::services::llm_service::GatewayFailure {
+        kind: crate::services::llm_service::GatewayFailureKind::GatewayTransportTimeout,
+        request_id: Uuid::new_v4(),
+        gateway_http_status: None,
+        retry_after_seconds: None,
+        gateway_elapsed_ms: 400,
+        provider_evidence: None,
+    };
+    let disposition = run_as(
+        fixture.pool.as_ref(),
+        actor(fixture.teacher_user, "Teacher", fixture.school_id),
+        repository.record_failure_with_gateway(
+            &timed_out,
+            PersonalizationFailureKind::GatewayUnavailable,
+            10,
+            5,
+            Some(timeout),
+        ),
+    )
+    .await
+    .unwrap();
+    assert_eq!(disposition, PersonalizationFailureDisposition::Requeued);
+
+    // Recovery clears the current error, not the immutable failure history.
+    prioritize_assignment_jobs(fixture.pool.as_ref(), fixture.assignment_id).await;
+    let recovered = claim_next(fixture.pool.as_ref(), Uuid::new_v4())
+        .await
+        .unwrap();
+    assert_eq!(recovered.id, claimed.id);
+    assert_eq!(recovered.attempt_count, timed_out.attempt_count + 1);
+    run_as(
+        fixture.pool.as_ref(),
+        actor(fixture.teacher_user, "Teacher", fixture.school_id),
+        repository.complete_with_diagnostics(
+            recovered.id,
+            recovered.lease_owner,
+            &PersonalizationExecutionDiagnostics::default(),
+        ),
+    )
+    .await
+    .unwrap();
+    let listed = run_as(
+        fixture.pool.as_ref(),
+        actor(admin, "PlatformAdmin", fixture.school_id),
+        repository.list_for_platform_admin(admin, Some(fixture.school_id), None, 200),
+    )
+    .await
+    .unwrap();
+    let record = listed
+        .iter()
+        .find(|record| record.job_id == claimed.id)
+        .unwrap();
+    assert_eq!(record.status, "succeeded");
+    assert!(record.last_error_code.is_none());
+    assert_eq!(record.gateway_failures.len(), 3);
+    let summary = run_as(
+        fixture.pool.as_ref(),
+        actor(fixture.teacher_user, "Teacher", fixture.school_id),
+        repository.summary_for_teacher(fixture.teacher_user),
+    )
+    .await
+    .unwrap();
+    assert!(summary.latest_failed_job_id.is_none());
+    assert!(record
+        .gateway_failures
+        .iter()
+        .any(|item| item.request_id == failure.request_id));
+    let transport = record
+        .gateway_failures
+        .iter()
+        .find(|item| item.request_id == timeout.request_id)
+        .unwrap();
+    assert_eq!(transport.diagnostic_code, "gateway_transport_timeout");
+    assert!(transport.gateway_http_status.is_none());
+    assert_eq!(transport.provider_dispatch_state, "unknown");
+    assert!(transport.upstream_http_status.is_none());
+    assert!(transport.provider_transport_attempts.is_none());
+
+    // Seed additional synthetic historical refusals to prove the bounded
+    // operator projection. Actual claim/append authorization is tested above
+    // and in the separate non-bypass RLS regression.
+    sqlx::query(
+        r#"
+        INSERT INTO public.assignment_personalization_gateway_failures (
+            request_id, job_id, lease_owner, execution_generation, attempt_number,
+            recorded_at, stage, diagnostic_code, gateway_http_status,
+            gateway_elapsed_ms, provider_dispatch_state, provider_transport_attempts
+        )
+        SELECT gen_random_uuid(), $1, gen_random_uuid(), $2, 1,
+               NOW() + make_interval(secs => n::DOUBLE PRECISION),
+               'ai_gateway', 'circuit_open', 503, 1, 'blocked', 0
+        FROM generate_series(1, 21) AS sequence(n)
+        "#,
+    )
+    .bind(claimed.id)
+    .bind(original.execution_generation)
+    .execute(&*fixture.pool)
+    .await
+    .unwrap();
+    let listed = run_as(
+        fixture.pool.as_ref(),
+        actor(admin, "PlatformAdmin", fixture.school_id),
+        repository.list_for_platform_admin(admin, Some(fixture.school_id), None, 200),
+    )
+    .await
+    .unwrap();
+    let record = listed
+        .iter()
+        .find(|record| record.job_id == claimed.id)
+        .unwrap();
+    assert_eq!(record.gateway_failures.len(), 21);
+    assert_eq!(
+        record.gateway_failures.last().unwrap().request_id,
+        failure.request_id
+    );
+    assert!(record
+        .gateway_failures
+        .iter()
+        .take(20)
+        .all(|item| item.provider_dispatch_state == "blocked"));
+    let stored_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM public.assignment_personalization_gateway_failures WHERE job_id = $1",
+    )
+    .bind(claimed.id)
+    .fetch_one(&*fixture.pool)
+    .await
+    .unwrap();
+    assert_eq!(stored_count, 24);
+}
+
+#[cfg(feature = "server")]
+#[tokio::test]
+async fn gateway_history_rls_enforces_active_teacher_append_admin_read_and_immutability() {
+    let _queue_guard = QUEUE_TEST_LOCK.lock().await;
+    let fixture = queue_fixture(1).await;
+    prioritize_assignment_jobs(fixture.pool.as_ref(), fixture.assignment_id).await;
+    let claimed = claim_next(fixture.pool.as_ref(), Uuid::new_v4())
+        .await
+        .unwrap();
+    assert_eq!(claimed.assignment_id, fixture.assignment_id);
+
+    // The fixture owner is privileged. Use a real non-bypass role in the
+    // same transaction; creating that role and all probes is rolled back.
+    let role = format!("et_diag_{}", Uuid::new_v4().simple());
+    let mut tx = fixture.pool.begin().await.unwrap();
+    sqlx::query(&format!(
+        "CREATE ROLE {role} NOLOGIN NOSUPERUSER NOINHERIT NOCREATEDB NOCREATEROLE NOBYPASSRLS"
+    ))
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    sqlx::query(&format!("GRANT USAGE ON SCHEMA public TO {role}"))
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query(&format!(
+        "GRANT SELECT ON public.assignment_personalization_jobs TO {role}"
+    ))
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    sqlx::query(&format!("GRANT SELECT, INSERT, UPDATE, DELETE ON public.assignment_personalization_gateway_failures TO {role}"))
+        .execute(&mut *tx).await.unwrap();
+    sqlx::query(&format!("GRANT EXECUTE ON FUNCTION public.get_user_id(), public.get_role(), public.get_school_id() TO {role}"))
+        .execute(&mut *tx).await.unwrap();
+    sqlx::query(&format!("SET LOCAL ROLE {role}"))
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query("SELECT set_config('app.user_id', $1, true), set_config('app.user_role', 'Teacher', true), set_config('app.school_id', $2, true), set_config('app.elevated_operation', 'false', true)")
+        .bind(fixture.teacher_user.to_string()).bind(fixture.school_id.to_string())
+        .execute(&mut *tx).await.unwrap();
+    let insert = r#"
+        INSERT INTO public.assignment_personalization_gateway_failures (
+            request_id, job_id, lease_owner, execution_generation, attempt_number,
+            stage, diagnostic_code, gateway_http_status, gateway_elapsed_ms,
+            provider_dispatch_state, provider_transport_attempts
+        )
+        SELECT $1, id, $2, execution_generation, attempt_count, processing_stage,
+               'circuit_open', 503, 1, 'blocked', 0
+        FROM public.assignment_personalization_jobs WHERE id = $3
+    "#;
+    let request_id = Uuid::new_v4();
+    assert_eq!(
+        sqlx::query(insert)
+            .bind(request_id)
+            .bind(claimed.lease_owner)
+            .bind(claimed.id)
+            .execute(&mut *tx)
+            .await
+            .unwrap()
+            .rows_affected(),
+        1
+    );
+    let count = sqlx::query_scalar::<_, i64>("SELECT count(*) FROM public.assignment_personalization_gateway_failures WHERE request_id = $1")
+        .bind(request_id).fetch_one(&mut *tx).await.unwrap();
+    assert_eq!(
+        count, 0,
+        "even the original teacher cannot read admin diagnostics"
+    );
+
+    sqlx::query("SAVEPOINT duplicate_attempt")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    assert!(
+        sqlx::query(insert)
+            .bind(Uuid::new_v4())
+            .bind(claimed.lease_owner)
+            .bind(claimed.id)
+            .execute(&mut *tx)
+            .await
+            .is_err(),
+        "one immutable diagnostic record per job generation, attempt and claim lease"
+    );
+    sqlx::query("ROLLBACK TO SAVEPOINT duplicate_attempt")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+
+    sqlx::query("SAVEPOINT wrong_lease")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    assert!(
+        sqlx::query(insert)
+            .bind(Uuid::new_v4())
+            .bind(Uuid::new_v4())
+            .bind(claimed.id)
+            .execute(&mut *tx)
+            .await
+            .is_err(),
+        "wrong lease must not append"
+    );
+    sqlx::query("ROLLBACK TO SAVEPOINT wrong_lease")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+
+    sqlx::query("SELECT set_config('app.school_id', $1, true)")
+        .bind(Uuid::new_v4().to_string())
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    assert_eq!(
+        sqlx::query(insert)
+            .bind(Uuid::new_v4())
+            .bind(claimed.lease_owner)
+            .bind(claimed.id)
+            .execute(&mut *tx)
+            .await
+            .unwrap()
+            .rows_affected(),
+        0,
+        "foreign school cannot access job for insert"
+    );
+    for denied_role in ["Teacher", "SchoolManager", "Student", "Parent"] {
+        sqlx::query("SELECT set_config('app.user_role', $1, true)")
+            .bind(denied_role)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let count = sqlx::query_scalar::<_, i64>("SELECT count(*) FROM public.assignment_personalization_gateway_failures WHERE request_id = $1")
+            .bind(request_id).fetch_one(&mut *tx).await.unwrap();
+        assert_eq!(count, 0);
+    }
+    sqlx::query("SELECT set_config('app.user_role', 'PlatformAdmin', true)")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let count = sqlx::query_scalar::<_, i64>("SELECT count(*) FROM public.assignment_personalization_gateway_failures WHERE request_id = $1")
+        .bind(request_id).fetch_one(&mut *tx).await.unwrap();
+    assert_eq!(count, 1);
+    assert_eq!(sqlx::query("UPDATE public.assignment_personalization_gateway_failures SET gateway_http_status = 500 WHERE request_id = $1")
+        .bind(request_id).execute(&mut *tx).await.unwrap().rows_affected(), 0);
+    assert_eq!(
+        sqlx::query(
+            "DELETE FROM public.assignment_personalization_gateway_failures WHERE request_id = $1"
+        )
+        .bind(request_id)
+        .execute(&mut *tx)
+        .await
+        .unwrap()
+        .rows_affected(),
+        0
+    );
+    tx.rollback().await.unwrap();
+    let count = sqlx::query_scalar::<_, i64>("SELECT count(*) FROM public.assignment_personalization_gateway_failures WHERE request_id = $1")
+        .bind(request_id).fetch_one(&*fixture.pool).await.unwrap();
+    assert_eq!(count, 0, "rollback must not retain diagnostics");
+    let repository = AssignmentPersonalizationJobRepository::new(fixture.pool.clone());
+    run_as(
+        fixture.pool.as_ref(),
+        actor(fixture.teacher_user, "Teacher", fixture.school_id),
+        repository.record_failure(
+            &claimed,
+            PersonalizationFailureKind::ProviderInvalidResponse,
+            0,
+            5,
+        ),
+    )
+    .await
+    .unwrap();
 }

@@ -1,5 +1,6 @@
 //! Teacher assignment workflow with truthful publish preconditions.
 
+use super::personalization_status::PersonalizationQueueStatusPanel;
 use crate::i18n::{
     assignment_status_label, format_product_date, format_product_date_text, use_locale, Locale,
 };
@@ -62,6 +63,7 @@ pub fn AssignmentsList() -> Element {
 
     rsx! {
         div { class: "et-teacher-assignments space-y-6",
+            PersonalizationQueueStatusPanel {}
             if let Some((success, message)) = notice() {
                 div {
                     class: if success {
