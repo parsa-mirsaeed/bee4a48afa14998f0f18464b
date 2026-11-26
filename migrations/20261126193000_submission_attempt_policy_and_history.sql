@@ -170,3 +170,104 @@ COMMENT ON TABLE public.submission_attempts IS
     'Accepted work snapshots, one durable row per attempt; parent submission owns retention. Legacy backfill records only latest accepted work.';
 COMMENT ON TABLE public.submission_attempt_originals IS
     'Immutable references to original bytes accepted for a specific submission revision.';
+
+-- Serialize student writes with teacher policy changes using the existing
+-- exact-actor lock. No additional privileges or public entry point.
+CREATE OR REPLACE FUNCTION edutalent_internal.lock_student_submission_assignment(p_assignment UUID)
+RETURNS TABLE(student_id UUID, school_id UUID, graded_at TIMESTAMPTZ)
+LANGUAGE sql SECURITY DEFINER SET search_path=pg_catalog,public AS $$
+    SELECT ca.student_id, cs.school_id, ca.graded_at
+    FROM public.custom_assignments ca
+    JOIN public.assignments a ON a.id=ca.assignment_id
+    JOIN public.class_sections cs ON cs.id=a.class_section_id
+    JOIN public.students s ON s.id=ca.student_id
+    JOIN public.users u ON u.id=s.user_id
+    JOIN public.roles r ON r.id=u.role_id
+    JOIN public.enrollments e ON e.student_id=s.id AND e.class_section_id=cs.id
+    WHERE ca.id=p_assignment
+      AND public.get_role()='Student'
+      AND NOT public.get_elevated_operation()
+      AND public.get_user_id() IS NOT NULL
+      AND public.get_school_id() IS NOT NULL
+      AND s.user_id=public.get_user_id()
+      AND u.is_active AND r.name::text='Student'
+      AND s.school_id=public.get_school_id()
+      AND u.school_id=public.get_school_id()
+      AND cs.school_id=public.get_school_id()
+      AND a.status='Published'::public.assignment_status
+    FOR UPDATE OF ca
+    FOR SHARE OF a
+$$;
+REVOKE ALL ON FUNCTION edutalent_internal.lock_student_submission_assignment(UUID) FROM PUBLIC;
+
+CREATE POLICY submission_attempt_student_append ON public.submission_attempts FOR INSERT
+WITH CHECK (
+    NOT public.get_elevated_operation()
+    AND public.owns_submission_assignment(custom_assignment_id, student_id, school_id)
+    AND EXISTS (
+        SELECT 1 FROM public.submissions s
+        JOIN public.custom_assignments ca ON ca.id = s.custom_assignment_id
+        WHERE s.id = submission_attempts.submission_id
+          AND ca.id = submission_attempts.custom_assignment_id
+          AND ca.graded_at IS NULL AND s.grade IS NULL
+          AND s.student_id = submission_attempts.student_id
+          AND s.revision = submission_attempts.submission_revision
+          AND s.content = submission_attempts.accepted_content
+          AND s.submitted_at = submission_attempts.accepted_at
+          AND s.last_submit_request IS NOT DISTINCT FROM submission_attempts.request_id
+          AND s.last_submit_fingerprint IS NOT DISTINCT FROM submission_attempts.request_fingerprint
+    )
+);
+CREATE POLICY submission_attempt_original_student_append
+ON public.submission_attempt_originals FOR INSERT
+WITH CHECK (
+    public.get_role() = 'Student' AND NOT public.get_elevated_operation()
+    AND EXISTS (
+        SELECT 1 FROM public.submission_attempts attempt
+        JOIN public.submissions s ON s.id = attempt.submission_id
+        JOIN public.submission_attachments original
+          ON original.id = submission_attempt_originals.attachment_id
+         AND original.submission_id = s.id
+         AND original.custom_assignment_id = attempt.custom_assignment_id
+         AND original.student_id = attempt.student_id
+         AND original.school_id = attempt.school_id
+         AND original.status = 'submitted'
+        WHERE attempt.custom_assignment_id = submission_attempt_originals.custom_assignment_id
+          AND attempt.attempt_number = submission_attempt_originals.attempt_number
+          AND attempt.submission_id = submission_attempt_originals.submission_id
+          AND attempt.submission_revision = s.revision
+          AND public.owns_submission_assignment(attempt.custom_assignment_id, attempt.student_id, attempt.school_id)
+    )
+);
+-- Reject forged sequences or exhausted caps using the same lock as finalize.
+CREATE FUNCTION public.guard_submission_attempt_append()
+RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, public AS $$
+DECLARE
+    cap SMALLINT;
+    used BIGINT;
+BEGIN
+    IF public.get_role() IS DISTINCT FROM 'Student'
+       OR public.get_elevated_operation()
+       OR NOT public.owns_submission_assignment(NEW.custom_assignment_id, NEW.student_id, NEW.school_id) THEN
+        RAISE EXCEPTION 'Submission attempt actor denied' USING ERRCODE = '42501';
+    END IF;
+    PERFORM 1 FROM edutalent_internal.lock_student_submission_assignment(NEW.custom_assignment_id);
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Submission attempt actor denied' USING ERRCODE = '42501';
+    END IF;
+    SELECT a.max_submission_attempts INTO cap
+    FROM public.custom_assignments ca
+    JOIN public.assignments a ON a.id = ca.assignment_id
+    WHERE ca.id = NEW.custom_assignment_id AND ca.graded_at IS NULL;
+    SELECT count(*) INTO used FROM public.submission_attempts
+    WHERE custom_assignment_id = NEW.custom_assignment_id;
+    IF cap IS NULL OR used >= cap OR NEW.attempt_number <> used + 1 THEN
+        RAISE EXCEPTION 'Submission attempt limit or sequence conflict' USING ERRCODE = '23514';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.guard_submission_attempt_append() FROM PUBLIC;
+CREATE TRIGGER submission_attempt_append_guard
+BEFORE INSERT ON public.submission_attempts
+FOR EACH ROW EXECUTE FUNCTION public.guard_submission_attempt_append();

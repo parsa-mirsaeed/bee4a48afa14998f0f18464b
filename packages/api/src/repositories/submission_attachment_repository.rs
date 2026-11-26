@@ -86,6 +86,17 @@ pub async fn authorize_student(
     {
         return Err(AttachmentError::Conflict);
     }
+    if writable {
+        let exhausted: bool = sqlx::query_scalar(
+            "SELECT (SELECT count(*) FROM submission_attempts h WHERE h.custom_assignment_id=ca.id) >= a.max_submission_attempts FROM custom_assignments ca JOIN assignments a ON a.id=ca.assignment_id WHERE ca.id=$1",
+        )
+        .bind(assignment)
+        .fetch_one(pool)
+        .await?;
+        if exhausted {
+            return Err(AttachmentError::Conflict);
+        }
+    }
     Ok((row.get("student_id"), row.get("school_id")))
 }
 
@@ -160,7 +171,7 @@ pub async fn reserve(
         if existing.filename!=filename || existing.media_type!=input.media_type || existing.byte_size!=input.byte_size || existing.sha256!=input.sha256 { return Err(AttachmentError::Conflict); }
         return Ok(existing);
     }
-    let counts=sqlx::query("SELECT count(*) AS count, COALESCE(sum(byte_size),0)::bigint AS bytes FROM submission_attachments WHERE custom_assignment_id=$1 AND status<>'removed'")
+    let counts=sqlx::query("SELECT count(*) AS count, COALESCE(sum(byte_size),0)::bigint AS bytes FROM submission_attachments WHERE custom_assignment_id=$1 AND status IN ('pending','ready')")
         .bind(input.assignment_id).fetch_one(pool).await?;
     if counts.get::<i64, _>("count") >= MAX_SUBMISSION_FILES as i64
         || counts.get::<i64, _>("bytes") + input.byte_size > MAX_SUBMISSION_FILE_BYTES as i64
@@ -184,7 +195,7 @@ pub async fn list(
         return Err(AttachmentError::Forbidden);
     }
     // RLS applies exact Student ownership or current Teacher/class/school scope.
-    sqlx::query("SELECT * FROM submission_attachments WHERE custom_assignment_id=$1 AND status<>'removed' ORDER BY created_at,id")
+    sqlx::query("SELECT a.* FROM submission_attachments a WHERE a.custom_assignment_id=$1 AND (a.status IN ('pending','ready') OR (a.status='submitted' AND EXISTS (SELECT 1 FROM submission_attempt_originals o WHERE o.attachment_id=a.id AND o.custom_assignment_id=a.custom_assignment_id AND o.attempt_number=(SELECT max(h.attempt_number) FROM submission_attempts h WHERE h.custom_assignment_id=a.custom_assignment_id)))) ORDER BY a.created_at,a.id")
         .bind(assignment).fetch_all(pool).await?.iter().map(from_row).collect()
 }
 

@@ -89,39 +89,9 @@ async fn submit_work(
     }
 
     let state = extract_server_state().map_err(map_state_error)?;
-    let user_id = Uuid::parse_str(&user.id).map_err(|_| ServerFnError::new("Unauthorized"))?;
     let custom_assignment_id =
         Uuid::parse_str(&assignment_id).map_err(|_| ServerFnError::new("Invalid assignment ID"))?;
 
-    let authorized = sqlx::query(
-        r#"
-            SELECT ca.id, ca.student_id
-            FROM custom_assignments ca
-            JOIN assignments a ON a.id = ca.assignment_id
-            JOIN class_sections cs ON cs.id = a.class_section_id
-            JOIN students student ON student.id = ca.student_id
-            JOIN users student_user ON student_user.id = student.user_id
-            JOIN roles student_role ON student_role.id = student_user.role_id
-            JOIN enrollments enrollment
-              ON enrollment.student_id = student.id
-             AND enrollment.class_section_id = a.class_section_id
-            WHERE ca.id = $1
-              AND student.user_id = $2
-              AND student_user.is_active = TRUE
-              AND student_role.name::text = 'Student'
-              AND student.school_id = student_user.school_id
-              AND cs.school_id = student_user.school_id
-              AND a.status = 'Published'::assignment_status
-            "#,
-    )
-    .bind(custom_assignment_id)
-    .bind(user_id)
-    .fetch_optional(&*state.services.pool)
-    .await
-    .map_err(map_database_error)?
-    .ok_or_else(|| ServerFnError::new("Assignment not found"))?;
-
-    let student_id: Uuid = authorized.get("student_id");
     let now = Utc::now();
     let content_json = serde_json::json!({ "text": content });
     let mut transaction = state
@@ -131,150 +101,234 @@ async fn submit_work(
         .await
         .map_err(map_database_error)?;
 
-    // Lock the authoritative custom-assignment row before editing a
-    // submission. This makes the graded state terminal for students even
-    // when a stale browser page still offers an edit action.
+    // Lock the exact active Student's published assignment and share-lock
+    // the parent policy before checking the request ledger or attempt cap.
     let assignment_state = sqlx::query(
-        "SELECT graded_at FROM custom_assignments WHERE id = $1 AND student_id = $2 FOR UPDATE",
+        "SELECT student_id, school_id, graded_at FROM edutalent_internal.lock_student_submission_assignment($1)",
     )
     .bind(custom_assignment_id)
-    .bind(student_id)
     .fetch_optional(&mut *transaction)
     .await
     .map_err(map_database_error)?
     .ok_or_else(|| ServerFnError::new("Assignment not found"))?;
+    let student_id: Uuid = assignment_state.get("student_id");
+    let school_id: Uuid = assignment_state.get("school_id");
+
+    let mut selected_ids = expected_attachments.unwrap_or_default();
+    selected_ids.sort_unstable();
+    if selected_ids.windows(2).any(|pair| pair[0] == pair[1]) {
+        return Err(ServerFnError::new("attachment_conflict"));
+    }
+    let fingerprint = crate::services::submission_attachment_storage::hash(
+        serde_json::to_string(&serde_json::json!([content_json, selected_ids]))
+            .map_err(|_| ServerFnError::new("Invalid submission content"))?
+            .as_bytes(),
+    );
+
+    // Replay the original receipt even after a later attempt or grading.
+    if let Some(token) = request_id {
+        let receipt = sqlx::query(
+            "SELECT submission_id, request_fingerprint, accepted_at FROM submission_attempts WHERE custom_assignment_id=$1 AND request_id=$2",
+        )
+        .bind(custom_assignment_id)
+        .bind(token)
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(map_database_error)?;
+        if let Some(receipt) = receipt {
+            if receipt
+                .get::<Option<String>, _>("request_fingerprint")
+                .as_deref()
+                != Some(fingerprint.as_str())
+            {
+                return Err(ServerFnError::new("submission_conflict"));
+            }
+            let response = SubmissionResponse {
+                id: receipt.get::<Uuid, _>("submission_id").to_string(),
+                status: "submitted".into(),
+                submitted_at: Some(
+                    receipt
+                        .get::<chrono::DateTime<Utc>, _>("accepted_at")
+                        .to_rfc3339(),
+                ),
+                message: "Assignment submitted successfully".into(),
+            };
+            transaction.commit().await.map_err(map_database_error)?;
+            return Ok(response);
+        }
+    }
+
     let graded_at: Option<chrono::DateTime<chrono::Utc>> = assignment_state.get("graded_at");
     if graded_at.is_some() {
         return Err(ServerFnError::new(
             "This assignment has already been graded",
         ));
     }
+    let policy = sqlx::query(
+        "SELECT a.max_submission_attempts, (SELECT count(*) FROM submission_attempts h WHERE h.custom_assignment_id=ca.id) AS attempts_used FROM custom_assignments ca JOIN assignments a ON a.id=ca.assignment_id WHERE ca.id=$1",
+    )
+    .bind(custom_assignment_id)
+    .fetch_one(&mut *transaction)
+    .await
+    .map_err(map_database_error)?;
+    let max_attempts: i16 = policy.get("max_submission_attempts");
+    let attempts_used: i64 = policy.get("attempts_used");
+    if attempts_used >= i64::from(max_attempts) {
+        return Err(ServerFnError::new("submission_attempt_limit"));
+    }
 
     let existing_submission = sqlx::query(
-            "SELECT id, revision, last_submit_request, last_submit_fingerprint, submitted_at FROM submissions WHERE custom_assignment_id = $1 AND student_id = $2 FOR UPDATE",
-        )
-        .bind(custom_assignment_id)
-        .bind(student_id)
-        .fetch_optional(&mut *transaction)
-        .await
-        .map_err(map_database_error)?;
-
-    let attachments = sqlx::query("SELECT id,status FROM submission_attachments WHERE custom_assignment_id=$1 AND status<>'removed' ORDER BY id FOR UPDATE")
-            .bind(custom_assignment_id).fetch_all(&mut *transaction).await.map_err(map_database_error)?;
-    if attachments
-        .iter()
-        .any(|row| row.get::<String, _>("status") == "pending")
-    {
-        return Err(ServerFnError::new("attachment_incomplete"));
-    }
-    let mut actual_ids: Vec<Uuid> = attachments.iter().map(|r| r.get("id")).collect();
-    actual_ids.sort_unstable();
-    if expected_attachments.is_none() && !actual_ids.is_empty() {
-        return Err(ServerFnError::new("attachment_conflict"));
-    }
-    if let Some(mut expected) = expected_attachments {
-        expected.sort_unstable();
-        if expected != actual_ids {
-            return Err(ServerFnError::new("attachment_conflict"));
-        }
-    }
-    if content_json["text"]
-        .as_str()
-        .unwrap_or_default()
-        .trim()
-        .is_empty()
-        && actual_ids.is_empty()
-    {
-        return Err(ServerFnError::new("Invalid submission content"));
-    }
-    let fingerprint = crate::services::submission_attachment_storage::hash(
-        serde_json::to_string(&serde_json::json!([content_json, actual_ids]))
-            .map_err(|_| ServerFnError::new("Invalid submission content"))?
-            .as_bytes(),
-    );
+        "SELECT id, revision, grade IS NOT NULL AS graded FROM submissions WHERE custom_assignment_id=$1 AND student_id=$2 ORDER BY submitted_at DESC,id DESC LIMIT 1 FOR UPDATE",
+    )
+    .bind(custom_assignment_id)
+    .bind(student_id)
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(map_database_error)?;
     if let Some(existing) = existing_submission.as_ref() {
-        if request_id.is_some()
-            && existing.get::<Option<Uuid>, _>("last_submit_request") == request_id
-        {
-            if existing
-                .get::<Option<String>, _>("last_submit_fingerprint")
-                .as_deref()
-                != Some(fingerprint.as_str())
-            {
-                return Err(ServerFnError::new("submission_conflict"));
-            }
-            return Ok(SubmissionResponse {
-                id: existing.get::<Uuid, _>("id").to_string(),
-                status: "submitted".into(),
-                submitted_at: existing
-                    .get::<Option<chrono::DateTime<Utc>>, _>("submitted_at")
-                    .map(|v| v.to_rfc3339()),
-                message: "Assignment submitted successfully".into(),
-            });
+        if existing.get::<bool, _>("graded") {
+            return Err(ServerFnError::new(
+                "This assignment has already been graded",
+            ));
         }
-        if request_id.is_some() && Some(existing.get::<Uuid, _>("revision")) != expected_revision {
+        // Legacy callers have no expected revision and cannot safely replace
+        // accepted work. Explicit finalize is required for additional attempts.
+        if request_id.is_none() || Some(existing.get::<Uuid, _>("revision")) != expected_revision {
             return Err(ServerFnError::new("submission_conflict"));
         }
     } else if expected_revision.is_some() {
         return Err(ServerFnError::new("submission_conflict"));
     }
 
-    let submission_id = if let Some(existing) = existing_submission {
-        let existing_id: Uuid = existing.get("id");
-        sqlx::query(
-                "UPDATE submissions SET content = $1, submitted_at = $2 WHERE id = $3 AND student_id = $4",
-            )
-            .bind(&content_json)
-            .bind(now)
-            .bind(existing_id)
-            .bind(student_id)
-            .execute(&mut *transaction)
-            .await
-            .map_err(map_database_error)?;
-        existing_id
+    let attachments = sqlx::query(
+        "SELECT id,status,byte_size,submission_id FROM submission_attachments WHERE custom_assignment_id=$1 AND status<>'removed' ORDER BY id FOR UPDATE",
+    )
+    .bind(custom_assignment_id)
+    .fetch_all(&mut *transaction)
+    .await
+    .map_err(map_database_error)?;
+    let existing_id = existing_submission
+        .as_ref()
+        .map(|row| row.get::<Uuid, _>("id"));
+    let mut selected_bytes = 0_i64;
+    for row in &attachments {
+        let id: Uuid = row.get("id");
+        let status: String = row.get("status");
+        let selected = selected_ids.binary_search(&id).is_ok();
+        if status == "pending" {
+            return Err(ServerFnError::new("attachment_incomplete"));
+        }
+        if status == "ready" && !selected {
+            return Err(ServerFnError::new("attachment_conflict"));
+        }
+        if selected {
+            if status == "submitted"
+                && row.get::<Option<Uuid>, _>("submission_id") != existing_id
+            {
+                return Err(ServerFnError::new("attachment_conflict"));
+            }
+            selected_bytes += row.get::<i64, _>("byte_size");
+        }
+    }
+    if selected_ids
+        .iter()
+        .any(|id| !attachments.iter().any(|row| row.get::<Uuid, _>("id") == *id))
+    {
+        return Err(ServerFnError::new("attachment_conflict"));
+    }
+    use crate::server_functions::submission_attachment_functions::{
+        MAX_SUBMISSION_FILES, MAX_SUBMISSION_FILE_BYTES,
+    };
+    if selected_ids.len() > MAX_SUBMISSION_FILES || selected_bytes > MAX_SUBMISSION_FILE_BYTES as i64
+    {
+        return Err(ServerFnError::new("attachment_limit"));
+    }
+    if content_json["text"].as_str().unwrap_or_default().trim().is_empty() && selected_ids.is_empty()
+    {
+        return Err(ServerFnError::new("Invalid submission content"));
+    }
+
+    let submission_id = existing_id.unwrap_or_else(Uuid::new_v4);
+    let revision = Uuid::new_v4();
+    let submitted_at: chrono::DateTime<Utc> = if existing_id.is_some() {
+        sqlx::query_scalar(
+            "UPDATE submissions SET content=$1,submitted_at=$2,revision=$3,last_submit_request=$4,last_submit_fingerprint=$5 WHERE id=$6 AND student_id=$7 RETURNING submitted_at",
+        )
+        .bind(&content_json)
+        .bind(now)
+        .bind(revision)
+        .bind(request_id)
+        .bind(&fingerprint)
+        .bind(submission_id)
+        .bind(student_id)
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(map_database_error)?
     } else {
-        let submission_id = Uuid::new_v4();
-        sqlx::query(
-            r#"
-                INSERT INTO submissions (
-                    id, custom_assignment_id, student_id, content, submitted_at
-                ) VALUES ($1, $2, $3, $4, $5)
-                "#,
+        sqlx::query_scalar(
+            "INSERT INTO submissions (id,custom_assignment_id,student_id,content,submitted_at,revision,last_submit_request,last_submit_fingerprint) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING submitted_at",
         )
         .bind(submission_id)
         .bind(custom_assignment_id)
         .bind(student_id)
         .bind(&content_json)
         .bind(now)
-        .execute(&mut *transaction)
+        .bind(revision)
+        .bind(request_id)
+        .bind(&fingerprint)
+        .fetch_one(&mut *transaction)
         .await
-        .map_err(map_database_error)?;
-        submission_id
+        .map_err(map_database_error)?
     };
-
     sqlx::query(
-        r#"
-            UPDATE custom_assignments
-            SET status = 'Submitted'::custom_status, submitted_at = $1
-            WHERE id = $2 AND student_id = $3
-            "#,
+        "UPDATE custom_assignments SET status='Submitted'::custom_status, submitted_at=$1 WHERE id=$2 AND student_id=$3",
     )
-    .bind(now)
+    .bind(submitted_at)
     .bind(custom_assignment_id)
     .bind(student_id)
     .execute(&mut *transaction)
     .await
     .map_err(map_database_error)?;
+    sqlx::query(
+        "UPDATE submission_attachments SET status='submitted',submission_id=$2,finalized_at=NOW() WHERE custom_assignment_id=$1 AND status='ready' AND id=ANY($3)",
+    )
+    .bind(custom_assignment_id)
+    .bind(submission_id)
+    .bind(&selected_ids)
+    .execute(&mut *transaction)
+    .await
+    .map_err(map_database_error)?;
 
-    // PostgreSQL stores microsecond precision. Return its authoritative timestamp
-    // so a successful retry has exactly the same response as the first finalize.
-    let submitted_at = sqlx::query_scalar::<_, chrono::DateTime<Utc>>("UPDATE submissions SET revision=gen_random_uuid(),last_submit_request=$2,last_submit_fingerprint=$3 WHERE id=$1 RETURNING submitted_at")
-            .bind(submission_id).bind(request_id).bind(fingerprint).fetch_one(&mut *transaction).await.map_err(map_database_error)?;
-    sqlx::query("UPDATE submission_attachments SET status='submitted',submission_id=$2,finalized_at=NOW() WHERE custom_assignment_id=$1 AND status='ready'")
-            .bind(custom_assignment_id).bind(submission_id).execute(&mut *transaction).await.map_err(map_database_error)?;
+    let attempt_number = i16::try_from(attempts_used + 1)
+        .map_err(|_| ServerFnError::new("submission_attempt_limit"))?;
+    sqlx::query(
+        "INSERT INTO submission_attempts (custom_assignment_id,student_id,school_id,submission_id,attempt_number,submission_revision,request_id,request_fingerprint,accepted_content,accepted_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
+    )
+    .bind(custom_assignment_id)
+    .bind(student_id)
+    .bind(school_id)
+    .bind(submission_id)
+    .bind(attempt_number)
+    .bind(revision)
+    .bind(request_id)
+    .bind(&fingerprint)
+    .bind(&content_json)
+    .bind(submitted_at)
+    .execute(&mut *transaction)
+    .await
+    .map_err(map_database_error)?;
+    sqlx::query(
+        "INSERT INTO submission_attempt_originals (custom_assignment_id,attempt_number,submission_id,attachment_id) SELECT $1,$2,$3,unnest($4::uuid[])",
+    )
+    .bind(custom_assignment_id)
+    .bind(attempt_number)
+    .bind(submission_id)
+    .bind(&selected_ids)
+    .execute(&mut *transaction)
+    .await
+    .map_err(map_database_error)?;
 
     transaction.commit().await.map_err(map_database_error)?;
-
     Ok(SubmissionResponse {
         id: submission_id.to_string(),
         status: "submitted".to_string(),

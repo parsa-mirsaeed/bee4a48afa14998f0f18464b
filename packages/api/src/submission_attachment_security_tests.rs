@@ -198,8 +198,14 @@ async fn private_originals_enforce_actor_school_state_and_cleanup_boundaries() {
     .split_once("-- END LEGACY ATTEMPT BACKFILL")
     .unwrap()
     .0;
+    tx.execute("ALTER TABLE public.submission_attempts DISABLE TRIGGER submission_attempt_append_guard")
+        .await
+        .unwrap();
     tx.execute(backfill).await.unwrap();
     tx.execute(backfill).await.unwrap();
+    tx.execute("ALTER TABLE public.submission_attempts ENABLE TRIGGER submission_attempt_append_guard")
+        .await
+        .unwrap();
     assert_eq!(
         sqlx::query_scalar::<_, i64>(
             "SELECT count(*) FROM submission_attempts WHERE custom_assignment_id=$1",
