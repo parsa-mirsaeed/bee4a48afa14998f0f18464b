@@ -160,6 +160,24 @@ test('upload retries, limits and incomplete finalization stay truthful @smoke @f
   finalized=await request.post('/api/submissions/finalize',{data});expect(finalized.ok()).toBeTruthy();expect(await finalized.json()).toEqual(first);
   expect((await request.post('/api/submissions/finalize',{data:{...data,content:'stale overwrite',request_id:randomUUID()}})).ok()).toBeFalsy();
   expect((await request.post(`${root}/remove`,{data:{attachment_id:attachment.id}})).ok()).toBeFalsy();
+  // A default one-attempt assignment cannot reserve or finalize more work.
+  expect((await reserve(request,id)).ok()).toBeFalsy();
+  const eligibility=async()=>{
+    const r=await request.post('/api/submissions/eligibility',{data:{assignment_id:id}});
+    expect(r.ok()).toBeTruthy();return r.json();
+  };
+  expect(await eligibility()).toMatchObject({max_attempts:1,used_attempts:1,remaining_attempts:0,can_submit:false});
+  expect(first).toMatchObject({attempt_number:1,accepted_file_count:1});
+  const parent=id.replace('f1600000','f0600000');
+  const policy=async(expected_version:number,max_attempts:number)=>request.post('/api/assignments/update_submission_policy',{data:{assignment_id:parent,expected_version,max_attempts}});
+  await login(request,'e2e-teacher-b@example.test');
+  expect((await policy(1,3)).ok()).toBeFalsy();
+  await login(request,'e2e-attachment-teacher@example.test');
+  const raised=await policy(1,3);expect(raised.ok()).toBeTruthy();
+  expect(await raised.json()).toMatchObject({max_attempts:3,version:2});
+  expect((await policy(1,2)).ok()).toBeFalsy();
+  await login(request);
+  expect(await eligibility()).toMatchObject({max_attempts:3,used_attempts:1,remaining_attempts:2,can_submit:true});
   const bad={...originals.png,name:'pretend.pdf',mimeType:'application/pdf'};result=await reserve(request,id,bad);expect(result.ok(),`${result.status()}: ${(await result.text()).slice(0,1000)}`).toBeTruthy();const badId=(await result.json()).id;
   expect((await request.post(`${root}/upload?id=${badId}`,{data:bad.buffer,headers:{'content-type':'application/pdf'}})).status()).toBe(415);
   expect((await request.post(`${root}/remove`,{data:{attachment_id:badId}})).ok()).toBeTruthy();
@@ -175,7 +193,7 @@ test('upload retries, limits and incomplete finalization stay truthful @smoke @f
   }
   expect((await request.post(`${root}/reserve`,{data:{input:{...oversized.input,request_id:randomUUID(),byte_size:9*1024*1024}}})).ok()).toBeFalsy();
   for(const attachment_id of reserved)expect((await request.post(`${root}/remove`,{data:{attachment_id}})).ok()).toBeTruthy();
-  for(let n=0;n<4;n++)expect((await reserve(request,id)).ok()).toBeTruthy();
+  for(let n=0;n<5;n++)expect((await reserve(request,id)).ok()).toBeTruthy();
   expect((await reserve(request,id)).ok()).toBeFalsy();
   const unsubmitted=(await list(request,id)).find((f:any)=>f.status==='pending');
   expect(unsubmitted).toBeTruthy();
@@ -190,5 +208,36 @@ test('upload retries, limits and incomplete finalization stay truthful @smoke @f
   expect((await request.post(`${root}/remove`,{data:{attachment_id:unsubmitted.id}})).ok()).toBeTruthy();
   await expect.poll(async()=> (await objectKeys()).filter(k=>k.endsWith(`/${unsubmitted.id}`)).length,{timeout:25_000}).toBe(0);
   expect((await objectKeys()).filter(k=>k.endsWith(`/${attachment.id}`))).toHaveLength(1);
-
+  // Remove only unfinished candidate files. Accepted originals remain available.
+  for(const file of await list(request,id)){
+    if(file.status!=='submitted')expect((await request.post(`${root}/remove`,{data:{attachment_id:file.id}})).ok()).toBeTruthy();
+  }
+  const secondData={...data,content:'second accepted answer',expected_revision:first.accepted_revision,request_id:randomUUID()};
+  const second=await request.post('/api/submissions/finalize',{data:secondData});
+  expect(second.ok()).toBeTruthy();const receipt2=await second.json();
+  expect(receipt2).toMatchObject({attempt_number:2,accepted_file_count:1});
+  expect(receipt2.accepted_revision).not.toBe(first.accepted_revision);
+  expect(await eligibility()).toMatchObject({used_attempts:2,remaining_attempts:1,can_submit:true});
+  // The same request replays even after a different attempt was accepted.
+  const oldReplay=await request.post('/api/submissions/finalize',{data});
+  expect(oldReplay.ok()).toBeTruthy();expect(await oldReplay.json()).toEqual(first);
+  expect((await request.post('/api/submissions/finalize',{data:{...data,content:'changed replay'}})).ok()).toBeFalsy();
+  await login(request,'e2e-attachment-teacher@example.test');
+  expect((await request.post('/api/teacher/submissions/grade',{data:{submission_id:first.id,expected_revision:first.accepted_revision,grade:90,feedback:null}})).ok()).toBeFalsy();
+  await login(request);
+  const thirdData={...secondData,content:'third accepted answer',expected_revision:receipt2.accepted_revision,request_id:randomUUID(),attachment_ids:[]};
+  const [third,retry]=await Promise.all([request.post('/api/submissions/finalize',{data:thirdData}),request.post('/api/submissions/finalize',{data:thirdData})]);
+  expect(third.ok()).toBeTruthy();expect(retry.ok()).toBeTruthy();
+  const receipt3=await third.json();expect(await retry.json()).toEqual(receipt3);
+  expect(receipt3).toMatchObject({attempt_number:3,accepted_file_count:0});
+  expect(await eligibility()).toMatchObject({used_attempts:3,remaining_attempts:0,can_submit:false});
+  expect((await request.post('/api/submissions/finalize',{data:{...thirdData,request_id:randomUUID(),expected_revision:receipt3.accepted_revision}})).ok()).toBeFalsy();
+  expect((await list(request,id))).toHaveLength(0);
+  expect(await (await request.get(`${root}/download`,{params:{id:attachment.id}})).body()).toEqual(originals.pdf.buffer);
+  await login(request,'e2e-attachment-teacher@example.test');
+  const lowered=await policy(2,1);expect(lowered.ok()).toBeTruthy();
+  await login(request);
+  expect(await eligibility()).toMatchObject({max_attempts:1,used_attempts:3,remaining_attempts:0,can_submit:false});
+  saved=await request.post('/api/submissions/get_for_assignment',{data:{assignment_id:id}});
+  expect(saved.ok()).toBeTruthy();expect(await saved.json()).toMatchObject({content:'third accepted answer',attempt_number:3,accepted_file_count:0});
 });

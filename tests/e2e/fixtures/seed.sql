@@ -669,4 +669,31 @@ INSERT INTO custom_assignments(id,assignment_id,student_id,due_at,status) VALUES
  ('f1600000-0000-0000-0000-000000000801','f0600000-0000-0000-0000-000000000801','c0000000-0000-0000-0000-0000000000c3',NOW()+INTERVAL '14 days','Assigned')
 ON CONFLICT DO NOTHING;
 
+-- These five synthetic rows are inserted after migrations have run. Mirror the
+-- accepted-history backfill explicitly, only for those fixture IDs, inside this
+-- isolated seed transaction. Do not relax production append authorization.
+ALTER TABLE public.submission_attempts DISABLE TRIGGER submission_attempt_append_guard;
+INSERT INTO public.submission_attempts (
+    custom_assignment_id, student_id, school_id, submission_id, attempt_number,
+    submission_revision, request_id, request_fingerprint, accepted_content, accepted_at
+)
+SELECT ca.id, ca.student_id, cs.school_id, s.id, 1,
+       s.revision, s.last_submit_request, s.last_submit_fingerprint, s.content, s.submitted_at
+FROM public.submissions s
+JOIN public.custom_assignments ca ON ca.id=s.custom_assignment_id AND ca.student_id=s.student_id
+JOIN public.assignments a ON a.id=ca.assignment_id
+JOIN public.class_sections cs ON cs.id=a.class_section_id
+JOIN public.students st ON st.id=ca.student_id AND st.school_id=cs.school_id
+WHERE s.id IN (
+    'f2000000-0000-0000-0000-0000000000a1',
+    'f2000000-0000-0000-0000-0000000000a4',
+    'f2000000-0000-0000-0000-0000000000b1',
+    'f2600000-0000-0000-0000-000000000501',
+    'f2600000-0000-0000-0000-000000000601'
+)
+AND (ca.status IN ('Submitted'::public.custom_status, 'Graded'::public.custom_status)
+     OR ca.submitted_at IS NOT NULL OR ca.graded_at IS NOT NULL)
+ON CONFLICT (custom_assignment_id, attempt_number) DO NOTHING;
+ALTER TABLE public.submission_attempts ENABLE TRIGGER submission_attempt_append_guard;
+
 COMMIT;

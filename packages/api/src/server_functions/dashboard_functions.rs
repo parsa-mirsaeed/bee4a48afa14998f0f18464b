@@ -2355,7 +2355,7 @@ pub(crate) async fn save_authorized_manual_grade(
         .map_err(|_| ServerFnError::new("grading.unavailable"))?;
     let target = sqlx::query(
         r#"
-        SELECT s.custom_assignment_id, s.revision, t.id AS teacher_id
+        SELECT s.custom_assignment_id, t.id AS teacher_id
         FROM public.submissions s
         JOIN public.custom_assignments ca
           ON ca.id = s.custom_assignment_id AND ca.student_id = s.student_id
@@ -2381,7 +2381,7 @@ pub(crate) async fn save_authorized_manual_grade(
           AND a.status = 'Published'::assignment_status
           AND ca.status IN ('Submitted'::custom_status, 'Graded'::custom_status)
           AND ca.submitted_at IS NOT NULL AND s.submitted_at IS NOT NULL
-        FOR UPDATE OF s, ca
+        FOR UPDATE OF ca
         "#,
     )
     .bind(submission_uuid)
@@ -2393,8 +2393,26 @@ pub(crate) async fn save_authorized_manual_grade(
 
     let assignment_id: Uuid = target.get("custom_assignment_id");
     let teacher_id: Uuid = target.get("teacher_id");
-    let current_revision: Uuid = target.get("revision");
-    if current_revision != expected_revision {
+    // Acquire the submission lock only after the parent assignment lock,
+    // matching student finalization. Re-read the revision after waiting.
+    let current_revision: Option<Uuid> = sqlx::query_scalar(
+        r#"
+        SELECT s.revision FROM public.submissions s
+        WHERE s.id = $1 AND s.custom_assignment_id = $2
+          AND s.id = (
+              SELECT latest.id FROM public.submissions latest
+              WHERE latest.custom_assignment_id = $2
+              ORDER BY latest.submitted_at DESC, latest.id DESC LIMIT 1
+          )
+        FOR UPDATE OF s
+        "#,
+    )
+    .bind(submission_uuid)
+    .bind(assignment_id)
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(|_| ServerFnError::new("grading.unavailable"))?;
+    if current_revision != Some(expected_revision) {
         return Err(ServerFnError::new("grading.stale_submission"));
     }
     let grade_updated = sqlx::query(
