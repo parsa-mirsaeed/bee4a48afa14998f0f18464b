@@ -348,12 +348,34 @@ for (const scenario of [
     // deterministically in PostgreSQL because browser proof intentionally runs
     // without Qdrant/provider services. The existing client polling must update
     // the same card in place and enable its already-mounted Publish control.
-    await startVectorization.click();
-    // Button may be disabled during the request, or already absent when
-    // the authoritative lifecycle advances to embedding_pending.
-    await expect.poll(async () => await startVectorization.count() === 0 || await startVectorization.isDisabled()).toBeTruthy();
+    let queueRequests = 0;
+    let releaseQueue!: () => void;
+    let queueReached!: () => void;
+    const queueHeld = new Promise<void>(resolve => { releaseQueue = resolve; });
+    const queueSeen = new Promise<void>(resolve => { queueReached = resolve; });
+    const queueRoute = '**/api/admin/knowledge-assets/embed-configured';
+    await page.route(queueRoute, async route => {
+      queueRequests += 1;
+      queueReached();
+      await queueHeld;
+      await route.continue();
+    });
+    try {
+      await startVectorization.click();
+      await queueSeen;
+      await expect(startVectorization).toBeDisabled();
+      await expect(startVectorization).toHaveAttribute('aria-busy', 'true');
+      await expect(startVectorization).toHaveCSS('opacity', '1');
+      // A second click at the same actual control cannot enqueue again.
+      await startVectorization.evaluate(button => (button as HTMLButtonElement).click());
+      expect(queueRequests).toBe(1);
+    } finally {
+      releaseQueue();
+    }
     const vectorPanel = verifiedCard.getByRole('region', {name: scenario.vectorTitle, exact: true});
     await expect(vectorPanel.getByRole('status')).toHaveText(scenario.vectorQueued);
+    expect(queueRequests).toBe(1);
+    await page.unroute(queueRoute);
     await expect(pendingPublish).toBeDisabled();
     expect(runFixtureSql(`SELECT count(*) FROM ingestion_jobs WHERE asset_id = '${VERIFIED_ASSET_ID}' AND stage = 'embed'`)).toBe('1');
     // Exercise the terminal failure and explicit retry using the same

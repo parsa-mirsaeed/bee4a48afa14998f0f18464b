@@ -806,6 +806,12 @@ fn VectorizationPanel(
     let status_label = vector_job_status_label(&status, &item.vectorization, locale);
     let start_asset_id = item.asset.id.clone();
     let mut pending = use_signal(|| false);
+    let mut queued_job = use_signal(|| None::<String>);
+    // The command response is authoritative about the queued job identity.
+    // Do not enable a stale OCR-ready button while the review list refreshes.
+    let awaiting_confirmation = queued_job()
+        .as_ref()
+        .is_some_and(|job| item.vectorization.job_id.as_ref() != Some(job));
     let action_label = if status == "failed" {
         admin_t("platform_admin.action.retry_vectorization", locale)
     } else {
@@ -837,7 +843,7 @@ fn VectorizationPanel(
                     id: "vector-profile-{item.asset.id}",
                     class: "min-h-[44px] w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 disabled:opacity-60 dark:border-gray-700 dark:bg-gray-900 dark:text-white",
                     value: "{selected_profile_value}",
-                    disabled: busy() || pending() || status == "embedding_pending",
+                    disabled: busy() || pending() || awaiting_confirmation || status == "embedding_pending",
                     oninput: move |event| selected_profile.set(event.value()),
                     for method in item.vectorization.methods.iter() {
                         option {
@@ -876,9 +882,9 @@ fn VectorizationPanel(
                             variant: ButtonVariant::Primary,
                             size: ButtonSize::Lg,
                             disabled: busy() || !method_available,
-                            pending: pending(),
+                            pending: pending() || awaiting_confirmation,
                             onclick: move |_| {
-                                if busy() || pending() || !method_available {
+                                if busy() || pending() || awaiting_confirmation || !method_available {
                                     return;
                                 }
                                 let profile = selected_profile();
@@ -894,16 +900,11 @@ fn VectorizationPanel(
                                 notice.set(None);
                                 spawn(async move {
                                     match embed_admin_knowledge_asset_configured(request).await {
-                                        Ok(_) => {
+                                        Ok(job_id) => {
+                                            queued_job.set(Some(job_id));
                                             notice.set(Some("platform_admin.notice.embedding_queued"));
-                                            // Keep the button locked until the refreshed resource
-                                            // resolves; the parent observes persisted queued jobs.
                                             assets.restart();
                                             busy.set(false);
-                                            #[cfg(target_arch = "wasm32")]
-                                            {
-                                                TimeoutFuture::new(500).await;
-                                            }
                                         }
                                         Err(_) => {
                                             notice.set(Some("platform_admin.notice.embedding_failed"));
