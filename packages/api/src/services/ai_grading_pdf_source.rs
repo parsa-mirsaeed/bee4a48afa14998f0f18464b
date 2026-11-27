@@ -261,7 +261,11 @@ mod tests {
             "attachment.status='submitted'",
             "attachment.media_type='application/pdf'",
             "attachment.byte_size BETWEEN 1 AND 1000000",
-            "other_attachment.status <> 'removed')=1",
+            "other_attachment.status <> 'removed'",
+            "original.attachment_id=other_attachment.id",
+            "original.attempt_number=accepted.attempt_number",
+            "accepted.submission_revision=s.revision",
+            "))=1",
             "ca.graded_at IS NULL AND s.grade IS NULL",
         ] {
             assert!(

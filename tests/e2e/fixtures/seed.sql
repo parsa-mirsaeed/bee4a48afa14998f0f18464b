@@ -701,6 +701,7 @@ WHERE s.id IN (
 AND (ca.status IN ('Submitted'::public.custom_status, 'Graded'::public.custom_status)
      OR ca.submitted_at IS NOT NULL OR ca.graded_at IS NOT NULL)
 ON CONFLICT (custom_assignment_id, attempt_number) DO NOTHING;
+SET CONSTRAINTS ALL IMMEDIATE;
 ALTER TABLE public.submission_attempts ENABLE TRIGGER submission_attempt_append_guard;
 
 COMMIT;
