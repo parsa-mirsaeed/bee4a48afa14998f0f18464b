@@ -124,6 +124,7 @@ pub struct AssignmentResponse {
     pub material_ids: Vec<String>,
     pub max_submission_attempts: i16,
     pub submission_policy_version: i64,
+}
 
 /// Brief teacher information included in assignment responses
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
