@@ -170,7 +170,7 @@ test('upload retries, limits and incomplete finalization stay truthful @smoke @f
     const r=await request.post('/api/submissions/eligibility',{data:{assignment_id:id}});
     expect(r.ok()).toBeTruthy();return r.json();
   };
-  expect(await eligibility()).toMatchObject({max_attempts:1,used_attempts:1,remaining_attempts:0,can_submit:false});
+  expect(await eligibility()).toMatchObject({max_attempts:1,used_attempts:1,remaining_attempts:0,can_submit:false,reason:'attempt_limit_reached'});
   expect(first).toMatchObject({attempt_number:1,accepted_file_count:1});
   expect((await request.post('/api/submissions/submit',{data:{assignment_id:id,content:'legacy stale overwrite'}})).ok()).toBeFalsy();
   const parent=id.replace('f1600000','f0600000');
@@ -179,10 +179,13 @@ test('upload retries, limits and incomplete finalization stay truthful @smoke @f
   expect((await policy(1,3)).ok()).toBeFalsy();
   await login(request,'e2e-attachment-teacher@example.test');
   const raised=await policy(1,3);expect(raised.ok()).toBeTruthy();
-  expect(await raised.json()).toMatchObject({max_attempts:3,version:2});
+  expect(await raised.json()).toMatchObject({max_attempts:3,version:2,usage:[{used_attempts:1,graded:false,students:1}]});
+  const canonical=await request.post('/api/assignments/get_by_id',{data:{assignment_id:parent}});
+  expect(canonical.ok()).toBeTruthy();
+  expect(await canonical.json()).toMatchObject({max_submission_attempts:3,submission_policy_version:2});
   expect((await policy(1,2)).ok()).toBeFalsy();
   await login(request);
-  expect(await eligibility()).toMatchObject({max_attempts:3,used_attempts:1,remaining_attempts:2,can_submit:true});
+  expect(await eligibility()).toMatchObject({max_attempts:3,used_attempts:1,remaining_attempts:2,can_submit:true,reason:'eligible'});
   expect((await request.post('/api/submissions/submit',{data:{assignment_id:id,content:'legacy bypass after policy raise'}})).ok()).toBeFalsy();
   const bad={...originals.png,name:'pretend.pdf',mimeType:'application/pdf'};result=await reserve(request,id,bad);expect(result.ok(),`${result.status()}: ${(await result.text()).slice(0,1000)}`).toBeTruthy();const badId=(await result.json()).id;
   expect((await request.post(`${root}/upload?id=${badId}`,{data:bad.buffer,headers:{'content-type':'application/pdf'}})).status()).toBe(415);
@@ -254,7 +257,7 @@ test('upload retries, limits and incomplete finalization stay truthful @smoke @f
   expect(official.ok()).toBeTruthy();
   expect((await policy(3,4)).ok()).toBeTruthy();
   await login(request);
-  expect(await eligibility()).toMatchObject({max_attempts:4,used_attempts:3,remaining_attempts:1,can_submit:false,graded:true});
+  expect(await eligibility()).toMatchObject({max_attempts:4,used_attempts:3,remaining_attempts:1,can_submit:false,graded:true,reason:'graded'});
   expect((await reserve(request,id)).ok()).toBeFalsy();
   expect((await request.post('/api/submissions/finalize',{data:{...winner,request_id:randomUUID(),expected_revision:receipt3.accepted_revision}})).ok()).toBeFalsy();
 });

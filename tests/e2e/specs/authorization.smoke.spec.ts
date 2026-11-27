@@ -103,7 +103,7 @@ test('student cannot submit a School B assignment by tampering its object ID @sm
   await assignmentCard
     .getByRole('button', { name: /start assignment|submit late|view submission/i })
     .click();
-  await page.getByRole('button', { name: /start next attempt/i }).click();
+  await page.getByRole('button', { name: /^start a new attempt$/i }).click();
   await expect(page.locator('textarea').first()).toBeEditable();
   await page.locator('textarea').first().fill('School A authorization probe');
 

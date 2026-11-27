@@ -1363,6 +1363,8 @@ mod tests {
         )
         .await
         .expect("Teacher A creates own assignment");
+        assert_eq!(assignment.max_submission_attempts, 1);
+        assert_eq!(assignment.submission_policy_version, 1);
 
         assert!(run_as(
             pool.as_ref(),
@@ -1523,8 +1525,11 @@ mod tests {
             repository.publish_for_teacher(actor_a, assignment.id),
         );
         let (first, second) = tokio::join!(first_publish, second_publish);
-        first.expect("first authorized publish");
-        second.expect("concurrent idempotent publish");
+        for published in [first, second] {
+            let published = published.expect("authorized idempotent publish");
+            assert_eq!(published.max_submission_attempts, 3);
+            assert_eq!(published.submission_policy_version, 2);
+        }
 
         let unchanged = run_as(
             pool.as_ref(),
