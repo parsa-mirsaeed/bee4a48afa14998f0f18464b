@@ -239,6 +239,62 @@ impl AuthorizedAssignmentRepository {
         Ok(row)
     }
 
+    /// A compact, exact histogram of assigned students' accepted attempts.
+    /// Use a single statement so the policy and usage snapshot agree. No
+    /// student names or other PII are necessary for the reduction preview.
+    pub async fn submission_policy_summary_for_teacher(
+        &self,
+        actor: AuthorizedTeacher,
+        assignment_id: AssignmentId,
+    ) -> RepositoryResult<(i16, i64, Vec<(i64, bool, i64)>)> {
+        let rows = sqlx::query_as::<_, (i16, i64, i64, bool, i64)>(
+            r#"
+            SELECT a.max_submission_attempts, a.submission_policy_version,
+                   COALESCE(usage.used,0), COALESCE(usage.graded,false),
+                   COALESCE(usage.students,0)
+            FROM assignments a
+            JOIN class_sections cs ON cs.id=a.class_section_id
+            JOIN teachers t ON t.id=a.teacher_id
+            JOIN users u ON u.id=t.user_id
+            JOIN roles r ON r.id=u.role_id
+            JOIN teaching_assignments ta ON ta.teacher_id=t.id AND ta.class_section_id=cs.id
+            LEFT JOIN LATERAL (
+                SELECT pupil.used, pupil.graded, count(*) AS students
+                FROM (
+                    SELECT (SELECT count(*) FROM submission_attempts h
+                            WHERE h.custom_assignment_id=ca.id) AS used,
+                           (ca.graded_at IS NOT NULL OR EXISTS (
+                               SELECT 1 FROM submissions s
+                               WHERE s.custom_assignment_id=ca.id AND s.grade IS NOT NULL
+                           )) AS graded
+                    FROM custom_assignments ca
+                    JOIN students st ON st.id=ca.student_id AND st.school_id=cs.school_id
+                    WHERE ca.assignment_id=a.id
+                ) pupil
+                GROUP BY pupil.used,pupil.graded
+            ) usage ON TRUE
+            WHERE a.id=$1 AND t.id=$2 AND u.id=$3
+              AND cs.school_id=$4 AND t.school_id=$4 AND u.school_id=$4
+              AND u.is_active AND r.name::text='Teacher'
+            ORDER BY usage.used,usage.graded
+            "#,
+        )
+        .bind::<Uuid>(assignment_id.into())
+        .bind::<Uuid>(actor.teacher_id.into())
+        .bind(actor.user_id)
+        .bind(actor.school_id)
+        .fetch_all(&*self.pool)
+        .await?;
+        let (max, version, _, _, _) = *rows
+            .first()
+            .ok_or_else(|| assignment_not_found(assignment_id))?;
+        let usage = rows
+            .into_iter()
+            .filter_map(|(_, _, used, graded, count)| (count > 0).then_some((used, graded, count)))
+            .collect();
+        Ok((max, version, usage))
+    }
+
     /// The UPDATE takes the same parent-row lock that student finalization
     /// share-locks. The version predicate is rechecked after a competing write.
     /// Changing the cap never edits student work or reopens graded submissions.

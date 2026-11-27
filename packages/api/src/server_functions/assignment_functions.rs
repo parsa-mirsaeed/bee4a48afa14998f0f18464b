@@ -43,6 +43,38 @@ pub struct AssignmentResponse {
 pub struct AssignmentSubmissionPolicy {
     pub max_attempts: i16,
     pub version: i64,
+    pub usage: Vec<AssignmentAttemptUsage>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AssignmentAttemptUsage {
+    pub used_attempts: i64,
+    pub graded: bool,
+    pub students: i64,
+}
+
+#[cfg(feature = "server")]
+async fn read_submission_policy(
+    repository: &AuthorizedAssignmentRepository,
+    actor: AuthorizedTeacher,
+    id: AssignmentId,
+) -> Result<AssignmentSubmissionPolicy, ServerFnError> {
+    let (max_attempts, version, usage) = repository
+        .submission_policy_summary_for_teacher(actor, id)
+        .await
+        .map_err(repository_error)?;
+    Ok(AssignmentSubmissionPolicy {
+        max_attempts,
+        version,
+        usage: usage
+            .into_iter()
+            .map(|(used_attempts, graded, students)| AssignmentAttemptUsage {
+                used_attempts,
+                graded,
+                students,
+            })
+            .collect(),
+    })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -379,14 +411,7 @@ pub async fn get_assignment_submission_policy(
     {
         let id = parse_assignment_id(&assignment_id)?;
         let (repository, actor) = authorized_teacher().await?;
-        let (max_attempts, version) = repository
-            .submission_policy_for_teacher(actor, id)
-            .await
-            .map_err(repository_error)?;
-        Ok(AssignmentSubmissionPolicy {
-            max_attempts,
-            version,
-        })
+        read_submission_policy(&repository, actor, id).await
     }
 
     #[cfg(not(feature = "server"))]
@@ -403,14 +428,11 @@ pub async fn update_assignment_submission_policy(
     {
         let id = parse_assignment_id(&assignment_id)?;
         let (repository, actor) = authorized_teacher().await?;
-        let (max_attempts, version) = repository
+        repository
             .update_submission_policy_for_teacher(actor, id, expected_version, max_attempts)
             .await
             .map_err(repository_error)?;
-        Ok(AssignmentSubmissionPolicy {
-            max_attempts,
-            version,
-        })
+        read_submission_policy(&repository, actor, id).await
     }
 
     #[cfg(not(feature = "server"))]

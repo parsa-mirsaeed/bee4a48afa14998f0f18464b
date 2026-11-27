@@ -713,6 +713,7 @@ fn SubmissionPolicyEditor(
         async move { get_assignment_submission_policy(id).await }
     });
     let mut limit = use_signal(|| 1_i16);
+    let mut confirmed_reduction = use_signal(|| None::<i16>);
     let mut error = use_signal(|| false);
     let mut saved = use_signal(|| false);
     rsx! {
@@ -728,20 +729,42 @@ fn SubmissionPolicyEditor(
                     let max = current.max_attempts;
                     let version = current.version;
                     let id = assignment_id.clone();
+                    let used: i64 = current.usage.iter().map(|row| row.used_attempts * row.students).sum();
+                    let remaining = |cap: i16| -> i64 {
+                        current.usage.iter().filter(|row| !row.graded)
+                            .map(|row| (i64::from(cap) - row.used_attempts).max(0) * row.students).sum()
+                    };
+                    let current_remaining = remaining(max);
+                    let next_remaining = remaining(limit());
+                    let affected: i64 = current.usage.iter().filter(|row| !row.graded && row.used_attempts < i64::from(max) && row.used_attempts >= i64::from(limit())).map(|row| row.students).sum();
                     rsx! {
                         p { class: "text-sm", "{locale.t(\"teacher.assignments.total_attempts\")}: {max}" }
+                        dl { class: "grid grid-cols-2 gap-2 text-sm",
+                            div { dt { "{locale.t(\"teacher.assignments.policy_used\")}" } dd { class: "font-semibold tabular-nums", "{used}" } }
+                            div { dt { "{locale.t(\"teacher.assignments.policy_remaining\")}" } dd { class: "font-semibold tabular-nums", "{current_remaining}" } }
+                        }
                         if editing() && editable {
                             SubmissionAttemptLimitFields { limit, disabled: busy() }
                             if limit() < max {
-                                p { class: "text-sm text-amber-800 dark:text-amber-200", "{locale.t(\"teacher.assignments.policy_lower_warning\")}" }
+                                div { class: "space-y-2 rounded-lg border border-amber-300 p-3 text-sm dark:border-amber-800",
+                                    p { class: "text-amber-800 dark:text-amber-200", "{locale.t(\"teacher.assignments.policy_lower_warning\")}" }
+                                    p { "{locale.t(\"teacher.assignments.policy_remaining_after\")}: {next_remaining}" }
+                                    p { "{locale.t(\"teacher.assignments.policy_newly_exhausted\")}: {affected}" }
+                                    label { class: "flex min-h-[44px] items-center gap-2",
+                                        input { r#type: "checkbox", checked: confirmed_reduction() == Some(limit()), disabled: busy(),
+                                            onchange: move |event| confirmed_reduction.set(if event.checked() { Some(limit()) } else { None }),
+                                        }
+                                        span { "{locale.t(\"teacher.assignments.policy_confirm_reduction\")}" }
+                                    }
+                                }
                             }
                             div { class: "flex flex-wrap justify-end gap-2",
-                                button { class: "min-h-[44px] rounded-lg border border-gray-300 px-4 py-2 dark:border-gray-700", disabled: busy(), onclick: move |_| { editing.set(false); error.set(false); }, "{locale.t(\"common.cancel\")}" }
+                                button { class: "min-h-[44px] rounded-lg border border-gray-300 px-4 py-2 dark:border-gray-700", disabled: busy(), onclick: move |_| { editing.set(false); confirmed_reduction.set(None); error.set(false); }, "{locale.t(\"common.cancel\")}" }
                                 button {
                                     class: "min-h-[44px] rounded-lg bg-primary px-4 py-2 text-white disabled:opacity-50",
-                                    disabled: busy() || limit() == max,
+                                    disabled: busy() || limit() == max || (limit() < max && confirmed_reduction() != Some(limit())),
                                     onclick: move |_| {
-                                        if busy() || limit() == max { return; }
+                                        if busy() || limit() == max || (limit() < max && confirmed_reduction() != Some(limit())) { return; }
                                         let id = id.clone();
                                         let chosen = limit();
                                         busy.set(true);
@@ -763,7 +786,7 @@ fn SubmissionPolicyEditor(
                             button {
                                 class: "min-h-[44px] rounded-lg border border-gray-300 px-4 py-2 dark:border-gray-700",
                                 disabled: busy(),
-                                onclick: move |_| { limit.set(max); editing.set(true); error.set(false); saved.set(false); },
+                                onclick: move |_| { limit.set(max); confirmed_reduction.set(None); editing.set(true); error.set(false); saved.set(false); },
                                 "{locale.t(\"teacher.assignments.policy_edit\")}"
                             }
                         }
