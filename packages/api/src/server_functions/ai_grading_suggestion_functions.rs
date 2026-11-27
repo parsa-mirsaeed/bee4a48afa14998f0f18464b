@@ -180,6 +180,18 @@ pub(crate) async fn generate_authorized_teacher_suggestion(
     submission_id: Uuid,
     user_id: Uuid,
 ) -> Result<StoredGradingSuggestion, ServerFnError> {
+    generate_authorized_teacher_suggestion_for_revision(pool, submission_id, user_id, None).await
+}
+
+/// The durable worker must never dispatch a new revision or rubric under an
+/// older claimed job. Bind both before cache lookup or provider egress.
+#[cfg(feature = "server")]
+pub(crate) async fn generate_authorized_teacher_suggestion_for_revision(
+    pool: &AuthorizedPool,
+    submission_id: Uuid,
+    user_id: Uuid,
+    expected: Option<(Uuid, Uuid)>,
+) -> Result<StoredGradingSuggestion, ServerFnError> {
     // The text-only source intentionally excludes finalized attachments.
     // If and only if a current teacher-approved rubric exists, fall back to
     // the independent exact-revision native PDF authorization query.
@@ -187,6 +199,9 @@ pub(crate) async fn generate_authorized_teacher_suggestion(
         .await
         .map_err(|_| ServerFnError::new("grading.suggestion_unavailable"))?
         .ok_or_else(|| ServerFnError::new("grading.rubric_approval_required"))?;
+    if expected.is_some_and(|pair| pair != (approved.submission_revision, approved.id)) {
+        return Err(ServerFnError::new("grading.stale_submission"));
+    }
     let text_source = find_authorized_grading_source(pool, submission_id, user_id)
         .await
         .map_err(|_| ServerFnError::new("grading.suggestion_unavailable"))?;

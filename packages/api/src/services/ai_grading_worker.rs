@@ -5,7 +5,7 @@
 //! This worker never publishes, accepts, or alters an academic grade.
 
 use crate::rls_context::{AuthorizedActor, AuthorizedPool, AuthorizedTx, RlsContextError};
-use crate::server_functions::ai_grading_suggestion_functions::generate_authorized_teacher_suggestion;
+use crate::server_functions::ai_grading_suggestion_functions::generate_authorized_teacher_suggestion_for_revision;
 use dioxus::prelude::ServerFnError;
 use sqlx::{PgPool, Row};
 use std::future::Future;
@@ -180,9 +180,14 @@ async fn generate(
             "grading.pdf_school_disabled",
         )));
     }
-    let suggestion = generate_authorized_teacher_suggestion(pool, job.submission_id, teacher_id)
-        .await
-        .map_err(ExecutionError::Grading)?;
+    let suggestion = generate_authorized_teacher_suggestion_for_revision(
+        pool,
+        job.submission_id,
+        teacher_id,
+        Some((job.revision, job.rubric_approval_id)),
+    )
+    .await
+    .map_err(ExecutionError::Grading)?;
     if has_original
         && !crate::services::ai_grading_pdf_source::school_pdf_grading_enabled(pool, job.school_id)
             .await?

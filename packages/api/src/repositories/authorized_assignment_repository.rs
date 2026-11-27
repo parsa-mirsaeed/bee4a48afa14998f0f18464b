@@ -1394,6 +1394,14 @@ mod tests {
         .await
         .expect("read default attempt policy");
         assert_eq!(current, (1, 1));
+        let summary = run_as(
+            pool.as_ref(),
+            actor(teacher_a_user, "Teacher", school_a),
+            repository.submission_policy_summary_for_teacher(actor_a, assignment.id),
+        )
+        .await
+        .expect("draft policy and usage share one authorized snapshot");
+        assert_eq!(summary, (1, 1, vec![]));
 
         for (user, school, denied_actor) in [
             (teacher_a2_user, school_a, actor_a2),
@@ -1550,6 +1558,25 @@ mod tests {
         .await
         .expect("count custom assignment fan-out");
         assert_eq!(fanout_count, 1);
+        let summary = run_as(
+            pool.as_ref(),
+            actor(teacher_a_user, "Teacher", school_a),
+            repository.submission_policy_summary_for_teacher(actor_a, assignment.id),
+        )
+        .await
+        .expect("published policy includes assigned student usage");
+        assert_eq!((summary.0, summary.1), effective);
+        assert!(summary
+            .2
+            .iter()
+            .any(|row| row.0 == 0 && !row.1 && row.2 > 0));
+        assert!(run_as(
+            pool.as_ref(),
+            actor(teacher_b_user, "Teacher", school_b),
+            repository.submission_policy_summary_for_teacher(actor_b, assignment.id),
+        )
+        .await
+        .is_err());
 
         let random_existing_id: Uuid = sqlx::query_scalar(
             "INSERT INTO assignments (teacher_id, class_section_id, subject_id, title, body, due_at, status, material_ids) VALUES ($1, $2, $3, $4, $5, NOW(), 'Draft'::assignment_status, '{}'::uuid[]) RETURNING id",
