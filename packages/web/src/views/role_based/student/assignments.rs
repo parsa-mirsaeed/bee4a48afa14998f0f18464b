@@ -442,7 +442,13 @@ fn AssignmentWorkModal(
     let graded_error = locale.t("student.assignments.graded_locked");
     let mut write_blocked = use_signal(|| false);
     let submit = move |_| {
-        if !eligible || busy() || unuploaded() || !files_loaded() || !initialized() || write_blocked() {
+        if !eligible
+            || busy()
+            || unuploaded()
+            || !files_loaded()
+            || !initialized()
+            || write_blocked()
+        {
             return;
         }
         let text = content().trim().to_string();
@@ -549,8 +555,12 @@ fn AssignmentWorkModal(
                             id: "student-assignment-work",
                             class: "min-h-64 w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 dark:border-gray-700 dark:bg-gray-900",
                             value: "{content}",
-                            oninput: move |event| content.set(event.value()),
-                            disabled: busy() || !eligible || write_blocked(),
+                            oninput: move |event| {
+                                if eligible && !busy() && !write_blocked() {
+                                    content.set(event.value());
+                                }
+                            },
+                            readonly: busy() || !eligible || write_blocked(),
                         }
                     }
                     if eligible && !write_blocked() {

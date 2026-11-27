@@ -53,6 +53,8 @@ pub struct AssignmentWithDetails {
     pub subject_name: String,
     pub subject_code: String,
     pub material_ids: Vec<Uuid>,
+    pub max_submission_attempts: i16,
+    pub submission_policy_version: i64,
 }
 
 /// Request payload for creating an assignment
@@ -120,7 +122,8 @@ pub struct AssignmentResponse {
     pub created_at: DateTime<Utc>,
     pub published_at: Option<DateTime<Utc>>,
     pub material_ids: Vec<String>,
-}
+    pub max_submission_attempts: i16,
+    pub submission_policy_version: i64,
 
 /// Brief teacher information included in assignment responses
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -181,6 +184,8 @@ impl From<AssignmentWithDetails> for AssignmentResponse {
             created_at: assignment.created_at,
             published_at: assignment.published_at,
             material_ids: assignment.material_ids.iter().map(|id| id.to_string()).collect(),
+            max_submission_attempts: assignment.max_submission_attempts,
+            submission_policy_version: assignment.submission_policy_version,
         }
     }
 }

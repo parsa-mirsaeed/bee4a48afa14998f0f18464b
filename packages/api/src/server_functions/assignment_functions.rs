@@ -37,6 +37,8 @@ pub struct AssignmentResponse {
     pub status: String,
     pub created_at: DateTime<Utc>,
     pub published_at: Option<DateTime<Utc>>,
+    pub max_submission_attempts: i16,
+    pub submission_policy_version: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -516,6 +518,8 @@ fn assignment_to_response(item: AssignmentWithDetails) -> AssignmentResponse {
         status: format!("{:?}", item.status),
         created_at: item.created_at,
         published_at: item.published_at,
+        max_submission_attempts: item.max_submission_attempts,
+        submission_policy_version: item.submission_policy_version,
     }
 }
 

@@ -136,6 +136,7 @@ impl AuthorizedAssignmentRepository {
                 a.id, a.teacher_id, a.class_section_id, a.subject_id, a.lecture_id,
                 a.lecture_title, a.lecture_number, a.title, a.body, a.due_at,
                 a.status::text AS status, a.created_at, a.published_at, a.material_ids,
+                a.max_submission_attempts, a.submission_policy_version,
                 u.name AS teacher_name, cs.name AS class_section_name,
                 sub.name AS subject_name, sub.code AS subject_code
             FROM assignments a
@@ -178,6 +179,7 @@ impl AuthorizedAssignmentRepository {
                 a.id, a.teacher_id, a.class_section_id, a.subject_id, a.lecture_id,
                 a.lecture_title, a.lecture_number, a.title, a.body, a.due_at,
                 a.status::text AS status, a.created_at, a.published_at, a.material_ids,
+                a.max_submission_attempts, a.submission_policy_version,
                 u.name AS teacher_name, cs.name AS class_section_name,
                 sub.name AS subject_name, sub.code AS subject_code
             FROM assignments a
@@ -985,6 +987,8 @@ fn row_to_assignment_details(row: &PgRow) -> RepositoryResult<AssignmentWithDeta
         subject_name: row.get("subject_name"),
         subject_code: row.get("subject_code"),
         material_ids: assignment.material_ids,
+        max_submission_attempts: row.get("max_submission_attempts"),
+        submission_policy_version: row.get("submission_policy_version"),
     })
 }
 

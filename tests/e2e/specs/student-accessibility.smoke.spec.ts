@@ -96,6 +96,7 @@ for (const scenario of [
     await expect(dialog).toHaveAccessibleName(scenario.work);
     const editor = dialog.getByLabel(scenario.work, { exact: true });
     await expect(editor).toBeVisible();
+    await expect(editor).toBeEditable();
     await expect(dialog).toBeFocused();
     await expectNoSeriousAxeViolations(page, '[role="dialog"]');
 

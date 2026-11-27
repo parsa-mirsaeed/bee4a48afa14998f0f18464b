@@ -386,9 +386,18 @@ pub struct StudentSubmissionEligibility {
     pub used_attempts: i64,
     pub remaining_attempts: i64,
     pub can_submit: bool,
+    pub reason: SubmissionEligibilityReason,
     pub graded: bool,
     pub policy_version: i64,
     pub accepted_revision: Option<uuid::Uuid>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SubmissionEligibilityReason {
+    Eligible,
+    AttemptLimitReached,
+    Graded,
 }
 
 #[server(endpoint = "submissions/eligibility")]
@@ -445,6 +454,13 @@ pub async fn get_student_submission_eligibility(
             used_attempts,
             remaining_attempts,
             can_submit: !graded && remaining_attempts > 0,
+            reason: if graded {
+                SubmissionEligibilityReason::Graded
+            } else if remaining_attempts == 0 {
+                SubmissionEligibilityReason::AttemptLimitReached
+            } else {
+                SubmissionEligibilityReason::Eligible
+            },
             graded,
             policy_version: row.get("submission_policy_version"),
             accepted_revision: row.get("accepted_revision"),

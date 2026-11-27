@@ -676,6 +676,11 @@ INSERT INTO custom_assignments(id,assignment_id,student_id,due_at,status) VALUES
  ('f1600000-0000-0000-0000-000000000801','f0600000-0000-0000-0000-000000000801','c0000000-0000-0000-0000-0000000000c3',NOW()+INTERVAL '14 days','Assigned')
 ON CONFLICT DO NOTHING;
 
+-- The cross-school browser authorization probe must be able to send a real
+-- second-attempt request without modifying the existing teacher grading fixture.
+UPDATE public.assignments SET max_submission_attempts=2
+WHERE id='f0000000-0000-0000-0000-0000000000a4';
+
 -- These five synthetic rows are inserted after migrations have run. Mirror the
 -- accepted-history backfill explicitly, only for those fixture IDs, inside this
 -- isolated seed transaction. Do not relax production append authorization.

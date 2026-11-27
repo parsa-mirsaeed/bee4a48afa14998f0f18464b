@@ -141,6 +141,10 @@ for(const scenario of cases) {
 }
 
 test('upload retries, limits and incomplete finalization stay truthful @smoke @final @student @workflow-truth',async({page},info)=>{
+  // This deliberately stateful journey now includes three accepted attempts,
+  // multiple login boundaries and a bounded 25-second cleanup poll. Keep the
+  // ordinary suite timeout unchanged; grant only this journey a 120s budget.
+  test.setTimeout(120_000);
   await login(api(page));const request=api(page);const {id}=identity(info.project.name,90);
   const token=randomUUID();let result=await reserve(request,id,originals.pdf,token);expect(result.ok(),`${result.status()}: ${(await result.text()).slice(0,1000)}`).toBeTruthy();const attachment=await result.json();
   result=await reserve(request,id,originals.pdf,token);expect(result.ok(),`${result.status()}: ${(await result.text()).slice(0,1000)}`).toBeTruthy();expect((await result.json()).id).toBe(attachment.id);
