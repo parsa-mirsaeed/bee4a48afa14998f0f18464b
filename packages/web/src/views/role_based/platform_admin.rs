@@ -118,6 +118,54 @@ fn PlatformKnowledgeReviewSection() -> Element {
     let mut assets =
         use_resource(move || async move { list_admin_knowledge_assets_for_review().await });
 
+    // Resume observation when opening a page with jobs already in flight.
+    // Each job identity receives one bounded observation window; the manual
+    // refresh action remains available after that window or on network error.
+    #[cfg(target_arch = "wasm32")]
+    {
+        let mut observed_jobs = use_signal(std::collections::BTreeSet::<String>::new);
+        let mut polling = use_signal(|| false);
+        use_effect(move || {
+            if polling() {
+                return;
+            }
+            let jobs = assets
+                .read()
+                .as_ref()
+                .and_then(|result| result.as_ref().ok())
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter(|item| item.asset.status == "embedding_pending")
+                        .filter_map(|item| item.vectorization.job_id.clone())
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            if !jobs.iter().any(|job| !observed_jobs.peek().contains(job)) {
+                return;
+            }
+            observed_jobs.write().extend(jobs);
+            polling.set(true);
+            spawn(async move {
+                for delay_ms in [500_u32, 1_000, 1_500, 2_500, 4_000, 6_000, 8_000, 10_000] {
+                    TimeoutFuture::new(delay_ms).await;
+                    let settled = assets.read().as_ref().is_some_and(|result| {
+                        result.as_ref().is_ok_and(|items| {
+                            items.iter().all(|item| item.asset.status != "embedding_pending")
+                        })
+                    });
+                    if settled {
+                        break;
+                    }
+                    if !busy() {
+                        assets.restart();
+                    }
+                }
+                polling.set(false);
+            });
+        });
+    }
+
     rsx! {
         DashboardSection {
             title: admin_t("platform_admin.review.title", locale),
@@ -723,6 +771,11 @@ fn VectorizationPanel(
         .iter()
         .find(|method| method.profile_id == selected_profile_value);
     let method_available = selected_method.is_some_and(|method| method.available);
+    let any_method_available = item
+        .vectorization
+        .methods
+        .iter()
+        .any(|method| method.available);
     let model = item
         .vectorization
         .model
@@ -790,7 +843,17 @@ fn VectorizationPanel(
                         option {
                             value: "{method.profile_id}",
                             disabled: !method.available,
-                            "{method.profile_id} · {method.model} · {method.dimensions}D"
+                            {format!(
+                                "{} · {} · {}D{}",
+                                method.profile_id,
+                                method.model,
+                                method.dimensions,
+                                if method.available {
+                                    String::new()
+                                } else {
+                                    format!(" · {}", admin_t("platform_admin.vector.unavailable_method", locale))
+                                },
+                            )}
                         }
                     }
                 }
@@ -799,7 +862,11 @@ fn VectorizationPanel(
                 }
                 if !method_available {
                     p { class: "text-sm font-medium text-amber-700 dark:text-amber-300",
-                        {admin_t("platform_admin.vector.no_method", locale)}
+                        {admin_t(if any_method_available {
+                            "platform_admin.vector.unavailable_method"
+                        } else {
+                            "platform_admin.vector.no_method"
+                        }, locale)}
                     }
                 }
                 if can_start {
@@ -822,37 +889,20 @@ fn VectorizationPanel(
                                     asset_id: start_asset_id.clone(),
                                     embedding_profile: profile,
                                 };
-                                let target = start_asset_id.clone();
                                 busy.set(true);
                                 pending.set(true);
                                 notice.set(None);
                                 spawn(async move {
                                     match embed_admin_knowledge_asset_configured(request).await {
-                                        Ok(job_id) => {
+                                        Ok(_) => {
                                             notice.set(Some("platform_admin.notice.embedding_queued"));
+                                            // Keep the button locked until the refreshed resource
+                                            // resolves; the parent observes persisted queued jobs.
                                             assets.restart();
                                             busy.set(false);
-                                            // Bounded, component-scoped polling. Stop at the
-                                            // returned job's terminal state, not a historical job.
                                             #[cfg(target_arch = "wasm32")]
-                                            for delay_ms in [
-                                                500_u32, 1_000, 1_500, 2_500, 4_000, 6_000, 8_000,
-                                                10_000,
-                                            ] {
-                                                TimeoutFuture::new(delay_ms).await;
-                                                let terminal = assets.read().as_ref().is_some_and(|result| {
-                                                    result.as_ref().is_ok_and(|items| {
-                                                        items.iter().any(|asset| {
-                                                            asset.asset.id == target
-                                                                && asset.vectorization.job_id.as_deref() == Some(job_id.as_str())
-                                                                && matches!(asset.vectorization.job_status.as_deref(), Some("succeeded" | "failed" | "cancelled"))
-                                                        })
-                                                    })
-                                                });
-                                                if terminal {
-                                                    break;
-                                                }
-                                                assets.restart();
+                                            {
+                                                TimeoutFuture::new(500).await;
                                             }
                                         }
                                         Err(_) => {

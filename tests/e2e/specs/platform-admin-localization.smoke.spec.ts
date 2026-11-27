@@ -46,7 +46,7 @@ function resetVectorizationFixture(): void {
     -- legal embedded -> embedding_pending -> ocr_ready recovery path.
     UPDATE knowledge_assets
     SET status = 'embedding_pending', failure_reason = NULL, reviewed_by = NULL, published_at = NULL
-    WHERE id = '${VERIFIED_ASSET_ID}' AND status = 'embedded';
+    WHERE id = '${VERIFIED_ASSET_ID}' AND status IN ('embedded','failed');
 
     UPDATE knowledge_assets
     SET status = 'ocr_ready', failure_reason = NULL, reviewed_by = NULL, published_at = NULL
@@ -179,6 +179,12 @@ for (const scenario of [
     vectorStatus: 'Vector status',
     vectorNotStarted: 'Not started',
     vectorStored: 'Stored successfully',
+    vectorQueued: 'Queued',
+    vectorRunning: 'Running',
+    vectorFailed: 'Failed',
+    vectorRetry: 'Retry vectorization',
+    vectorDetails: 'Vectorization details',
+    vectorChunks: 'Stored chunks',
     publicationStage: 'Step 3 · Publication',
     startVectorization: 'Start vectorization',
     publish: 'Publish',
@@ -213,6 +219,12 @@ for (const scenario of [
     vectorStatus: 'وضعیت بردار',
     vectorNotStarted: 'شروع نشده',
     vectorStored: 'با موفقیت ذخیره شد',
+    vectorQueued: 'در صف',
+    vectorRunning: 'در حال اجرا',
+    vectorFailed: 'ناموفق',
+    vectorRetry: 'تلاش دوباره برای بردارسازی',
+    vectorDetails: 'جزئیات بردارسازی',
+    vectorChunks: 'قطعه‌های ذخیره‌شده',
     publicationStage: 'مرحله ۳ · انتشار',
     startVectorization: 'شروع بردارسازی',
     publish: 'انتشار',
@@ -262,6 +274,7 @@ for (const scenario of [
     const vectorMethod = verifiedCard.locator('select[id^="vector-profile-"]');
     await expect(vectorMethod).toBeVisible();
     await expect(vectorMethod.locator('option')).toHaveCount(2);
+    await expect(vectorMethod.locator('option:disabled')).toHaveCount(1);
     const startVectorization = verifiedCard.getByRole('button', {
       name: scenario.startVectorization,
       exact: true,
@@ -339,13 +352,40 @@ for (const scenario of [
     // Button may be disabled during the request, or already absent when
     // the authoritative lifecycle advances to embedding_pending.
     await expect.poll(async () => await startVectorization.count() === 0 || await startVectorization.isDisabled()).toBeTruthy();
-    await completeQueuedVectorizationFixture();
+    const vectorPanel = verifiedCard.getByRole('region', {name: scenario.vectorTitle, exact: true});
+    await expect(vectorPanel.getByRole('status')).toHaveText(scenario.vectorQueued);
+    await expect(pendingPublish).toBeDisabled();
     expect(runFixtureSql(`SELECT count(*) FROM ingestion_jobs WHERE asset_id = '${VERIFIED_ASSET_ID}' AND stage = 'embed'`)).toBe('1');
+    // Exercise the terminal failure and explicit retry using the same
+    // database transitions as the repository. No external vector provider.
+    runFixtureSql(`
+      UPDATE ingestion_jobs SET status='running', attempts=1, started_at=NOW(), locked_at=NOW(), heartbeat_at=NOW()
+      WHERE asset_id='${VERIFIED_ASSET_ID}' AND stage='embed' AND status='queued'
+    `);
+    await expect(vectorPanel.getByRole('status')).toHaveText(scenario.vectorRunning);
+    await expect(pendingPublish).toBeDisabled();
+    runFixtureSql(`
+      BEGIN;
+      UPDATE ingestion_jobs SET status='failed', error_message='Synthetic worker failure', finished_at=NOW(), locked_at=NULL, heartbeat_at=NULL
+      WHERE asset_id='${VERIFIED_ASSET_ID}' AND stage='embed' AND status='running';
+      UPDATE knowledge_assets SET status='failed', failure_reason='Synthetic worker failure'
+      WHERE id='${VERIFIED_ASSET_ID}' AND status='embedding_pending';
+      COMMIT;
+    `);
+    await expect(vectorPanel.getByRole('status')).toHaveText(scenario.vectorFailed, {timeout: 15_000});
+    await expect(pendingPublish).toBeDisabled();
+    const retryVectorization = vectorPanel.getByRole('button', {name:scenario.vectorRetry, exact:true});
+    await expect(retryVectorization).toBeEnabled();
+    await retryVectorization.click();
+    await completeQueuedVectorizationFixture();
+    expect(runFixtureSql(`SELECT count(*) FROM ingestion_jobs WHERE asset_id = '${VERIFIED_ASSET_ID}' AND stage = 'embed'`)).toBe('2');
     await expect(
       verifiedCard.getByText(scenario.vectorStored, { exact: true }).first(),
     ).toBeVisible({ timeout: 15_000 });
     await expect(verifiedCard.getByText(scenario.publicationStage, { exact: true })).toBeVisible();
     await expect(pendingPublish).toBeEnabled();
+    await vectorPanel.getByText(scenario.vectorDetails, {exact:true}).click();
+    await expect(vectorPanel.getByText(scenario.vectorChunks, {exact:true}).locator('..')).toContainText('1');
 
     const publishedCard = page.locator('article').filter({
       has: page.getByText('E2E Published Asset', { exact: true }),
