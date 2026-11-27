@@ -6,6 +6,14 @@ import { watchConsole, assertNoConsoleErrors } from '../fixtures/console-guard';
 
 async function signIn(page: Page, email: string): Promise<void> {
   await page.goto('/');
+  // The stylesheet must already be loaded before mounting the authenticated
+  // shell. Do not hide a first-paint regression by waiting for larger buttons.
+  await expect.poll(() => page.evaluate(() =>
+    Array.from(document.styleSheets).some(sheet =>
+      sheet.href?.includes('mobile-bottom-nav') &&
+      Array.from(sheet.cssRules).some(rule => rule.cssText.includes('.et-mobile-bottom-nav__item'))
+    )
+  ), { message: 'mobile navigation CSS must be available before sign-in' }).toBeTruthy();
   await page.locator('input[type="email"]').fill(email);
   await page.locator('input[type="password"]').fill('e2e-password');
   await page.getByRole('button', { name: /sign in|ورود/i }).click();
@@ -111,8 +119,9 @@ test('mobile bottom navigation fits 320 to 430px, hides at tablet boundary @smok
     for (const item of await bar.getByRole('button').all()) {
       const box = await item.boundingBox();
       expect(box).not.toBeNull();
-      expect(box!.width).toBeGreaterThanOrEqual(44);
-      expect(box!.height).toBeGreaterThanOrEqual(44);
+      const label = await item.getAttribute('aria-label');
+      expect(box!.width, `${width}px viewport / ${label} target width`).toBeGreaterThanOrEqual(44);
+      expect(box!.height, `${width}px viewport / ${label} target height`).toBeGreaterThanOrEqual(44);
     }
     expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)).toBeFalsy();
     const gap = await page.locator('.et-dashboard-content-inner')

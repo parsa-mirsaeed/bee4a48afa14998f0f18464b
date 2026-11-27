@@ -44,6 +44,7 @@ const MAIN_CSS: Asset = asset!("/assets/main.css");
 const DASHBOARD_REMAKE_CSS: Asset = asset!("/assets/dashboard-remake.css");
 const DESIGN_SYSTEM_CSS: Asset = asset!("/assets/design-system.css");
 const DESIGN_SYSTEM_COMPAT_CSS: Asset = asset!("/assets/design-system-compat.css");
+const MOBILE_BOTTOM_NAV_CSS: Asset = asset!("/assets/mobile-bottom-nav.css");
 
 #[cfg(feature = "server")]
 async fn database_readiness(
@@ -187,6 +188,9 @@ fn App() -> Element {
         document::Link { rel: "stylesheet", href: DASHBOARD_REMAKE_CSS }
         document::Link { rel: "stylesheet", href: DESIGN_SYSTEM_CSS }
         document::Link { rel: "stylesheet", href: DESIGN_SYSTEM_COMPAT_CSS }
+        // Load the scoped navigation rules before a client-side sign-in can
+        // mount its controls; route-local loading can briefly expose 31px targets.
+        document::Link { rel: "stylesheet", href: MOBILE_BOTTOM_NAV_CSS }
         LocaleProvider { Router::<Route> {} }
     }
 }
