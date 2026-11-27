@@ -67,14 +67,13 @@ pub(super) fn AiGradingPanel(
     let mut criteria_lines = use_signal(String::new);
     let mut busy = use_signal(|| false);
     let mut notice = use_signal(|| None::<String>);
-    let mut revision = use_signal(|| 0_u64);
-    let mut evidence = use_resource(move || {
-        let _revision = revision();
-        async move {
-            let rubric = get_teacher_grading_rubric(custom_assignment_id).await;
-            let suggestion = get_current_teacher_grading_suggestion(submission_id).await;
-            (rubric, suggestion)
-        }
+    // Explicitly restart the resource once after each completed mutation.
+    // Combining a reactive revision increment with restart() schedules two
+    // refreshes and can cancel the first in-flight evidence read.
+    let mut evidence = use_resource(move || async move {
+        let rubric = get_teacher_grading_rubric(custom_assignment_id).await;
+        let suggestion = get_current_teacher_grading_suggestion(submission_id).await;
+        (rubric, suggestion)
     });
 
     let current = evidence.read();
@@ -120,6 +119,9 @@ pub(super) fn AiGradingPanel(
                     class: "rounded-xl px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold disabled:opacity-50",
                     disabled: busy() || criteria_lines().trim().is_empty(),
                     onclick: move |_| {
+                        if busy() {
+                            return;
+                        }
                         if let Some(criteria) = parse_teacher_criteria(&criteria_lines(), grade_scale) {
                             notice.set(None);
                             busy.set(true);
@@ -130,7 +132,6 @@ pub(super) fn AiGradingPanel(
                                 busy.set(false);
                                 match result {
                                     Ok(_) => {
-                                        revision += 1;
                                         evidence.restart();
                                     }
                                     Err(_) => notice.set(Some(locale.t("ai_grading.failed"))),
@@ -183,7 +184,6 @@ pub(super) fn AiGradingPanel(
                                         graded.call(());
                                     } else {
                                         notice.set(Some(locale.t("ai_grading.failed")));
-                                        revision += 1;
                                         evidence.restart();
                                     }
                                 });
@@ -205,7 +205,6 @@ pub(super) fn AiGradingPanel(
                                     } else {
                                         notice.set(Some(locale.t("ai_grading.failed")));
                                     }
-                                    revision += 1;
                                     evidence.restart();
                                 });
                             },
@@ -229,7 +228,6 @@ pub(super) fn AiGradingPanel(
                             if result.is_err() {
                                 notice.set(Some(locale.t("ai_grading.failed")));
                             }
-                            revision += 1;
                             evidence.restart();
                         });
                     },

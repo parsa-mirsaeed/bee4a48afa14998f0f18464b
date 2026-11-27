@@ -125,10 +125,30 @@ test('student PDF and teacher-approved rubric cannot bypass disabled school infe
     .toBe(locale === 'fa' ? 'rtl' : 'ltr');
   await expect(panel).toContainText(locale === 'fa' ? 'مجوز مدرسه' : 'school approval');
 
-  await panel.locator('textarea').fill(locale === 'fa' ? 'دقت | ۲۰' : 'Accuracy | 20');
-  await panel.getByRole('button', {
+  const rubricText = locale === 'fa' ? 'دقت | ۲۰' : 'Accuracy | 20';
+  const rubricEditor = panel.locator('textarea');
+  await expect(rubricEditor).toBeEditable();
+  await rubricEditor.fill(rubricText);
+  await expect(rubricEditor).toHaveValue(rubricText);
+  const approve = panel.getByRole('button', {
     name: locale === 'fa' ? 'تأیید معیارها' : 'Approve rubric',
-  }).click();
+  });
+  await expect(approve).toBeEnabled();
+  // Observe the real mutation and its subsequent persisted evidence read.
+  // A missing click, rejected approval or stale refresh must fail distinctly.
+  const approvalResponse = page.waitForResponse(response =>
+    new URL(response.url()).pathname === '/api/ai-grading/rubrics/approve'
+      && response.request().method() === 'POST'
+  );
+  const [approval] = await Promise.all([approvalResponse, approve.click()]);
+  expect(approval.ok(), 'teacher rubric approval: ' + await approval.text()).toBeTruthy();
+  const approved = await approval.json();
+  expect(approved.custom_assignment_id).toBe(assignmentId);
+  expect(approved.grade_scale).toBe(20);
+  expect(approved.criteria).toEqual([{
+    criterion_id: locale === 'fa' ? 'دقت' : 'Accuracy',
+    possible_points: 20,
+  }]);
 
   const generate = panel.getByRole('button', {
     name: locale === 'fa' ? 'تولید پیشنهاد نمره' : 'Generate AI suggestion',
