@@ -15,6 +15,8 @@ server|ai-grading/suggestions/current|TeacherOnly|Teacher|session_school|teacher
 server|ai-grading/suggestions/review|TeacherOnly|Teacher|session_school|teacher_submission|write|standard|required|ai_grading_decision_functions::review_teacher_ai_grading_suggestion|-
 server|assignments/get_all|TeacherOnly|Teacher|session_school|teacher_assignments|read|bounded_list|none|assignment_functions::get_all_assignments|-
 server|assignments/get_by_id|TeacherOnly|Teacher|session_school|assignment_owner|read|standard|none|assignment_functions::get_assignment_by_id|-
+server|assignments/submission_policy|TeacherOnly|Teacher|session_school|assignment_owner|read|standard|none|assignment_functions::get_assignment_submission_policy|-
+server|assignments/update_submission_policy|TeacherOnly|Teacher|session_school|assignment_owner|write|bounded_payload|required|assignment_functions::update_assignment_submission_policy|-
 server|assignments/create|TeacherOnly|Teacher|session_school|teacher_class|write|bounded_payload|required|assignment_functions::create_assignment|-
 server|assignments/publish|TeacherOnly|Teacher|session_school|assignment_owner|write|expensive|required|assignment_functions::publish_assignment|-
 server|assignments/form_classes|TeacherOnly|Teacher|session_school|teacher_classes|read|bounded_list|none|assignment_workflow::get_teacher_assignment_class_options|-
@@ -92,6 +94,7 @@ server|subjects/create|PlatformAdminOnly|PlatformAdmin|platform|subject|write|bo
 server|subjects/update|PlatformAdminOnly|PlatformAdmin|platform|subject|write|bounded_payload|required|subject_functions::update|-
 server|subjects/delete|PlatformAdminOnly|PlatformAdmin|platform|subject|write|standard|required|subject_functions::delete|-
 server|submissions/submit|StudentOnly|Student|session_school|student_assignment|write|large_payload|required|submission_functions::submit_student_assignment|-
+server|submissions/eligibility|StudentOnly|Student|session_school|student_assignment|read|standard|none|submission_functions::get_student_submission_eligibility|-
 server|submissions/get_for_assignment|StudentOnly|Student|session_school|student_assignment|read|standard|none|submission_functions::get_submission_for_assignment|-
 server|user_creation/create_student|SchoolManagerOnly|SchoolManager|session_school|school_user_provisioning|write|bounded_payload|required|user_creation::create_student_with_validation|-
 server|user_creation/create_teacher|SchoolManagerOnly|SchoolManager|session_school|school_user_provisioning|write|bounded_payload|required|user_creation::create_teacher_with_validation|-

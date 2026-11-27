@@ -105,6 +105,7 @@ impl AssignmentRepository {
                 a.id, a.teacher_id, a.class_section_id, a.subject_id, a.lecture_id,
                 a.lecture_title, a.lecture_number, a.title, a.body, a.due_at, a.status::text as status,
                 a.created_at, a.published_at, a.material_ids,
+                a.max_submission_attempts, a.submission_policy_version,
                 u.name as teacher_name,
                 cs.name as class_section_name,
                 s.name as subject_name,
@@ -155,6 +156,8 @@ impl AssignmentRepository {
             subject_name: row.get("subject_name"),
             subject_code: row.get("subject_code"),
             material_ids: row.get::<Vec<uuid::Uuid>, _>("material_ids"),
+            max_submission_attempts: row.get("max_submission_attempts"),
+            submission_policy_version: row.get("submission_policy_version"),
         })
     }
 
@@ -430,6 +433,7 @@ impl AssignmentRepository {
                 a.id, a.teacher_id, a.class_section_id, a.subject_id, a.lecture_id,
                 a.lecture_title, a.lecture_number, a.title, a.body, a.due_at, a.status::text as status,
                 a.created_at, a.published_at, a.material_ids,
+                a.max_submission_attempts, a.submission_policy_version,
                 u.name as teacher_name,
                 cs.name as class_section_name,
                 s.name as subject_name,
@@ -479,6 +483,8 @@ impl AssignmentRepository {
                 subject_name: row.get("subject_name"),
                 subject_code: row.get("subject_code"),
                 material_ids: row.get::<Vec<uuid::Uuid>, _>("material_ids"),
+                max_submission_attempts: row.get("max_submission_attempts"),
+                submission_policy_version: row.get("submission_policy_version"),
             });
         }
 
@@ -498,6 +504,7 @@ impl AssignmentRepository {
                 a.id, a.teacher_id, a.class_section_id, a.subject_id, a.lecture_id,
                 a.lecture_title, a.lecture_number, a.title, a.body, a.due_at, a.status::text as status,
                 a.created_at, a.published_at, a.material_ids,
+                a.max_submission_attempts, a.submission_policy_version,
                 u.name as teacher_name,
                 cs.name as class_section_name,
                 s.name as subject_name,
@@ -549,6 +556,8 @@ impl AssignmentRepository {
                 subject_name: row.get("subject_name"),
                 subject_code: row.get("subject_code"),
                 material_ids: row.get::<Vec<uuid::Uuid>, _>("material_ids"),
+                max_submission_attempts: row.get("max_submission_attempts"),
+                submission_policy_version: row.get("submission_policy_version"),
             });
         }
 
@@ -568,6 +577,7 @@ impl AssignmentRepository {
                 a.id, a.teacher_id, a.class_section_id, a.subject_id, a.lecture_id,
                 a.lecture_title, a.lecture_number, a.title, a.body, a.due_at, a.status::text as status,
                 a.created_at, a.published_at, a.material_ids,
+                a.max_submission_attempts, a.submission_policy_version,
                 u.name as teacher_name,
                 cs.name as class_section_name,
                 s.name as subject_name,
@@ -619,6 +629,8 @@ impl AssignmentRepository {
                 subject_name: row.get("subject_name"),
                 subject_code: row.get("subject_code"),
                 material_ids: row.get::<Vec<uuid::Uuid>, _>("material_ids"),
+                max_submission_attempts: row.get("max_submission_attempts"),
+                submission_policy_version: row.get("submission_policy_version"),
             });
         }
 
@@ -638,6 +650,7 @@ impl AssignmentRepository {
                 a.id, a.teacher_id, a.class_section_id, a.subject_id, a.lecture_id,
                 a.lecture_title, a.lecture_number, a.title, a.body, a.due_at, a.status::text as status,
                 a.created_at, a.published_at, a.material_ids,
+                a.max_submission_attempts, a.submission_policy_version,
                 u.name as teacher_name,
                 cs.name as class_section_name,
                 s.name as subject_name,
@@ -690,6 +703,8 @@ impl AssignmentRepository {
                 subject_name: row.get("subject_name"),
                 subject_code: row.get("subject_code"),
                 material_ids: row.get::<Vec<uuid::Uuid>, _>("material_ids"),
+                max_submission_attempts: row.get("max_submission_attempts"),
+                submission_policy_version: row.get("submission_policy_version"),
             });
         }
 

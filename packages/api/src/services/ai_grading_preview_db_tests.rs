@@ -124,6 +124,13 @@ async fn school_and_teacher_authorization_matrix() {
     let pool = PgPool::connect(&url)
         .await
         .expect("connect test PostgreSQL");
+    // Hold a separate transaction-scoped lock across the operator DDL phases.
+    // The attachment history fixture takes the same lock before touching rows.
+    let mut schema_fixture = pool.begin().await.expect("begin schema fixture lock");
+    sqlx::query("SELECT pg_advisory_xact_lock(18640004)")
+        .execute(&mut *schema_fixture)
+        .await
+        .expect("lock shared grading/attachment schema fixture");
     let suffix = Uuid::new_v4().simple().to_string();
     let school_a = Uuid::new_v4();
     let school_b = Uuid::new_v4();
@@ -2413,6 +2420,147 @@ async fn school_and_teacher_authorization_matrix() {
     .await
     .expect("retire pilot job");
 
+    // A later text-only accepted attempt must not be blocked by the previous
+    // accepted PDF, a disabled PDF school, or a separate unfinished draft.
+    // Use the actual Student RLS append path, not a privileged history seed.
+    sqlx::query(
+        "UPDATE public.assignments a SET max_submission_attempts=3 \
+         FROM public.custom_assignments ca WHERE ca.id=$1 AND a.id=ca.assignment_id",
+    )
+    .bind(custom_id)
+    .execute(&pool)
+    .await
+    .expect("raise synthetic assignment cap");
+    let latest_revision = Uuid::new_v4();
+    {
+        use crate::rls_context::{AuthorizedActor, AuthorizedTx};
+        let actor = AuthorizedActor::new(student_a_user, "Student", Some(school_a))
+            .expect("valid student history actor");
+        let tx = AuthorizedTx::begin(&pool, actor)
+            .await
+            .expect("begin accepted attempt fixture");
+        let scoped = tx.authorized_pool();
+        tx.scope(
+            async {
+                sqlx::query(
+                    r#"
+                    INSERT INTO public.submission_attempts (
+                        custom_assignment_id,student_id,school_id,submission_id,
+                        attempt_number,submission_revision,request_id,request_fingerprint,
+                        accepted_content,accepted_at
+                    )
+                    SELECT custom_assignment_id,student_id,$2,id,1,revision,
+                           last_submit_request,last_submit_fingerprint,content,submitted_at
+                    FROM public.submissions WHERE id=$1
+                    "#,
+                )
+                .bind(submissions[0])
+                .bind(school_a)
+                .execute(&scoped)
+                .await?;
+                sqlx::query(
+                    r#"
+                    INSERT INTO public.submission_attempt_originals (
+                        custom_assignment_id,attempt_number,submission_id,attachment_id
+                    )
+                    SELECT custom_assignment_id,1,submission_id,id
+                    FROM public.submission_attachments
+                    WHERE submission_id=$1 AND status='submitted'
+                    "#,
+                )
+                .bind(submissions[0])
+                .execute(&scoped)
+                .await?;
+                sqlx::query(
+                    r#"
+                    UPDATE public.submissions
+                    SET revision=$2, content=jsonb_build_object('text','Latest accepted text'),
+                        submitted_at=NOW(),last_submit_request=NULL,last_submit_fingerprint=NULL
+                    WHERE id=$1
+                    "#,
+                )
+                .bind(submissions[0])
+                .bind(latest_revision)
+                .execute(&scoped)
+                .await?;
+                sqlx::query(
+                    r#"
+                    INSERT INTO public.submission_attempts (
+                        custom_assignment_id,student_id,school_id,submission_id,
+                        attempt_number,submission_revision,accepted_content,accepted_at
+                    )
+                    SELECT custom_assignment_id,student_id,$2,id,2,revision,content,submitted_at
+                    FROM public.submissions WHERE id=$1
+                    "#,
+                )
+                .bind(submissions[0])
+                .bind(school_a)
+                .execute(&scoped)
+                .await?;
+                // This is a third-attempt draft, not part of the accepted text.
+                sqlx::query(
+                    r#"
+                    INSERT INTO public.submission_attachments (
+                        custom_assignment_id,student_id,school_id,request_id,
+                        filename,media_type,byte_size,sha256
+                    )
+                    VALUES ($1,$2,$3,$4,'new-draft.png','image/png',20,repeat('d',64))
+                    "#,
+                )
+                .bind(custom_id)
+                .bind(student_a)
+                .bind(school_a)
+                .bind(Uuid::new_v4())
+                .execute(&scoped)
+                .await?;
+                Ok::<(), sqlx::Error>(())
+            },
+            Result::is_ok,
+        )
+        .await
+        .expect("commit accepted attempt fixture")
+        .expect("append both accepted snapshots");
+    }
+    let latest_text = source_as(&pool, teacher_a_user, school_a, submissions[0])
+        .await
+        .expect("latest text-only attempt remains eligible despite old PDF");
+    assert_eq!(latest_text.submission_revision, latest_revision);
+    assert_eq!(latest_text.submission_text, "Latest accepted text");
+    assert!(
+        pdf_source_as(
+            &pool,
+            teacher_a_user,
+            "Teacher",
+            school_a,
+            submissions[0],
+            latest_revision,
+            pdf_approval,
+        )
+        .await
+        .is_none(),
+        "an older accepted original must not become source evidence for newer text"
+    );
+    let old_original_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM public.submission_attempt_originals \
+         WHERE custom_assignment_id=$1 AND attempt_number=1",
+    )
+    .bind(custom_id)
+    .fetch_one(&pool)
+    .await
+    .expect("read historical original references");
+    assert_eq!(old_original_count, 1);
+    let latest_review_allowed: bool = sqlx::query_scalar(
+        "SELECT edutalent_internal.ai_grading_review_source_allowed($1,$2,$3,$4)",
+    )
+    .bind(submissions[0])
+    .bind(school_a)
+    .bind(custom_id)
+    .bind(student_a)
+    .fetch_one(&pool)
+    .await
+    .expect("evaluate latest text review eligibility");
+    assert!(latest_review_allowed);
+
     // Exact-object teacher authorization and two-row manual-grade lifecycle
     // proof against real PostgreSQL/RLS, after AI-preview assertions are done.
     async fn manual_grade_as(
@@ -2422,8 +2570,17 @@ async fn school_and_teacher_authorization_matrix() {
         actor_school: Uuid,
         submission_id: Uuid,
         points: f64,
+        expected_revision: Option<Uuid>,
     ) -> Result<bool, dioxus::prelude::ServerFnError> {
         use crate::rls_context::{AuthorizedActor, AuthorizedTx};
+        let revision = match expected_revision {
+            Some(revision) => revision,
+            None => sqlx::query_scalar("SELECT revision FROM public.submissions WHERE id=$1")
+                .bind(submission_id)
+                .fetch_one(raw)
+                .await
+                .expect("read fixture revision"),
+        };
         let actor = AuthorizedActor::new(actor_id, actor_role, Some(actor_school))
             .expect("valid teacher-grade test actor");
         let tx = AuthorizedTx::begin(raw, actor)
@@ -2435,6 +2592,7 @@ async fn school_and_teacher_authorization_matrix() {
                 &scoped,
                 actor_id,
                 submission_id,
+                revision,
                 points,
                 Some("Teacher-reviewed".to_string()),
             ),
@@ -2451,7 +2609,7 @@ async fn school_and_teacher_authorization_matrix() {
         (student_a_user, "Student", school_a, submissions[0]),
     ] {
         assert!(
-            manual_grade_as(&pool, actor, role, school, target, 90.0)
+            manual_grade_as(&pool, actor, role, school, target, 90.0, None)
                 .await
                 .is_err(),
             "unassigned, cross-school, or student grading must fail closed"
@@ -2465,6 +2623,20 @@ async fn school_and_teacher_authorization_matrix() {
     .await
     .expect("read unchanged grade after denied cases");
     assert_eq!(before_manual, (None, None));
+    assert!(
+        manual_grade_as(
+            &pool,
+            teacher_a_user,
+            "Teacher",
+            school_a,
+            submissions[0],
+            90.0,
+            Some(Uuid::new_v4()),
+        )
+        .await
+        .is_err(),
+        "a stale reviewed revision cannot publish a grade"
+    );
 
     assert!(
         manual_grade_as(
@@ -2473,7 +2645,8 @@ async fn school_and_teacher_authorization_matrix() {
             "Teacher",
             school_a,
             submissions[0],
-            90.0
+            90.0,
+            None,
         )
         .await
         .expect("assigned teacher may grade"),
@@ -2499,7 +2672,8 @@ async fn school_and_teacher_authorization_matrix() {
             "Teacher",
             school_a,
             submissions[0],
-            f64::NAN
+            f64::NAN,
+            None,
         )
         .await
         .is_err(),
@@ -2512,4 +2686,8 @@ async fn school_and_teacher_authorization_matrix() {
             .await
             .expect("unchanged official grade");
     assert_eq!(unchanged_grade, Some(90.0));
+    schema_fixture
+        .rollback()
+        .await
+        .expect("release schema fixture lock");
 }

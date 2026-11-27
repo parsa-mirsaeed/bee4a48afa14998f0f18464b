@@ -37,6 +37,46 @@ pub struct AssignmentResponse {
     pub status: String,
     pub created_at: DateTime<Utc>,
     pub published_at: Option<DateTime<Utc>>,
+    pub max_submission_attempts: i16,
+    pub submission_policy_version: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AssignmentSubmissionPolicy {
+    pub max_attempts: i16,
+    pub version: i64,
+    pub usage: Vec<AssignmentAttemptUsage>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AssignmentAttemptUsage {
+    pub used_attempts: i64,
+    pub graded: bool,
+    pub students: i64,
+}
+
+#[cfg(feature = "server")]
+async fn read_submission_policy(
+    repository: &AuthorizedAssignmentRepository,
+    actor: AuthorizedTeacher,
+    id: AssignmentId,
+) -> Result<AssignmentSubmissionPolicy, ServerFnError> {
+    let (max_attempts, version, usage) = repository
+        .submission_policy_summary_for_teacher(actor, id)
+        .await
+        .map_err(repository_error)?;
+    Ok(AssignmentSubmissionPolicy {
+        max_attempts,
+        version,
+        usage: usage
+            .into_iter()
+            .map(|(used_attempts, graded, students)| AssignmentAttemptUsage {
+                used_attempts,
+                graded,
+                students,
+            })
+            .collect(),
+    })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -80,6 +120,8 @@ pub struct CreateAssignmentPayload {
     pub body: String,
     pub due_at: DateTime<Utc>,
     pub material_ids: Option<Vec<String>>,
+    #[serde(default)]
+    pub max_submission_attempts: Option<i16>,
 }
 
 #[server(endpoint = "assignments/get_all")]
@@ -123,6 +165,7 @@ pub async fn create_assignment(
 ) -> Result<AssignmentResponse, ServerFnError> {
     #[cfg(feature = "server")]
     {
+        let max_attempts = payload.max_submission_attempts.unwrap_or(1);
         let request = CreateAssignmentRequest {
             class_section_id: parse_uuid(&payload.class_section_id, "class section")?.into(),
             subject_id: parse_uuid(&payload.subject_id, "subject")?.into(),
@@ -144,7 +187,7 @@ pub async fn create_assignment(
 
         let (repository, actor) = authorized_teacher().await?;
         repository
-            .create_for_teacher(actor, request)
+            .create_with_submission_policy_for_teacher(actor, request, max_attempts)
             .await
             .map(assignment_to_response)
             .map_err(repository_error)
@@ -362,6 +405,42 @@ pub async fn update_assignment(
     Err(ServerFnError::new("Server only"))
 }
 
+#[server(endpoint = "assignments/submission_policy")]
+pub async fn get_assignment_submission_policy(
+    assignment_id: String,
+) -> Result<AssignmentSubmissionPolicy, ServerFnError> {
+    #[cfg(feature = "server")]
+    {
+        let id = parse_assignment_id(&assignment_id)?;
+        let (repository, actor) = authorized_teacher().await?;
+        read_submission_policy(&repository, actor, id).await
+    }
+
+    #[cfg(not(feature = "server"))]
+    Err(ServerFnError::new("Server only"))
+}
+
+#[server(endpoint = "assignments/update_submission_policy")]
+pub async fn update_assignment_submission_policy(
+    assignment_id: String,
+    expected_version: i64,
+    max_attempts: i16,
+) -> Result<AssignmentSubmissionPolicy, ServerFnError> {
+    #[cfg(feature = "server")]
+    {
+        let id = parse_assignment_id(&assignment_id)?;
+        let (repository, actor) = authorized_teacher().await?;
+        repository
+            .update_submission_policy_for_teacher(actor, id, expected_version, max_attempts)
+            .await
+            .map_err(repository_error)?;
+        read_submission_policy(&repository, actor, id).await
+    }
+
+    #[cfg(not(feature = "server"))]
+    Err(ServerFnError::new("Server only"))
+}
+
 #[cfg(feature = "server")]
 async fn authorized_teacher_with_user_id(
 ) -> Result<(AuthorizedAssignmentRepository, AuthorizedTeacher, Uuid), ServerFnError> {
@@ -439,6 +518,8 @@ fn assignment_to_response(item: AssignmentWithDetails) -> AssignmentResponse {
         status: format!("{:?}", item.status),
         created_at: item.created_at,
         published_at: item.published_at,
+        max_submission_attempts: item.max_submission_attempts,
+        submission_policy_version: item.submission_policy_version,
     }
 }
 

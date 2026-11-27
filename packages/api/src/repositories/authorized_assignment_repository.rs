@@ -136,6 +136,7 @@ impl AuthorizedAssignmentRepository {
                 a.id, a.teacher_id, a.class_section_id, a.subject_id, a.lecture_id,
                 a.lecture_title, a.lecture_number, a.title, a.body, a.due_at,
                 a.status::text AS status, a.created_at, a.published_at, a.material_ids,
+                a.max_submission_attempts, a.submission_policy_version,
                 u.name AS teacher_name, cs.name AS class_section_name,
                 sub.name AS subject_name, sub.code AS subject_code
             FROM assignments a
@@ -178,6 +179,7 @@ impl AuthorizedAssignmentRepository {
                 a.id, a.teacher_id, a.class_section_id, a.subject_id, a.lecture_id,
                 a.lecture_title, a.lecture_number, a.title, a.body, a.due_at,
                 a.status::text AS status, a.created_at, a.published_at, a.material_ids,
+                a.max_submission_attempts, a.submission_policy_version,
                 u.name AS teacher_name, cs.name AS class_section_name,
                 sub.name AS subject_name, sub.code AS subject_code
             FROM assignments a
@@ -208,11 +210,166 @@ impl AuthorizedAssignmentRepository {
         row_to_assignment_details(&row)
     }
 
+    /// Read the policy only for the canonical assigned teacher.
+    pub async fn submission_policy_for_teacher(
+        &self,
+        actor: AuthorizedTeacher,
+        assignment_id: AssignmentId,
+    ) -> RepositoryResult<(i16, i64)> {
+        let row = sqlx::query_as::<_, (i16, i64)>(
+            r#"
+            SELECT a.max_submission_attempts, a.submission_policy_version
+            FROM assignments a
+            JOIN class_sections cs ON cs.id = a.class_section_id
+            JOIN teachers t ON t.id = a.teacher_id
+            JOIN users u ON u.id = t.user_id
+            JOIN roles r ON r.id = u.role_id
+            JOIN teaching_assignments ta ON ta.teacher_id = t.id
+                AND ta.class_section_id = cs.id
+            WHERE a.id = $1 AND t.id = $2 AND u.id = $3
+              AND cs.school_id = $4 AND t.school_id = $4 AND u.school_id = $4
+              AND u.is_active AND r.name::text = 'Teacher'
+            "#,
+        )
+        .bind::<Uuid>(assignment_id.into())
+        .bind::<Uuid>(actor.teacher_id.into())
+        .bind(actor.user_id)
+        .bind(actor.school_id)
+        .fetch_optional(&*self.pool)
+        .await?
+        .ok_or_else(|| assignment_not_found(assignment_id))?;
+        Ok(row)
+    }
+
+    /// A compact, exact histogram of assigned students' accepted attempts.
+    /// Use a single statement so the policy and usage snapshot agree. No
+    /// student names or other PII are necessary for the reduction preview.
+    pub async fn submission_policy_summary_for_teacher(
+        &self,
+        actor: AuthorizedTeacher,
+        assignment_id: AssignmentId,
+    ) -> RepositoryResult<(i16, i64, Vec<(i64, bool, i64)>)> {
+        let rows = sqlx::query_as::<_, (i16, i64, i64, bool, i64)>(
+            r#"
+            SELECT a.max_submission_attempts, a.submission_policy_version,
+                   COALESCE(usage.used,0), COALESCE(usage.graded,false),
+                   COALESCE(usage.students,0)
+            FROM assignments a
+            JOIN class_sections cs ON cs.id=a.class_section_id
+            JOIN teachers t ON t.id=a.teacher_id
+            JOIN users u ON u.id=t.user_id
+            JOIN roles r ON r.id=u.role_id
+            JOIN teaching_assignments ta ON ta.teacher_id=t.id AND ta.class_section_id=cs.id
+            LEFT JOIN LATERAL (
+                SELECT pupil.used, pupil.graded, count(*) AS students
+                FROM (
+                    SELECT (SELECT count(*) FROM submission_attempts h
+                            WHERE h.custom_assignment_id=ca.id) AS used,
+                           (ca.graded_at IS NOT NULL OR EXISTS (
+                               SELECT 1 FROM submissions s
+                               WHERE s.custom_assignment_id=ca.id AND s.grade IS NOT NULL
+                           )) AS graded
+                    FROM custom_assignments ca
+                    JOIN students st ON st.id=ca.student_id AND st.school_id=cs.school_id
+                    WHERE ca.assignment_id=a.id
+                ) pupil
+                GROUP BY pupil.used,pupil.graded
+            ) usage ON TRUE
+            WHERE a.id=$1 AND t.id=$2 AND u.id=$3
+              AND cs.school_id=$4 AND t.school_id=$4 AND u.school_id=$4
+              AND u.is_active AND r.name::text='Teacher'
+            ORDER BY usage.used,usage.graded
+            "#,
+        )
+        .bind::<Uuid>(assignment_id.into())
+        .bind::<Uuid>(actor.teacher_id.into())
+        .bind(actor.user_id)
+        .bind(actor.school_id)
+        .fetch_all(&*self.pool)
+        .await?;
+        let (max, version, _, _, _) = *rows
+            .first()
+            .ok_or_else(|| assignment_not_found(assignment_id))?;
+        let usage = rows
+            .into_iter()
+            .filter_map(|(_, _, used, graded, count)| (count > 0).then_some((used, graded, count)))
+            .collect();
+        Ok((max, version, usage))
+    }
+
+    /// The UPDATE takes the same parent-row lock that student finalization
+    /// share-locks. The version predicate is rechecked after a competing write.
+    /// Changing the cap never edits student work or reopens graded submissions.
+    pub async fn update_submission_policy_for_teacher(
+        &self,
+        actor: AuthorizedTeacher,
+        assignment_id: AssignmentId,
+        expected_version: i64,
+        max_attempts: i16,
+    ) -> RepositoryResult<(i16, i64)> {
+        if !(1..=10).contains(&max_attempts) || expected_version < 1 {
+            return Err(RepositoryError::Validation(
+                "Invalid submission attempt limit or policy version".into(),
+            ));
+        }
+        let row = sqlx::query_as::<_, (i16, i64)>(
+            r#"
+            UPDATE assignments a
+            SET max_submission_attempts = $5
+            FROM class_sections cs, teachers t, users u, roles r
+            WHERE a.id = $1 AND a.teacher_id = $2 AND t.id = a.teacher_id
+              AND u.id = $3 AND t.user_id = u.id AND r.id = u.role_id
+              AND cs.id = a.class_section_id
+              AND cs.school_id = $4 AND t.school_id = $4 AND u.school_id = $4
+              AND u.is_active AND r.name::text = 'Teacher'
+              AND a.status IN ('Draft'::assignment_status, 'Published'::assignment_status)
+              AND a.submission_policy_version = $6
+              AND EXISTS (
+                  SELECT 1 FROM teaching_assignments ta
+                  WHERE ta.teacher_id = t.id AND ta.class_section_id = cs.id
+              )
+            RETURNING a.max_submission_attempts, a.submission_policy_version
+            "#,
+        )
+        .bind::<Uuid>(assignment_id.into())
+        .bind::<Uuid>(actor.teacher_id.into())
+        .bind(actor.user_id)
+        .bind(actor.school_id)
+        .bind(max_attempts)
+        .bind(expected_version)
+        .fetch_optional(&*self.pool)
+        .await?;
+        if let Some(policy) = row {
+            return Ok(policy);
+        }
+        // Distinguish a stale/unavailable policy only for an authorized reader.
+        self.submission_policy_for_teacher(actor, assignment_id)
+            .await?;
+        Err(RepositoryError::Duplicate {
+            entity: "submission policy version or assignment state".into(),
+        })
+    }
+
     pub async fn create_for_teacher(
         &self,
         actor: AuthorizedTeacher,
         request: CreateAssignmentRequest,
     ) -> RepositoryResult<AssignmentWithDetails> {
+        self.create_with_submission_policy_for_teacher(actor, request, 1)
+            .await
+    }
+
+    pub async fn create_with_submission_policy_for_teacher(
+        &self,
+        actor: AuthorizedTeacher,
+        request: CreateAssignmentRequest,
+        max_attempts: i16,
+    ) -> RepositoryResult<AssignmentWithDetails> {
+        if !(1..=10).contains(&max_attempts) {
+            return Err(RepositoryError::Validation(
+                "Invalid submission attempt limit".into(),
+            ));
+        }
         let material_ids = parse_material_ids(request.material_ids.as_deref())?;
         self.verify_material_scope(actor, request.class_section_id, &material_ids)
             .await?;
@@ -221,11 +378,12 @@ impl AuthorizedAssignmentRepository {
             r#"
             INSERT INTO assignments (
                 teacher_id, class_section_id, subject_id, lecture_id,
-                lecture_title, lecture_number, title, body, due_at, status, material_ids
+                lecture_title, lecture_number, title, body, due_at, status, material_ids,
+                max_submission_attempts
             )
             SELECT
                 $1, cs.id, cs.subject_id, $5, $6, $7, $8, $9, $10,
-                'Draft'::assignment_status, $11
+                'Draft'::assignment_status, $11, $12
             FROM class_sections cs
             JOIN teaching_assignments ta
               ON ta.class_section_id = cs.id
@@ -256,6 +414,7 @@ impl AuthorizedAssignmentRepository {
         .bind(request.body.trim())
         .bind(request.due_at)
         .bind(&material_ids)
+        .bind(max_attempts)
         .fetch_optional(&*self.pool)
         .await?
         .ok_or(RepositoryError::Unauthorized)?;
@@ -828,6 +987,8 @@ fn row_to_assignment_details(row: &PgRow) -> RepositoryResult<AssignmentWithDeta
         subject_name: row.get("subject_name"),
         subject_code: row.get("subject_code"),
         material_ids: assignment.material_ids,
+        max_submission_attempts: row.get("max_submission_attempts"),
+        submission_policy_version: row.get("submission_policy_version"),
     })
 }
 
@@ -1202,6 +1363,8 @@ mod tests {
         )
         .await
         .expect("Teacher A creates own assignment");
+        assert_eq!(assignment.max_submission_attempts, 1);
+        assert_eq!(assignment.submission_policy_version, 1);
 
         assert!(run_as(
             pool.as_ref(),
@@ -1227,6 +1390,69 @@ mod tests {
             )
             .await,
             Err(RepositoryError::NotFound { .. })
+        ));
+
+        let current = run_as(
+            pool.as_ref(),
+            actor(teacher_a_user, "Teacher", school_a),
+            repository.submission_policy_for_teacher(actor_a, assignment.id),
+        )
+        .await
+        .expect("read default attempt policy");
+        assert_eq!(current, (1, 1));
+        let summary = run_as(
+            pool.as_ref(),
+            actor(teacher_a_user, "Teacher", school_a),
+            repository.submission_policy_summary_for_teacher(actor_a, assignment.id),
+        )
+        .await
+        .expect("draft policy and usage share one authorized snapshot");
+        assert_eq!(summary, (1, 1, vec![]));
+
+        for (user, school, denied_actor) in [
+            (teacher_a2_user, school_a, actor_a2),
+            (teacher_b_user, school_b, actor_b),
+        ] {
+            assert!(run_as(
+                pool.as_ref(),
+                actor(user, "Teacher", school),
+                repository.submission_policy_for_teacher(denied_actor, assignment.id),
+            )
+            .await
+            .is_err());
+            assert!(run_as(
+                pool.as_ref(),
+                actor(user, "Teacher", school),
+                repository.update_submission_policy_for_teacher(denied_actor, assignment.id, 1, 3),
+            )
+            .await
+            .is_err());
+        }
+        for invalid in [0, 11] {
+            assert!(run_as(
+                pool.as_ref(),
+                actor(teacher_a_user, "Teacher", school_a),
+                repository.update_submission_policy_for_teacher(actor_a, assignment.id, 1, invalid),
+            )
+            .await
+            .is_err());
+        }
+        let updated = run_as(
+            pool.as_ref(),
+            actor(teacher_a_user, "Teacher", school_a),
+            repository.update_submission_policy_for_teacher(actor_a, assignment.id, 1, 3),
+        )
+        .await
+        .expect("assigned teacher can change draft cap");
+        assert_eq!(updated, (3, 2));
+        assert!(matches!(
+            run_as(
+                pool.as_ref(),
+                actor(teacher_a_user, "Teacher", school_a),
+                repository.update_submission_policy_for_teacher(actor_a, assignment.id, 1, 2),
+            )
+            .await,
+            Err(RepositoryError::Duplicate { .. })
         ));
 
         let unauthorized_update = run_as(
@@ -1299,8 +1525,38 @@ mod tests {
             repository.publish_for_teacher(actor_a, assignment.id),
         );
         let (first, second) = tokio::join!(first_publish, second_publish);
-        first.expect("first authorized publish");
-        second.expect("concurrent idempotent publish");
+        for published in [first, second] {
+            let published = published.expect("authorized idempotent publish");
+            assert_eq!(published.max_submission_attempts, 3);
+            assert_eq!(published.submission_policy_version, 2);
+        }
+
+        let unchanged = run_as(
+            pool.as_ref(),
+            actor(teacher_a_user, "Teacher", school_a),
+            repository.submission_policy_for_teacher(actor_a, assignment.id),
+        )
+        .await
+        .expect("publication preserves attempt policy");
+        assert_eq!(unchanged, (3, 2));
+        let (first_policy, second_policy) = tokio::join!(
+            run_as(
+                pool.as_ref(),
+                actor(teacher_a_user, "Teacher", school_a),
+                repository.update_submission_policy_for_teacher(actor_a, assignment.id, 2, 4),
+            ),
+            run_as(
+                pool.as_ref(),
+                actor(teacher_a_user, "Teacher", school_a),
+                repository.update_submission_policy_for_teacher(actor_a, assignment.id, 2, 5),
+            )
+        );
+        assert_ne!(first_policy.is_ok(), second_policy.is_ok());
+        let effective = first_policy
+            .or(second_policy)
+            .expect("one policy edit wins");
+        assert_eq!(effective.1, 3);
+        assert!([4, 5].contains(&effective.0));
 
         let fanout_count: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM custom_assignments WHERE assignment_id = $1 AND student_id = $2",
@@ -1311,6 +1567,25 @@ mod tests {
         .await
         .expect("count custom assignment fan-out");
         assert_eq!(fanout_count, 1);
+        let summary = run_as(
+            pool.as_ref(),
+            actor(teacher_a_user, "Teacher", school_a),
+            repository.submission_policy_summary_for_teacher(actor_a, assignment.id),
+        )
+        .await
+        .expect("published policy includes assigned student usage");
+        assert_eq!((summary.0, summary.1), effective);
+        assert!(summary
+            .2
+            .iter()
+            .any(|row| row.0 == 0 && !row.1 && row.2 > 0));
+        assert!(run_as(
+            pool.as_ref(),
+            actor(teacher_b_user, "Teacher", school_b),
+            repository.submission_policy_summary_for_teacher(actor_b, assignment.id),
+        )
+        .await
+        .is_err());
 
         let random_existing_id: Uuid = sqlx::query_scalar(
             "INSERT INTO assignments (teacher_id, class_section_id, subject_id, title, body, due_at, status, material_ids) VALUES ($1, $2, $3, $4, $5, NOW(), 'Draft'::assignment_status, '{}'::uuid[]) RETURNING id",

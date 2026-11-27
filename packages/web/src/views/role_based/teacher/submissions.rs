@@ -335,8 +335,12 @@ fn GradeSubmissionModal(
     let mut error_msg = use_signal(|| None::<String>);
 
     let submission_id = submission.id.clone();
+    let expected_revision = submission.revision;
 
     let handle_submit = move |_| {
+        if is_submitting() {
+            return;
+        }
         let locale = use_locale();
         let id = submission_id.clone();
         let grade_str = grade_value();
@@ -370,17 +374,16 @@ fn GradeSubmissionModal(
             input_val
         };
 
+        is_submitting.set(true);
+        error_msg.set(None);
         spawn(async move {
-            is_submitting.set(true);
-            error_msg.set(None);
-
             let feedback_opt = if feedback.trim().is_empty() {
                 None
             } else {
                 Some(feedback)
             };
 
-            match grade_submission(id, grade, feedback_opt).await {
+            match grade_submission(id, expected_revision, grade, feedback_opt).await {
                 Ok(true) => {
                     on_graded.call(());
                 }

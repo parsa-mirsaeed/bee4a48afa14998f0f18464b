@@ -554,6 +554,24 @@ INSERT INTO custom_assignments(id,assignment_id,student_id,due_at,status) VALUES
 INSERT INTO assignments(id,teacher_id,class_section_id,subject_id,title,body,due_at,status,published_at) VALUES('f0600000-0000-0000-0000-000000000290','c0000000-0000-0000-0000-0000000000c2','e0000000-0000-0000-0000-0000000000c1','d0000000-0000-0000-0000-0000000000a1','E2E Attachment 290','Submit your work.',NOW()+INTERVAL '14 days','Published',NOW()) ON CONFLICT DO NOTHING;
 INSERT INTO custom_assignments(id,assignment_id,student_id,due_at,status) VALUES('f1600000-0000-0000-0000-000000000290','f0600000-0000-0000-0000-000000000290','c0000000-0000-0000-0000-0000000000c3',NOW()+INTERVAL '14 days','Assigned') ON CONFLICT DO NOTHING;
 
+-- Independent exact-head concurrency proof: one Student, one Teacher,
+-- separate assignments for desktop and mobile, and no provider egress.
+INSERT INTO assignments(id,teacher_id,class_section_id,subject_id,title,body,due_at,status,published_at,max_submission_attempts) VALUES
+ ('f0600000-0000-0000-0000-000000000191','c0000000-0000-0000-0000-0000000000c2','e0000000-0000-0000-0000-0000000000c1','d0000000-0000-0000-0000-0000000000a1','E2E Attempt Race 191','Concurrent finalize, grade and policy update.',NOW()+INTERVAL '14 days','Published',NOW(),2),
+ ('f0600000-0000-0000-0000-000000000291','c0000000-0000-0000-0000-0000000000c2','e0000000-0000-0000-0000-0000000000c1','d0000000-0000-0000-0000-0000000000a1','E2E Attempt Race 291','Concurrent finalize, grade and policy update.',NOW()+INTERVAL '14 days','Published',NOW(),2)
+ON CONFLICT DO NOTHING;
+INSERT INTO custom_assignments(id,assignment_id,student_id,due_at,status) VALUES
+ ('f1600000-0000-0000-0000-000000000191','f0600000-0000-0000-0000-000000000191','c0000000-0000-0000-0000-0000000000c3',NOW()+INTERVAL '14 days','Assigned'),
+ ('f1600000-0000-0000-0000-000000000291','f0600000-0000-0000-0000-000000000291','c0000000-0000-0000-0000-0000000000c3',NOW()+INTERVAL '14 days','Assigned')
+ON CONFLICT DO NOTHING;
+
+-- Legacy unsubmitted rows have a timestamp but no accepted receipt. The
+-- first finalization must accept them without inventing a consumed attempt.
+INSERT INTO submissions(id,custom_assignment_id,student_id,content,submitted_at) VALUES
+ ('f2600000-0000-0000-0000-000000000190','f1600000-0000-0000-0000-000000000190','c0000000-0000-0000-0000-0000000000c3','{"text":"legacy draft"}'::jsonb,NOW()-INTERVAL '1 hour'),
+ ('f2600000-0000-0000-0000-000000000290','f1600000-0000-0000-0000-000000000290','c0000000-0000-0000-0000-0000000000c3','{"text":"legacy draft"}'::jsonb,NOW()-INTERVAL '1 hour')
+ON CONFLICT DO NOTHING;
+
 -- Dedicated PDF grading denial fixtures, separate from file-browser acceptance
 -- cases so the desktop/mobile projects do not share submission state.
 INSERT INTO assignments(id,teacher_id,class_section_id,subject_id,title,body,due_at,status,published_at) VALUES
@@ -668,5 +686,38 @@ INSERT INTO custom_assignments(id,assignment_id,student_id,due_at,status) VALUES
  ('f1600000-0000-0000-0000-000000000701','f0600000-0000-0000-0000-000000000701','c0000000-0000-0000-0000-0000000000c3',NOW()+INTERVAL '14 days','Assigned'),
  ('f1600000-0000-0000-0000-000000000801','f0600000-0000-0000-0000-000000000801','c0000000-0000-0000-0000-0000000000c3',NOW()+INTERVAL '14 days','Assigned')
 ON CONFLICT DO NOTHING;
+
+-- The cross-school browser authorization probe must be able to send a real
+-- second-attempt request without modifying the existing teacher grading fixture.
+UPDATE public.assignments SET max_submission_attempts=2
+WHERE id='f0000000-0000-0000-0000-0000000000a4';
+
+-- These five synthetic rows are inserted after migrations have run. Mirror the
+-- accepted-history backfill explicitly, only for those fixture IDs, inside this
+-- isolated seed transaction. Do not relax production append authorization.
+ALTER TABLE public.submission_attempts DISABLE TRIGGER submission_attempt_append_guard;
+INSERT INTO public.submission_attempts (
+    custom_assignment_id, student_id, school_id, submission_id, attempt_number,
+    submission_revision, request_id, request_fingerprint, accepted_content, accepted_at
+)
+SELECT ca.id, ca.student_id, cs.school_id, s.id, 1,
+       s.revision, s.last_submit_request, s.last_submit_fingerprint, s.content, s.submitted_at
+FROM public.submissions s
+JOIN public.custom_assignments ca ON ca.id=s.custom_assignment_id AND ca.student_id=s.student_id
+JOIN public.assignments a ON a.id=ca.assignment_id
+JOIN public.class_sections cs ON cs.id=a.class_section_id
+JOIN public.students st ON st.id=ca.student_id AND st.school_id=cs.school_id
+WHERE s.id IN (
+    'f2000000-0000-0000-0000-0000000000a1',
+    'f2000000-0000-0000-0000-0000000000a4',
+    'f2000000-0000-0000-0000-0000000000b1',
+    'f2600000-0000-0000-0000-000000000501',
+    'f2600000-0000-0000-0000-000000000601'
+)
+AND (ca.status IN ('Submitted'::public.custom_status, 'Graded'::public.custom_status)
+     OR ca.submitted_at IS NOT NULL OR ca.graded_at IS NOT NULL)
+ON CONFLICT (custom_assignment_id, attempt_number) DO NOTHING;
+SET CONSTRAINTS ALL IMMEDIATE;
+ALTER TABLE public.submission_attempts ENABLE TRIGGER submission_attempt_append_guard;
 
 COMMIT;

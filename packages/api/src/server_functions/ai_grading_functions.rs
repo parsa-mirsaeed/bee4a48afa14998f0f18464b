@@ -34,6 +34,12 @@ const AUTHORIZED_GRADING_SOURCE: &str = r#"
     JOIN public.custom_assignments ca
       ON ca.id = s.custom_assignment_id
      AND ca.student_id = s.student_id
+    LEFT JOIN LATERAL (
+        SELECT h.attempt_number, h.submission_id, h.submission_revision
+        FROM public.submission_attempts h
+        WHERE h.custom_assignment_id=s.custom_assignment_id
+        ORDER BY h.attempt_number DESC LIMIT 1
+    ) accepted ON TRUE
     JOIN public.assignments a ON a.id = ca.assignment_id
     JOIN public.class_sections cs ON cs.id = a.class_section_id
     JOIN public.teachers t
@@ -67,6 +73,9 @@ const AUTHORIZED_GRADING_SOURCE: &str = r#"
       AND ca.graded_at IS NULL
       AND s.grade IS NULL
       AND s.graded_by IS NULL
+      AND (accepted.attempt_number IS NULL OR (
+          accepted.submission_id=s.id AND accepted.submission_revision=s.revision
+      ))
       -- Until OCR is supported, grading text alone is incomplete whenever
       -- a finalized original exists. The teacher-read RLS policy is scoped
       -- to this exact submission and assignment's authorized teacher.
@@ -78,6 +87,13 @@ const AUTHORIZED_GRADING_SOURCE: &str = r#"
             AND attachment.student_id = ca.student_id
             AND attachment.school_id = cs.school_id
             AND attachment.status = 'submitted'
+            AND (accepted.attempt_number IS NULL OR EXISTS (
+                SELECT 1 FROM public.submission_attempt_originals original
+                WHERE original.custom_assignment_id=ca.id
+                  AND original.attempt_number=accepted.attempt_number
+                  AND original.submission_id=s.id
+                  AND original.attachment_id=attachment.id
+            ))
       )
     LIMIT 1
 "#;

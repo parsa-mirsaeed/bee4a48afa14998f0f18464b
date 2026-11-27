@@ -13,6 +13,12 @@ async fn private_originals_enforce_actor_school_state_and_cleanup_boundaries() {
         .await
         .unwrap();
     let mut tx = pool.begin().await.unwrap();
+    // This fixture replays migration DDL and advances a grading-triggered
+    // revision. Serialize it with the PDF grading operator-DDL fixture only.
+    sqlx::query("SELECT pg_advisory_xact_lock(18640004)")
+        .execute(&mut *tx)
+        .await
+        .expect("lock shared grading/attachment schema fixture");
     let school = Uuid::new_v4();
     let other_school = Uuid::new_v4();
     let student = Uuid::new_v4();
@@ -184,6 +190,205 @@ async fn private_originals_enforce_actor_school_state_and_cleanup_boundaries() {
             .unwrap()
             .rows_affected(),
         0
+    );
+    // Execute the exact migration backfill against the synthetic accepted
+    // submission. The test role has no attempt-write policy; the migration
+    // identity seeds history and the subsequent role checks prove isolation.
+    tx.execute("RESET ROLE;").await.unwrap();
+    let backfill = include_str!(
+        "../../../migrations/20261126193000_submission_attempt_policy_and_history.sql"
+    )
+    .split_once("-- BEGIN LEGACY ATTEMPT BACKFILL")
+    .unwrap()
+    .1
+    .split_once("-- END LEGACY ATTEMPT BACKFILL")
+    .unwrap()
+    .0;
+    tx.execute(
+        "ALTER TABLE public.submission_attempts DISABLE TRIGGER submission_attempt_append_guard",
+    )
+    .await
+    .unwrap();
+    tx.execute(backfill).await.unwrap();
+    tx.execute(backfill).await.unwrap();
+    tx.execute("SET CONSTRAINTS ALL IMMEDIATE;").await.unwrap();
+    tx.execute(
+        "ALTER TABLE public.submission_attempts ENABLE TRIGGER submission_attempt_append_guard",
+    )
+    .await
+    .unwrap();
+    tx.execute("SET CONSTRAINTS ALL DEFERRED;").await.unwrap();
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM submission_attempts WHERE custom_assignment_id=$1",
+        )
+        .bind(custom)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap(),
+        1,
+        "replaying the exact legacy backfill cannot invent another attempt"
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM submission_attempt_originals WHERE custom_assignment_id=$1 AND attachment_id=$2",
+        )
+        .bind(custom)
+        .bind(attachment)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap(),
+        1
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i16>(
+            "SELECT max_submission_attempts FROM assignments WHERE id=$1",
+        )
+        .bind(assignment)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap(),
+        1
+    );
+    sqlx::query("UPDATE assignments SET max_submission_attempts=3 WHERE id=$1")
+        .bind(assignment)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE assignments SET submission_policy_version=99 WHERE id=$1")
+        .bind(assignment)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT submission_policy_version FROM assignments WHERE id=$1",
+        )
+        .bind(assignment)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap(),
+        2
+    );
+    tx.execute("SAVEPOINT attempt_immutable;").await.unwrap();
+    assert!(sqlx::query(
+        "UPDATE submission_attempts SET accepted_content='{}' WHERE custom_assignment_id=$1"
+    )
+    .bind(custom)
+    .execute(&mut *tx)
+    .await
+    .is_err());
+    tx.execute("ROLLBACK TO attempt_immutable;").await.unwrap();
+    tx.execute(format!("SET LOCAL ROLE {role};").as_str())
+        .await
+        .unwrap();
+    for (actor, kind, scope, expected) in [
+        (student_user, "Student", school, 1_i64),
+        (teacher_user, "Teacher", school, 1),
+        (outsider, "Teacher", school, 0),
+        (student_user, "Student", other_school, 0),
+        (student_user, "Parent", school, 0),
+        (student_user, "SchoolManager", school, 0),
+        (student_user, "PlatformAdmin", school, 0),
+    ] {
+        tx.execute(format!("SET LOCAL app.user_id='{actor}';SET LOCAL app.user_role='{kind}';SET LOCAL app.school_id='{scope}';").as_str()).await.unwrap();
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "SELECT count(*) FROM submission_attempts WHERE custom_assignment_id=$1",
+            )
+            .bind(custom)
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap(),
+            expected
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "SELECT count(*) FROM submission_attempt_originals WHERE custom_assignment_id=$1",
+            )
+            .bind(custom)
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap(),
+            expected
+        );
+    }
+    // Prove the runtime append policies (not only migration-owner backfill).
+    // A new revision can append precisely one next receipt; the original
+    // receipt and bytes remain immutable and an over-limit append rolls back.
+    let second_revision = Uuid::new_v4();
+    let second_request = Uuid::new_v4();
+    tx.execute(format!(r#"
+        SET LOCAL app.user_id='{student_user}'; SET LOCAL app.user_role='Student'; SET LOCAL app.school_id='{school}';
+        UPDATE submissions SET content='{{"text":"second work"}}', revision='{second_revision}',
+          last_submit_request='{second_request}', last_submit_fingerprint='second-fingerprint', submitted_at=NOW()
+          WHERE id='{submission}';
+        INSERT INTO submission_attempts(custom_assignment_id,student_id,school_id,submission_id,attempt_number,submission_revision,request_id,request_fingerprint,accepted_content,accepted_at)
+          SELECT custom_assignment_id,student_id,'{school}',id,2,revision,last_submit_request,last_submit_fingerprint,content,submitted_at
+          FROM submissions WHERE id='{submission}';
+        INSERT INTO submission_attempt_originals(custom_assignment_id,attempt_number,submission_id,attachment_id)
+          VALUES('{custom}',2,'{submission}','{attachment}');
+    "#).as_str()).await.unwrap();
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM submission_attempts WHERE custom_assignment_id=$1",
+        )
+        .bind(custom)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap(),
+        2
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, String>(
+            "SELECT accepted_content->>'text' FROM submission_attempts WHERE custom_assignment_id=$1 AND attempt_number=1",
+        )
+        .bind(custom)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap(),
+        "work"
+    );
+    // The assigned teacher can lower a policy without erasing existing work.
+    tx.execute(
+        format!(
+            r#"
+        SET LOCAL app.user_id='{teacher_user}'; SET LOCAL app.user_role='Teacher';
+        UPDATE assignments SET max_submission_attempts=1 WHERE id='{assignment}';
+        SET LOCAL app.user_id='{student_user}'; SET LOCAL app.user_role='Student';
+        SAVEPOINT exhausted_attempt;
+    "#
+        )
+        .as_str(),
+    )
+    .await
+    .unwrap();
+    let forged_revision = Uuid::new_v4();
+    assert!(tx.execute(format!(r#"
+        UPDATE submissions SET revision='{forged_revision}', content='{{"text":"not accepted"}}'
+          WHERE id='{submission}';
+        INSERT INTO submission_attempts(custom_assignment_id,student_id,school_id,submission_id,attempt_number,submission_revision,accepted_content,accepted_at)
+          SELECT custom_assignment_id,student_id,'{school}',id,3,revision,content,submitted_at
+          FROM submissions WHERE id='{submission}';
+    "#).as_str()).await.is_err());
+    tx.execute("ROLLBACK TO exhausted_attempt;").await.unwrap();
+    assert_eq!(
+        sqlx::query_scalar::<_, Uuid>("SELECT revision FROM submissions WHERE id=$1")
+            .bind(submission)
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap(),
+        second_revision
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM submission_attempts WHERE custom_assignment_id=$1",
+        )
+        .bind(custom)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap(),
+        2
     );
     // A queue caller receives no submitted originals, even under the bounded
     // elevated scheduler context. No-school ordinary actor is denied above.

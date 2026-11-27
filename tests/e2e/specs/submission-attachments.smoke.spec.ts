@@ -141,6 +141,10 @@ for(const scenario of cases) {
 }
 
 test('upload retries, limits and incomplete finalization stay truthful @smoke @final @student @workflow-truth',async({page},info)=>{
+  // This deliberately stateful journey now includes three accepted attempts,
+  // multiple login boundaries and a bounded 25-second cleanup poll. Keep the
+  // ordinary suite timeout unchanged; grant only this journey a 120s budget.
+  test.setTimeout(120_000);
   await login(api(page));const request=api(page);const {id}=identity(info.project.name,90);
   const token=randomUUID();let result=await reserve(request,id,originals.pdf,token);expect(result.ok(),`${result.status()}: ${(await result.text()).slice(0,1000)}`).toBeTruthy();const attachment=await result.json();
   result=await reserve(request,id,originals.pdf,token);expect(result.ok(),`${result.status()}: ${(await result.text()).slice(0,1000)}`).toBeTruthy();expect((await result.json()).id).toBe(attachment.id);
@@ -160,6 +164,29 @@ test('upload retries, limits and incomplete finalization stay truthful @smoke @f
   finalized=await request.post('/api/submissions/finalize',{data});expect(finalized.ok()).toBeTruthy();expect(await finalized.json()).toEqual(first);
   expect((await request.post('/api/submissions/finalize',{data:{...data,content:'stale overwrite',request_id:randomUUID()}})).ok()).toBeFalsy();
   expect((await request.post(`${root}/remove`,{data:{attachment_id:attachment.id}})).ok()).toBeFalsy();
+  // A default one-attempt assignment cannot reserve or finalize more work.
+  expect((await reserve(request,id)).ok()).toBeFalsy();
+  const eligibility=async()=>{
+    const r=await request.post('/api/submissions/eligibility',{data:{assignment_id:id}});
+    expect(r.ok()).toBeTruthy();return r.json();
+  };
+  expect(await eligibility()).toMatchObject({max_attempts:1,used_attempts:1,remaining_attempts:0,can_submit:false,reason:'attempt_limit_reached'});
+  expect(first).toMatchObject({attempt_number:1,accepted_file_count:1});
+  expect((await request.post('/api/submissions/submit',{data:{assignment_id:id,content:'legacy stale overwrite'}})).ok()).toBeFalsy();
+  const parent=id.replace('f1600000','f0600000');
+  const policy=async(expected_version:number,max_attempts:number)=>request.post('/api/assignments/update_submission_policy',{data:{assignment_id:parent,expected_version,max_attempts}});
+  await login(request,'e2e-teacher-b@example.test');
+  expect((await policy(1,3)).ok()).toBeFalsy();
+  await login(request,'e2e-attachment-teacher@example.test');
+  const raised=await policy(1,3);expect(raised.ok()).toBeTruthy();
+  expect(await raised.json()).toMatchObject({max_attempts:3,version:2,usage:[{used_attempts:1,graded:false,students:1}]});
+  const canonical=await request.post('/api/assignments/get_by_id',{data:{assignment_id:parent}});
+  expect(canonical.ok()).toBeTruthy();
+  expect(await canonical.json()).toMatchObject({max_submission_attempts:3,submission_policy_version:2});
+  expect((await policy(1,2)).ok()).toBeFalsy();
+  await login(request);
+  expect(await eligibility()).toMatchObject({max_attempts:3,used_attempts:1,remaining_attempts:2,can_submit:true,reason:'eligible'});
+  expect((await request.post('/api/submissions/submit',{data:{assignment_id:id,content:'legacy bypass after policy raise'}})).ok()).toBeFalsy();
   const bad={...originals.png,name:'pretend.pdf',mimeType:'application/pdf'};result=await reserve(request,id,bad);expect(result.ok(),`${result.status()}: ${(await result.text()).slice(0,1000)}`).toBeTruthy();const badId=(await result.json()).id;
   expect((await request.post(`${root}/upload?id=${badId}`,{data:bad.buffer,headers:{'content-type':'application/pdf'}})).status()).toBe(415);
   expect((await request.post(`${root}/remove`,{data:{attachment_id:badId}})).ok()).toBeTruthy();
@@ -175,7 +202,7 @@ test('upload retries, limits and incomplete finalization stay truthful @smoke @f
   }
   expect((await request.post(`${root}/reserve`,{data:{input:{...oversized.input,request_id:randomUUID(),byte_size:9*1024*1024}}})).ok()).toBeFalsy();
   for(const attachment_id of reserved)expect((await request.post(`${root}/remove`,{data:{attachment_id}})).ok()).toBeTruthy();
-  for(let n=0;n<4;n++)expect((await reserve(request,id)).ok()).toBeTruthy();
+  for(let n=0;n<5;n++)expect((await reserve(request,id)).ok()).toBeTruthy();
   expect((await reserve(request,id)).ok()).toBeFalsy();
   const unsubmitted=(await list(request,id)).find((f:any)=>f.status==='pending');
   expect(unsubmitted).toBeTruthy();
@@ -190,5 +217,104 @@ test('upload retries, limits and incomplete finalization stay truthful @smoke @f
   expect((await request.post(`${root}/remove`,{data:{attachment_id:unsubmitted.id}})).ok()).toBeTruthy();
   await expect.poll(async()=> (await objectKeys()).filter(k=>k.endsWith(`/${unsubmitted.id}`)).length,{timeout:25_000}).toBe(0);
   expect((await objectKeys()).filter(k=>k.endsWith(`/${attachment.id}`))).toHaveLength(1);
+  // Remove only unfinished candidate files. Accepted originals remain available.
+  for(const file of await list(request,id)){
+    if(file.status!=='submitted')expect((await request.post(`${root}/remove`,{data:{attachment_id:file.id}})).ok()).toBeTruthy();
+  }
+  const secondData={...data,content:'second accepted answer',expected_revision:first.accepted_revision,request_id:randomUUID()};
+  const second=await request.post('/api/submissions/finalize',{data:secondData});
+  expect(second.ok()).toBeTruthy();const receipt2=await second.json();
+  expect(receipt2).toMatchObject({attempt_number:2,accepted_file_count:1});
+  expect(receipt2.accepted_revision).not.toBe(first.accepted_revision);
+  expect(await eligibility()).toMatchObject({used_attempts:2,remaining_attempts:1,can_submit:true});
+  // The same request replays even after a different attempt was accepted.
+  const oldReplay=await request.post('/api/submissions/finalize',{data});
+  expect(oldReplay.ok()).toBeTruthy();expect(await oldReplay.json()).toEqual(first);
+  expect((await request.post('/api/submissions/finalize',{data:{...data,content:'changed replay'}})).ok()).toBeFalsy();
+  await login(request,'e2e-attachment-teacher@example.test');
+  expect((await request.post('/api/teacher/submissions/grade',{data:{submission_id:first.id,expected_revision:first.accepted_revision,grade:90,feedback:null}})).ok()).toBeFalsy();
+  await login(request);
+  const thirdData={...secondData,content:'third accepted answer',expected_revision:receipt2.accepted_revision,request_id:randomUUID(),attachment_ids:[]};
+  const competingData={...thirdData,content:'competing third answer',request_id:randomUUID()};
+  const [third,competing]=await Promise.all([request.post('/api/submissions/finalize',{data:thirdData}),request.post('/api/submissions/finalize',{data:competingData})]);
+  expect(Number(third.ok())+Number(competing.ok())).toBe(1);
+  const winner=third.ok()?thirdData:competingData;
+  const receipt3=await (third.ok()?third:competing).json();
+  const retry=await request.post('/api/submissions/finalize',{data:winner});expect(retry.ok()).toBeTruthy();expect(await retry.json()).toEqual(receipt3);
+  expect(receipt3).toMatchObject({attempt_number:3,accepted_file_count:0});
+  expect(await eligibility()).toMatchObject({used_attempts:3,remaining_attempts:0,can_submit:false});
+  expect((await request.post('/api/submissions/finalize',{data:{...thirdData,request_id:randomUUID(),expected_revision:receipt3.accepted_revision}})).ok()).toBeFalsy();
+  expect((await list(request,id))).toHaveLength(0);
+  expect(await (await request.get(`${root}/download`,{params:{id:attachment.id}})).body()).toEqual(originals.pdf.buffer);
+  await login(request,'e2e-attachment-teacher@example.test');
+  const lowered=await policy(2,1);expect(lowered.ok()).toBeTruthy();
+  await login(request);
+  expect(await eligibility()).toMatchObject({max_attempts:1,used_attempts:3,remaining_attempts:0,can_submit:false});
+  saved=await request.post('/api/submissions/get_for_assignment',{data:{assignment_id:id}});
+  expect(saved.ok()).toBeTruthy();expect(await saved.json()).toMatchObject({content:winner.content,attempt_number:3,accepted_file_count:0});
+  await login(request,'e2e-attachment-teacher@example.test');
+  const official=await request.post('/api/teacher/submissions/grade',{data:{submission_id:receipt3.id,expected_revision:receipt3.accepted_revision,grade:90,feedback:'Reviewed latest attempt'}});
+  expect(official.ok()).toBeTruthy();
+  expect((await policy(3,4)).ok()).toBeTruthy();
+  await login(request);
+  expect(await eligibility()).toMatchObject({max_attempts:4,used_attempts:3,remaining_attempts:1,can_submit:false,graded:true,reason:'graded'});
+  expect((await reserve(request,id)).ok()).toBeFalsy();
+  expect((await request.post('/api/submissions/finalize',{data:{...winner,request_id:randomUUID(),expected_revision:receipt3.accepted_revision}})).ok()).toBeFalsy();
+});
 
+test('simultaneous finalize, grade and policy reduction serialize accepted work @smoke @final @student @teacher @workflow-truth',async({page,browser},info)=>{
+  const {id}=identity(info.project.name,91);
+  const parent=id.replace('f1600000','f0600000');
+  const learner=api(page);
+  await login(learner);
+  // Independent authenticated contexts; grade and policy are concurrent HTTP
+  // requests, not a shared transaction or a simulated repository call.
+  const teacherContext=await browser.newContext({baseURL:process.env.E2E_BASE_URL??'http://127.0.0.1:8080'});
+  try {
+    const teacher=api(await teacherContext.newPage());
+    await login(teacher,'e2e-attachment-teacher@example.test');
+    const firstData={assignment_id:id,content:'First accepted answer',request_id:randomUUID(),expected_revision:null,attachment_ids:[]};
+    const first=await learner.post('/api/submissions/finalize',{data:firstData});
+    expect(first.ok(),await first.text()).toBeTruthy();
+    const receipt=await first.json();
+    expect(receipt).toMatchObject({attempt_number:1,accepted_file_count:0});
+    const nextData={...firstData,content:'Second accepted answer',request_id:randomUUID(),expected_revision:receipt.accepted_revision};
+    const grade=(revision:string)=>teacher.post('/api/teacher/submissions/grade',{data:{submission_id:receipt.id,expected_revision:revision,grade:90,feedback:'Reviewed exact revision'}});
+    const [next,oldGrade,policy]=await Promise.all([
+      learner.post('/api/submissions/finalize',{data:nextData}),
+      grade(receipt.accepted_revision),
+      teacher.post('/api/assignments/update_submission_policy',{data:{assignment_id:parent,expected_version:1,max_attempts:1}})
+    ]);
+    expect(policy.ok(),await policy.text()).toBeTruthy();
+    expect(await policy.json()).toMatchObject({max_attempts:1,version:2});
+    // No serial history can accept both a new revision and a grade of the
+    // previous revision. In particular, an internal failure is not a valid
+    // denial and cannot be used to make the test pass.
+    expect(Number(next.ok())+Number(oldGrade.ok())).toBe(1);
+    let latest=receipt;
+    let expectedContent=firstData.content;
+    if(next.ok()){
+      latest=await next.json();
+      expect(latest).toMatchObject({attempt_number:2,accepted_file_count:0});
+      expect(latest.accepted_revision).not.toBe(receipt.accepted_revision);
+      expect(await oldGrade.text()).toMatch(/grading\.stale_submission/);
+      expectedContent=nextData.content;
+      const currentGrade=await grade(latest.accepted_revision);
+      expect(currentGrade.ok(),await currentGrade.text()).toBeTruthy();
+    }else{
+      expect(await next.text()).toMatch(/submission_attempt_limit|already been graded/);
+    }
+    const read=await learner.post('/api/submissions/get_for_assignment',{data:{assignment_id:id}});
+    expect(read.ok()).toBeTruthy();
+    expect(await read.json()).toMatchObject({revision:latest.accepted_revision,content:expectedContent,attempt_number:latest.attempt_number,grade:'90/100',feedback:'Reviewed exact revision'});
+    const eligible=await learner.post('/api/submissions/eligibility',{data:{assignment_id:id}});
+    expect(eligible.ok()).toBeTruthy();
+    expect(await eligible.json()).toMatchObject({max_attempts:1,used_attempts:latest.attempt_number,remaining_attempts:0,can_submit:false,graded:true,reason:'graded',accepted_revision:latest.accepted_revision,policy_version:2});
+    const replay=await learner.post('/api/submissions/finalize',{data:firstData});
+    expect(replay.ok()).toBeTruthy();
+    expect(await replay.json()).toEqual(receipt);
+    expect((await reserve(learner,id)).ok()).toBeFalsy();
+  }finally{
+    await teacherContext.close();
+  }
 });

@@ -5,7 +5,7 @@
 //! This worker never publishes, accepts, or alters an academic grade.
 
 use crate::rls_context::{AuthorizedActor, AuthorizedPool, AuthorizedTx, RlsContextError};
-use crate::server_functions::ai_grading_suggestion_functions::generate_authorized_teacher_suggestion;
+use crate::server_functions::ai_grading_suggestion_functions::generate_authorized_teacher_suggestion_for_revision;
 use dioxus::prelude::ServerFnError;
 use sqlx::{PgPool, Row};
 use std::future::Future;
@@ -139,17 +139,37 @@ async fn generate(
     // Check before fetching originals/inference and again before completing
     // the lease. Text-only jobs retain their existing behavior.
     let has_original: bool = sqlx::query_scalar(
-        "SELECT EXISTS ( \
-            SELECT 1 FROM public.submission_attachments attachment \
-            JOIN public.submissions submission \
-              ON submission.custom_assignment_id=attachment.custom_assignment_id \
-            WHERE submission.id=$1 AND attachment.school_id=$2 \
-              AND attachment.student_id=submission.student_id \
-              AND attachment.status <> 'removed' \
-        )",
+        r#"
+        SELECT EXISTS (
+            SELECT 1 FROM public.submission_attachments attachment
+            JOIN public.submissions submission
+              ON submission.custom_assignment_id=attachment.custom_assignment_id
+            LEFT JOIN LATERAL (
+                SELECT h.attempt_number, h.submission_id, h.submission_revision
+                FROM public.submission_attempts h
+                WHERE h.custom_assignment_id=submission.custom_assignment_id
+                ORDER BY h.attempt_number DESC LIMIT 1
+            ) accepted ON TRUE
+            WHERE submission.id=$1 AND attachment.school_id=$2
+              AND submission.revision=$3
+              AND attachment.student_id=submission.student_id
+              AND attachment.status <> 'removed'
+              AND (accepted.attempt_number IS NULL OR (
+                  accepted.submission_id=submission.id AND accepted.submission_revision=submission.revision
+              ))
+              AND (accepted.attempt_number IS NULL OR EXISTS (
+                  SELECT 1 FROM public.submission_attempt_originals original
+                  WHERE original.custom_assignment_id=submission.custom_assignment_id
+                    AND original.attempt_number=accepted.attempt_number
+                    AND original.submission_id=submission.id
+                    AND original.attachment_id=attachment.id
+              ))
+        )
+        "#,
     )
     .bind(job.submission_id)
     .bind(job.school_id)
+    .bind(job.revision)
     .fetch_one(pool)
     .await?;
     if has_original
@@ -160,9 +180,14 @@ async fn generate(
             "grading.pdf_school_disabled",
         )));
     }
-    let suggestion = generate_authorized_teacher_suggestion(pool, job.submission_id, teacher_id)
-        .await
-        .map_err(ExecutionError::Grading)?;
+    let suggestion = generate_authorized_teacher_suggestion_for_revision(
+        pool,
+        job.submission_id,
+        teacher_id,
+        Some((job.revision, job.rubric_approval_id)),
+    )
+    .await
+    .map_err(ExecutionError::Grading)?;
     if has_original
         && !crate::services::ai_grading_pdf_source::school_pdf_grading_enabled(pool, job.school_id)
             .await?
