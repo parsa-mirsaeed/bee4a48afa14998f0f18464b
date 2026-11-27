@@ -151,7 +151,9 @@ fn PlatformKnowledgeReviewSection() -> Element {
                     TimeoutFuture::new(delay_ms).await;
                     let settled = assets.read().as_ref().is_some_and(|result| {
                         result.as_ref().is_ok_and(|items| {
-                            items.iter().all(|item| item.asset.status != "embedding_pending")
+                            items
+                                .iter()
+                                .all(|item| item.asset.status != "embedding_pending")
                         })
                     });
                     if settled {
