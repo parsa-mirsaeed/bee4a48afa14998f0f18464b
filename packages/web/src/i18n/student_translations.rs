@@ -226,6 +226,14 @@ pub(crate) fn student_translation(key: &'static str, locale: Locale) -> Option<&
         (Locale::Fa, "student.classes.materials_load_error") => {
             Some("بارگذاری منابع کلاس ممکن نشد.")
         }
+        (Locale::En, "student.assignments.submit_unconfirmed") => Some("We could not confirm the submission. Your text is still here. Retry the same submission or close and review your accepted work."),
+        (Locale::Fa, "student.assignments.submit_unconfirmed") => Some("تأیید ارسال ممکن نشد. متن شما همچنان اینجاست. همان ارسال را دوباره امتحان کنید یا پنجره را ببندید و ارسال پذیرفته‌شده را بررسی کنید."),
+        (Locale::En, "student.assignments.submit_conflict") => Some("The accepted submission has changed. Your text is still here. Close and review the latest accepted work before starting again."),
+        (Locale::Fa, "student.assignments.submit_conflict") => Some("ارسال پذیرفته‌شده تغییر کرده است. متن شما همچنان اینجاست. پیش از شروع دوباره، پنجره را ببندید و آخرین ارسال را بررسی کنید."),
+        (Locale::En, "student.assignments.accepted_at") => Some("Accepted at"),
+        (Locale::Fa, "student.assignments.accepted_at") => Some("زمان پذیرش"),
+        (Locale::En, "student.assignments.accepted_file_count") => Some("Accepted originals"),
+        (Locale::Fa, "student.assignments.accepted_file_count") => Some("تعداد فایل‌های پذیرفته‌شده"),
         (Locale::En, "student.assignments.accepted_work") => Some("Latest accepted submission"),
         (Locale::Fa, "student.assignments.accepted_work") => Some("آخرین ارسال پذیرفته‌شده"),
         (Locale::En, "student.assignments.attempt_number") => Some("Attempt number"),
@@ -314,6 +322,10 @@ mod tests {
         "student.assignments.saved_work_load_error",
         "student.assignments.submitting",
         "student.assignments.submit_work",
+        "student.assignments.submit_unconfirmed",
+        "student.assignments.submit_conflict",
+        "student.assignments.accepted_at",
+        "student.assignments.accepted_file_count",
         "student.assignments.accepted_work",
         "student.assignments.attempt_number",
         "student.assignments.attempts_used",

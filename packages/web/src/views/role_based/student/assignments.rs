@@ -1,8 +1,8 @@
 //! Student assignments with truthful optional values and retry-safe submission UI.
 
 use crate::i18n::{
-    assignment_status_label, format_product_date, format_product_date_text, student_translation,
-    use_locale, Locale,
+    assignment_status_label, format_product_date, format_product_date_text,
+    format_product_datetime_text, student_translation, use_locale, Locale,
 };
 use crate::views::role_based::components::DashboardSection;
 use crate::views::role_based::shared::common::Modal;
@@ -119,7 +119,10 @@ pub fn StudentAssignments() -> Element {
                 AssignmentModal::Work(id) => rsx! {
                     AssignmentWorkModal {
                         assignment_id: id,
-                        on_close: move |_| modal.set(AssignmentModal::None),
+                        on_close: move |_| {
+                            modal.set(AssignmentModal::None);
+                            resource.restart();
+                        },
                         on_saved: move |_| {
                             modal.set(AssignmentModal::None);
                             resource.restart();
@@ -281,7 +284,7 @@ fn AssignmentDetails(
         async move { get_student_submission_eligibility(id).await }
     });
     let submission_id = item.id.clone();
-    let submission = use_resource(move || {
+    let mut submission = use_resource(move || {
         let id = submission_id.clone();
         async move { get_submission_for_assignment(id).await }
     });
@@ -289,8 +292,12 @@ fn AssignmentDetails(
         submission.read().as_ref(),
         Some(Ok(Some(saved))) if saved.grade.is_some()
     );
-    let current_state = if latest_is_graded {
+    let current_state = if latest_is_graded
+        || matches!(eligibility.read().as_ref(), Some(Ok(state)) if state.graded)
+    {
         StudentAssignmentPresentationState::Graded
+    } else if matches!(submission.read().as_ref(), Some(Ok(Some(_)))) {
+        StudentAssignmentPresentationState::Submitted
     } else {
         presentation_state
     };
@@ -339,6 +346,10 @@ fn AssignmentDetails(
                     section { class: "space-y-2 rounded-lg border border-gray-200 p-4 dark:border-gray-700",
                         h4 { class: "font-medium", "{locale.t(\"student.assignments.accepted_work\")}" }
                         p { class: "text-sm", "{locale.t(\"student.assignments.attempt_number\")}: {saved.attempt_number}" }
+                        if let Some(accepted_at) = saved.submitted_at.as_deref() {
+                            p { class: "text-sm", "{locale.t(\"student.assignments.accepted_at\")}: {format_product_datetime_text(accepted_at, locale.current())}" }
+                        }
+                        p { class: "text-sm", "{locale.t(\"student.assignments.accepted_file_count\")}: {saved.accepted_file_count}" }
                         p { class: "whitespace-pre-wrap break-words text-sm", "{saved.content}" }
                         if let Ok(id) = uuid::Uuid::parse_str(&item.id) { SubmittedOriginals {assignment_id:id} }
                     }
@@ -377,12 +388,12 @@ fn AssignmentDetails(
                             } else {
                                 p { role: "status", if state.graded || current_state == StudentAssignmentPresentationState::Graded { "{locale.t(\"student.assignments.graded_locked\")}" } else { "{locale.t(\"student.assignments.attempt_limit_reached\")}" } }
                             }
-                            button { class: "min-h-[44px] underline text-sm", onclick: move |_| eligibility.restart(), "{locale.t(\"common.refresh\")}" }
+                            button { class: "min-h-[44px] underline text-sm", onclick: move |_| { eligibility.restart(); submission.restart(); }, "{locale.t(\"common.refresh\")}" }
                         }
                     },
                     Some(Err(_)) => rsx! {
                         p { role: "alert", "{locale.t(\"student.assignments.eligibility_error\")}" }
-                        button { class: "min-h-[44px] underline", onclick: move |_| eligibility.restart(), "{locale.t(\"student.assignments.try_again\")}" }
+                        button { class: "min-h-[44px] underline", onclick: move |_| { eligibility.restart(); submission.restart(); }, "{locale.t(\"student.assignments.try_again\")}" }
                     },
                     None => rsx! { p { role: "status", "{locale.t(\"student.assignments.details_loading\")}" } },
                 }
@@ -425,9 +436,13 @@ fn AssignmentWorkModal(
     let eligible = matches!(existing.read().as_ref(), Some(Ok(state)) if state.can_submit);
 
     let empty_work_error = locale.t("student.assignments.enter_work");
-    let save_failed_error = locale.t("student.assignments.save_failed");
+    let save_failed_error = locale.t("student.assignments.submit_unconfirmed");
+    let conflict_error = locale.t("student.assignments.submit_conflict");
+    let limit_error = locale.t("student.assignments.attempt_limit_reached");
+    let graded_error = locale.t("student.assignments.graded_locked");
+    let mut write_blocked = use_signal(|| false);
     let submit = move |_| {
-        if !eligible || busy() || unuploaded() || !files_loaded() || !initialized() {
+        if !eligible || busy() || unuploaded() || !files_loaded() || !initialized() || write_blocked() {
             return;
         }
         let text = content().trim().to_string();
@@ -439,6 +454,9 @@ fn AssignmentWorkModal(
         error.set(None);
         let id = id_for_submit.clone();
         let save_failed_error = save_failed_error.clone();
+        let conflict_error = conflict_error.clone();
+        let limit_error = limit_error.clone();
+        let graded_error = graded_error.clone();
         let expected_revision = revision();
         let mut ids: Vec<_> = attachments().iter().map(|a| a.id).collect();
         ids.sort_unstable();
@@ -459,8 +477,23 @@ fn AssignmentWorkModal(
         spawn(async move {
             match finalize_student_submission(id, text, token, expected_revision, ids).await {
                 Ok(_) => on_saved.call(()),
-                Err(_) => {
-                    error.set(Some(save_failed_error));
+                Err(failure) => {
+                    let raw = failure.to_string();
+                    let message = if raw.contains("submission_conflict") {
+                        write_blocked.set(true);
+                        conflict_error
+                    } else if raw.contains("submission_attempt_limit") {
+                        write_blocked.set(true);
+                        limit_error
+                    } else if raw.contains("already been graded") {
+                        write_blocked.set(true);
+                        graded_error
+                    } else {
+                        // The response might be lost after commit. Preserve the
+                        // request token and avoid falsely claiming failure.
+                        save_failed_error
+                    };
+                    error.set(Some(message));
                     busy.set(false);
                 }
             }
@@ -517,10 +550,10 @@ fn AssignmentWorkModal(
                             class: "min-h-64 w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 dark:border-gray-700 dark:bg-gray-900",
                             value: "{content}",
                             oninput: move |event| content.set(event.value()),
-                            disabled: busy() || !eligible,
+                            disabled: busy() || !eligible || write_blocked(),
                         }
                     }
-                    if eligible {
+                    if eligible && !write_blocked() {
                         if let Ok(id)=uuid::Uuid::parse_str(&assignment_id) {
                             SubmissionFiles {assignment_id:id,editable:true,attachments,busy,loaded:files_loaded,unuploaded}
                         }
@@ -534,7 +567,7 @@ fn AssignmentWorkModal(
                         }
                         button {
                             class: "et-ui-button et-ui-button--md et-ui-button--primary",
-                            disabled: !eligible || busy() || unuploaded() || !files_loaded() || !initialized(),
+                            disabled: !eligible || busy() || unuploaded() || !files_loaded() || !initialized() || write_blocked(),
                             onclick: submit,
                             if busy() {
                                 "{locale.t(\"student.assignments.submitting\")}"
