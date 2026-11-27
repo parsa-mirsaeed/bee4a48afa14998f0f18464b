@@ -261,3 +261,60 @@ test('upload retries, limits and incomplete finalization stay truthful @smoke @f
   expect((await reserve(request,id)).ok()).toBeFalsy();
   expect((await request.post('/api/submissions/finalize',{data:{...winner,request_id:randomUUID(),expected_revision:receipt3.accepted_revision}})).ok()).toBeFalsy();
 });
+
+test('simultaneous finalize, grade and policy reduction serialize accepted work @smoke @final @student @teacher @workflow-truth',async({page,browser},info)=>{
+  const {id}=identity(info.project.name,91);
+  const parent=id.replace('f1600000','f0600000');
+  const learner=api(page);
+  await login(learner);
+  // Independent authenticated contexts; grade and policy are concurrent HTTP
+  // requests, not a shared transaction or a simulated repository call.
+  const teacherContext=await browser.newContext({baseURL:process.env.E2E_BASE_URL??'http://127.0.0.1:8080'});
+  try {
+    const teacher=api(await teacherContext.newPage());
+    await login(teacher,'e2e-attachment-teacher@example.test');
+    const firstData={assignment_id:id,content:'First accepted answer',request_id:randomUUID(),expected_revision:null,attachment_ids:[]};
+    const first=await learner.post('/api/submissions/finalize',{data:firstData});
+    expect(first.ok(),await first.text()).toBeTruthy();
+    const receipt=await first.json();
+    expect(receipt).toMatchObject({attempt_number:1,accepted_file_count:0});
+    const nextData={...firstData,content:'Second accepted answer',request_id:randomUUID(),expected_revision:receipt.accepted_revision};
+    const grade=(revision:string)=>teacher.post('/api/teacher/submissions/grade',{data:{submission_id:receipt.id,expected_revision:revision,grade:90,feedback:'Reviewed exact revision'}});
+    const [next,oldGrade,policy]=await Promise.all([
+      learner.post('/api/submissions/finalize',{data:nextData}),
+      grade(receipt.accepted_revision),
+      teacher.post('/api/assignments/update_submission_policy',{data:{assignment_id:parent,expected_version:1,max_attempts:1}})
+    ]);
+    expect(policy.ok(),await policy.text()).toBeTruthy();
+    expect(await policy.json()).toMatchObject({max_attempts:1,version:2});
+    // No serial history can accept both a new revision and a grade of the
+    // previous revision. In particular, an internal failure is not a valid
+    // denial and cannot be used to make the test pass.
+    expect(Number(next.ok())+Number(oldGrade.ok())).toBe(1);
+    let latest=receipt;
+    let expectedContent=firstData.content;
+    if(next.ok()){
+      latest=await next.json();
+      expect(latest).toMatchObject({attempt_number:2,accepted_file_count:0});
+      expect(latest.accepted_revision).not.toBe(receipt.accepted_revision);
+      expect(await oldGrade.text()).toMatch(/grading\.stale_submission/);
+      expectedContent=nextData.content;
+      const currentGrade=await grade(latest.accepted_revision);
+      expect(currentGrade.ok(),await currentGrade.text()).toBeTruthy();
+    }else{
+      expect(await next.text()).toMatch(/submission_attempt_limit|already been graded/);
+    }
+    const read=await learner.post('/api/submissions/get_for_assignment',{data:{assignment_id:id}});
+    expect(read.ok()).toBeTruthy();
+    expect(await read.json()).toMatchObject({revision:latest.accepted_revision,content:expectedContent,attempt_number:latest.attempt_number,grade:'90/100',feedback:'Reviewed exact revision'});
+    const eligible=await learner.post('/api/submissions/eligibility',{data:{assignment_id:id}});
+    expect(eligible.ok()).toBeTruthy();
+    expect(await eligible.json()).toMatchObject({max_attempts:1,used_attempts:latest.attempt_number,remaining_attempts:0,can_submit:false,graded:true,reason:'graded',accepted_revision:latest.accepted_revision,policy_version:2});
+    const replay=await learner.post('/api/submissions/finalize',{data:firstData});
+    expect(replay.ok()).toBeTruthy();
+    expect(await replay.json()).toEqual(receipt);
+    expect((await reserve(learner,id)).ok()).toBeFalsy();
+  }finally{
+    await teacherContext.close();
+  }
+});

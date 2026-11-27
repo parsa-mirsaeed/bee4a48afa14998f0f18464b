@@ -554,6 +554,17 @@ INSERT INTO custom_assignments(id,assignment_id,student_id,due_at,status) VALUES
 INSERT INTO assignments(id,teacher_id,class_section_id,subject_id,title,body,due_at,status,published_at) VALUES('f0600000-0000-0000-0000-000000000290','c0000000-0000-0000-0000-0000000000c2','e0000000-0000-0000-0000-0000000000c1','d0000000-0000-0000-0000-0000000000a1','E2E Attachment 290','Submit your work.',NOW()+INTERVAL '14 days','Published',NOW()) ON CONFLICT DO NOTHING;
 INSERT INTO custom_assignments(id,assignment_id,student_id,due_at,status) VALUES('f1600000-0000-0000-0000-000000000290','f0600000-0000-0000-0000-000000000290','c0000000-0000-0000-0000-0000000000c3',NOW()+INTERVAL '14 days','Assigned') ON CONFLICT DO NOTHING;
 
+-- Independent exact-head concurrency proof: one Student, one Teacher,
+-- separate assignments for desktop and mobile, and no provider egress.
+INSERT INTO assignments(id,teacher_id,class_section_id,subject_id,title,body,due_at,status,published_at,max_submission_attempts) VALUES
+ ('f0600000-0000-0000-0000-000000000191','c0000000-0000-0000-0000-0000000000c2','e0000000-0000-0000-0000-0000000000c1','d0000000-0000-0000-0000-0000000000a1','E2E Attempt Race 191','Concurrent finalize, grade and policy update.',NOW()+INTERVAL '14 days','Published',NOW(),2),
+ ('f0600000-0000-0000-0000-000000000291','c0000000-0000-0000-0000-0000000000c2','e0000000-0000-0000-0000-0000000000c1','d0000000-0000-0000-0000-0000000000a1','E2E Attempt Race 291','Concurrent finalize, grade and policy update.',NOW()+INTERVAL '14 days','Published',NOW(),2)
+ON CONFLICT DO NOTHING;
+INSERT INTO custom_assignments(id,assignment_id,student_id,due_at,status) VALUES
+ ('f1600000-0000-0000-0000-000000000191','f0600000-0000-0000-0000-000000000191','c0000000-0000-0000-0000-0000000000c3',NOW()+INTERVAL '14 days','Assigned'),
+ ('f1600000-0000-0000-0000-000000000291','f0600000-0000-0000-0000-000000000291','c0000000-0000-0000-0000-0000000000c3',NOW()+INTERVAL '14 days','Assigned')
+ON CONFLICT DO NOTHING;
+
 -- Legacy unsubmitted rows have a timestamp but no accepted receipt. The
 -- first finalization must accept them without inventing a consumed attempt.
 INSERT INTO submissions(id,custom_assignment_id,student_id,content,submitted_at) VALUES
