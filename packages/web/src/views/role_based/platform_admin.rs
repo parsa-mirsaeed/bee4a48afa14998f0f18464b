@@ -803,7 +803,7 @@ fn VectorizationPanel(
                     }
                 }
                 if can_start {
-                    div { class: "grid",
+                    div { class: "et-admin-vector-action grid",
                         Button {
                             label: action_label,
                             variant: ButtonVariant::Primary,

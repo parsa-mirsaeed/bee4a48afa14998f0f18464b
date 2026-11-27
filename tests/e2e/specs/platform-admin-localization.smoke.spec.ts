@@ -277,7 +277,7 @@ for (const scenario of [
       for (const dark of [false, true]) {
         await page.evaluate(value => document.documentElement.classList.toggle('dark', value), dark);
         await expect(startVectorization).toBeVisible();
-        const appearance = await startVectorization.evaluate(button => {
+        const readAppearance = () => startVectorization.evaluate(button => {
           const css = getComputedStyle(button);
           const rgb = (value: string) => value.match(/[\d.]+/g)?.map(Number) ?? [];
           const luminance = (value: number[]) => value.slice(0,3).map(v => {
@@ -285,13 +285,27 @@ for (const scenario of [
             return n <= 0.04045 ? n / 12.92 : ((n + 0.055) / 1.055) ** 2.4;
           }).reduce((sum, channel, index) => sum + channel * [0.2126,0.7152,0.0722][index],0);
           const background = rgb(css.backgroundColor);
-          const foreground = rgb(css.color);
+          const foreground = rgb(getComputedStyle(button.querySelector('span:last-child') ?? button).color);
           const values = [luminance(background),luminance(foreground)].sort((a,b)=>b-a);
-          return { opaque: background.length === 3 || background[3] === 1, contrast: (values[0]+0.05)/(values[1]+0.05), height: button.getBoundingClientRect().height };
+          return { opaque: background.length === 3 || background[3] === 1, contrast: (values[0]+0.05)/(values[1]+0.05), height: button.getBoundingClientRect().height, colors: [css.backgroundColor, getComputedStyle(button.querySelector('span:last-child') ?? button).color], opacity: css.opacity };
         });
-        expect(appearance.opaque, 'CTA must not be transparent').toBeTruthy();
-        expect(appearance.contrast, 'CTA text contrast').toBeGreaterThanOrEqual(4.5);
-        expect(appearance.height, 'CTA touch target').toBeGreaterThanOrEqual(44);
+        const verifyAppearance = async (state: string) => {
+          const appearance = await readAppearance();
+          const context = `${scenario.locale} ${width}px ${dark ? 'dark' : 'light'} ${state}: ${appearance.colors.join(' / ')}`;
+          expect(appearance.opaque, context + ' CTA must not be transparent').toBeTruthy();
+          expect(appearance.contrast, context + ' CTA text contrast').toBeGreaterThanOrEqual(4.5);
+          expect(appearance.opacity, context + ' CTA must not be faded').toBe('1');
+          expect(appearance.height, context + ' CTA touch target').toBeGreaterThanOrEqual(44);
+        };
+        await page.mouse.move(0, 0);
+        await verifyAppearance('normal');
+        await startVectorization.hover();
+        await verifyAppearance('hover');
+        await page.mouse.move(0, 0);
+        await startVectorization.focus();
+        await expect(startVectorization).toBeFocused();
+        await verifyAppearance('focus');
+        await startVectorization.evaluate(button => (button as HTMLButtonElement).blur());
       }
     }
     await page.evaluate(value => document.documentElement.classList.toggle('dark', value), originalDark);
@@ -322,9 +336,9 @@ for (const scenario of [
     // without Qdrant/provider services. The existing client polling must update
     // the same card in place and enable its already-mounted Publish control.
     await startVectorization.click();
-    await expect(startVectorization).toBeDisabled().catch(async () => {
-      await expect(startVectorization).toHaveCount(0);
-    });
+    // Button may be disabled during the request, or already absent when
+    // the authoritative lifecycle advances to embedding_pending.
+    await expect.poll(async () => await startVectorization.count() === 0 || await startVectorization.isDisabled()).toBeTruthy();
     await completeQueuedVectorizationFixture();
     expect(runFixtureSql(`SELECT count(*) FROM ingestion_jobs WHERE asset_id = '${VERIFIED_ASSET_ID}' AND stage = 'embed'`)).toBe('1');
     await expect(
