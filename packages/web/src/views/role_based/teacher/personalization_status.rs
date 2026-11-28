@@ -15,7 +15,9 @@ pub fn PersonalizationQueueStatusPanel() -> Element {
         let mut observed_active = use_signal(|| false);
         use_effect(move || {
             let active = status.read().as_ref().is_some_and(|result| {
-                result.as_ref().is_ok_and(|summary| summary.queued + summary.running > 0)
+                result
+                    .as_ref()
+                    .is_ok_and(|summary| summary.queued + summary.running > 0)
             });
             if !active {
                 observed_active.set(false);
@@ -30,7 +32,9 @@ pub fn PersonalizationQueueStatusPanel() -> Element {
                 for delay in [1_000_u32, 2_000, 4_000, 8_000, 10_000, 10_000] {
                     TimeoutFuture::new(delay).await;
                     let active = status.read().as_ref().is_some_and(|result| {
-                        result.as_ref().is_ok_and(|summary| summary.queued + summary.running > 0)
+                        result
+                            .as_ref()
+                            .is_ok_and(|summary| summary.queued + summary.running > 0)
                     });
                     if !active {
                         break;
@@ -39,6 +43,29 @@ pub fn PersonalizationQueueStatusPanel() -> Element {
                 }
                 polling.set(false);
             });
+        });
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        use wasm_bindgen::{closure::Closure, JsCast};
+        let focus_listener = use_hook(move || {
+            let window = web_sys::window()?;
+            let listener = Closure::<dyn FnMut(web_sys::Event)>::new(move |_| {
+                status.restart();
+            });
+            window
+                .add_event_listener_with_callback("focus", listener.as_ref().unchecked_ref())
+                .ok()?;
+            Some(std::rc::Rc::new((window, listener)))
+        });
+        use_drop(move || {
+            if let Some(listener) = focus_listener {
+                let (window, callback) = listener.as_ref();
+                let _ = window.remove_event_listener_with_callback(
+                    "focus",
+                    callback.as_ref().unchecked_ref(),
+                );
+            }
         });
     }
     let failed_read = status.read().as_ref().is_some_and(|result| result.is_err());

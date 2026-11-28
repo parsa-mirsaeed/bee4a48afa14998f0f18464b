@@ -1397,7 +1397,7 @@ async fn platform_admin_scope_summaries_and_bulk_retry_are_exact_and_bounded() {
 #[tokio::test]
 async fn admin_regeneration_snapshots_current_policy_without_mutating_old_failed_job() {
     let _queue_guard = QUEUE_TEST_LOCK.lock().await;
-    let fixture = queue_fixture(1).await;
+    let fixture = queue_fixture(2).await;
     let admin_role = role_id(&fixture.pool, "PlatformAdmin").await;
     let admin = insert_user(
         &fixture.pool,
@@ -1476,8 +1476,8 @@ async fn admin_regeneration_snapshots_current_policy_without_mutating_old_failed
     )
     .await
     .expect("teacher current generation summary");
-    assert_eq!(current_summary.total, 1);
-    assert_eq!(current_summary.queued, 1);
+    assert_eq!(current_summary.total, 2);
+    assert_eq!(current_summary.queued, 2);
     assert_eq!(current_summary.failed, 0);
     assert_eq!(current_summary.latest_failed_job_id, None);
 
@@ -1573,6 +1573,101 @@ async fn admin_regeneration_snapshots_current_policy_without_mutating_old_failed
         old_retry_denied.is_err(),
         "original retry must not resurrect old generation"
     );
+
+    let unrelated_id: Uuid = sqlx::query_scalar(
+        "SELECT id FROM assignment_personalization_jobs WHERE assignment_id = $1 AND student_id = $2",
+    )
+    .bind(fixture.assignment_id)
+    .bind(fixture.student_ids[1])
+    .fetch_one(&*fixture.pool)
+    .await
+    .expect("unrelated current job");
+    let new_id: Uuid = rows[1].get("id");
+    let lease = Uuid::new_v4();
+    sqlx::query(
+        "UPDATE assignment_personalization_jobs SET status = 'failed', processing_stage = 'failed', completed_at = NOW(), last_error_code = 'provider_unconfigured', last_error_summary = 'Provider unavailable' WHERE id = $1",
+    )
+    .bind(unrelated_id)
+    .execute(&*fixture.pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "UPDATE assignment_personalization_jobs SET status = 'running', processing_stage = 'retrieving_context', attempt_count = 1, started_at = NOW(), lease_owner = $2, heartbeat_at = NOW() WHERE id = $1",
+    )
+    .bind(new_id)
+    .bind(lease)
+    .execute(&*fixture.pool)
+    .await
+    .unwrap();
+    let summary = run_as(
+        fixture.pool.as_ref(),
+        actor(fixture.teacher_user, "Teacher", fixture.school_id),
+        jobs.summary_for_teacher(fixture.teacher_user),
+    )
+    .await
+    .unwrap();
+    assert_eq!((summary.total, summary.running, summary.failed), (2, 1, 1));
+    assert_eq!(summary.latest_failed_job_id, Some(unrelated_id));
+
+    // Complete the current execution using the actual repository operation.
+    run_as(
+        fixture.pool.as_ref(),
+        actor(fixture.teacher_user, "Teacher", fixture.school_id),
+        jobs.complete(new_id, lease),
+    )
+    .await
+    .expect("complete current generation");
+    let summary = run_as(
+        fixture.pool.as_ref(),
+        actor(fixture.teacher_user, "Teacher", fixture.school_id),
+        jobs.summary_for_teacher(fixture.teacher_user),
+    )
+    .await
+    .unwrap();
+    assert_eq!((summary.total, summary.succeeded, summary.failed), (2, 1, 1));
+    assert_eq!(summary.latest_failed_job_id, Some(unrelated_id));
+
+    sqlx::query(
+        "UPDATE assignment_personalization_jobs SET status = 'cancelled', processing_stage = 'cancelled', completed_at = NOW() WHERE id = $1",
+    )
+    .bind(unrelated_id)
+    .execute(&*fixture.pool)
+    .await
+    .unwrap();
+    let summary = run_as(
+        fixture.pool.as_ref(),
+        actor(fixture.teacher_user, "Teacher", fixture.school_id),
+        jobs.summary_for_teacher(fixture.teacher_user),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        (summary.total, summary.succeeded, summary.cancelled, summary.failed),
+        (2, 1, 1, 0)
+    );
+    assert_eq!(summary.latest_failed_job_id, None);
+    let historical: String =
+        sqlx::query_scalar("SELECT status FROM assignment_personalization_jobs WHERE id = $1")
+            .bind(original_id)
+            .fetch_one(&*fixture.pool)
+            .await
+            .unwrap();
+    assert_eq!(historical, "failed");
+
+    sqlx::query("UPDATE users SET is_active = false WHERE id = $1")
+        .bind(fixture.teacher_user)
+        .execute(&*fixture.pool)
+        .await
+        .unwrap();
+    let summary = run_as(
+        fixture.pool.as_ref(),
+        actor(fixture.teacher_user, "Teacher", fixture.school_id),
+        jobs.summary_for_teacher(fixture.teacher_user),
+    )
+    .await
+    .unwrap();
+    assert_eq!(summary.total, 0);
+    assert_eq!(summary.latest_failed_job_id, None);
 }
 
 #[cfg(feature = "server")]

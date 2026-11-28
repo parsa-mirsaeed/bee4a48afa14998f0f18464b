@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { test, expect, type Page } from '@playwright/test';
 import { enforceOfflineAllowlist, assertNoUnexpectedOrigins } from '../fixtures/network-policy';
-import { watchConsole, assertNoConsoleErrors } from '../fixtures/console-guard';
+import { watchConsole, assertNoConsoleErrors, allowHttpResponse } from '../fixtures/console-guard';
 
 const PASSWORD = 'e2e-password';
 const TEACHER = 'e2e-teacher-a@example.test';
@@ -163,6 +163,18 @@ for (const locale of ['en', 'fa'] as const) {
     await reference.getByRole('button', {name: locale === 'en' ? 'Copy support reference' : 'کپی شناسه پیگیری', exact:true}).click();
     await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(expected);
     await expect(panel).not.toContainText(/gateway_unavailable|provider_unconfigured|model_mismatch|Gateway failure history|تاریخچه خطاهای دروازه/);
+    for (const width of [320, 375, 430, 1024]) {
+      await page.setViewportSize({width, height: 844});
+      for (const dark of [false, true]) {
+        await page.evaluate(dark => document.documentElement.classList.toggle('dark', dark), dark);
+        await expect.poll(() => panel.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBeTruthy();
+        const copy = reference.getByRole('button', {name: locale === 'en' ? 'Copy support reference' : 'کپی شناسه پیگیری', exact:true});
+        await expect(copy).toBeVisible();
+        expect((await copy.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+        await copy.focus();
+        await expect(copy).toBeFocused();
+      }
+    }
   });
 }
 
@@ -176,4 +188,23 @@ test('teacher in another school cannot see the failed-job support reference @smo
   await expect(panel).not.toContainText(/Loading|loading/);
   await expect(panel).not.toContainText(schoolAReference);
   await expect(panel.getByTestId('teacher-personalization-support-reference')).toHaveCount(0);
+});
+
+test('teacher status read error is distinct from an administrator job retry @smoke @final @teacher @personalization', async ({ page }) => {
+  await establishSession(page, 'en');
+  const path = '/api/assignments/personalization_status';
+  await page.goto('/dashboard/assignments');
+  const panel = page.getByTestId('teacher-personalization-status');
+  const refresh = panel.getByRole('button', {name:'Refresh status', exact:true});
+  await expect(refresh).toBeVisible();
+  // Fail a single status read, not a job command or any other API.
+  allowHttpResponse(path, 503);
+  const match = (url: URL) => url.pathname === path;
+  await page.route(match, route => route.fulfill({status:503, contentType:'text/plain', body:'Synthetic status read failure'}), {times:1});
+  await refresh.click();
+  await expect(panel.getByRole('alert')).toContainText('Could not load personalization status');
+  await expect(panel.getByTestId('teacher-personalization-support-reference')).toHaveCount(0);
+  await panel.getByRole('button', {name:'Retry', exact:true}).click();
+  await expect(refresh).toBeVisible();
+  await expect(panel.getByRole('alert')).toHaveCount(0);
 });
