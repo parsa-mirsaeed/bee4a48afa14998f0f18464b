@@ -1624,7 +1624,10 @@ async fn admin_regeneration_snapshots_current_policy_without_mutating_old_failed
     )
     .await
     .unwrap();
-    assert_eq!((summary.total, summary.succeeded, summary.failed), (2, 1, 1));
+    assert_eq!(
+        (summary.total, summary.succeeded, summary.failed),
+        (2, 1, 1)
+    );
     assert_eq!(summary.latest_failed_job_id, Some(unrelated_id));
 
     sqlx::query(
@@ -1642,7 +1645,12 @@ async fn admin_regeneration_snapshots_current_policy_without_mutating_old_failed
     .await
     .unwrap();
     assert_eq!(
-        (summary.total, summary.succeeded, summary.cancelled, summary.failed),
+        (
+            summary.total,
+            summary.succeeded,
+            summary.cancelled,
+            summary.failed
+        ),
         (2, 1, 1, 0)
     );
     assert_eq!(summary.latest_failed_job_id, None);
