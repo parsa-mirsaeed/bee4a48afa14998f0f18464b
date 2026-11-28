@@ -1469,6 +1469,17 @@ async fn admin_regeneration_snapshots_current_policy_without_mutating_old_failed
         original.get::<String, _>("llm_profile_id")
     );
     assert_eq!(rows[1].get::<String, _>("status"), "queued");
+    let current_summary = run_as(
+        fixture.pool.as_ref(),
+        actor(fixture.teacher_user, "Teacher", fixture.school_id),
+        jobs.summary_for_teacher(fixture.teacher_user),
+    )
+    .await
+    .expect("teacher current generation summary");
+    assert_eq!(current_summary.total, 1);
+    assert_eq!(current_summary.queued, 1);
+    assert_eq!(current_summary.failed, 0);
+    assert_eq!(current_summary.latest_failed_job_id, None);
 
     // Student delivery must select the NEW queued generation rather than
     // silently returning the superseded historical failed DeepSeek job.

@@ -1085,6 +1085,26 @@ impl AssignmentPersonalizationJobRepository {
     ) -> RepositoryResult<PersonalizationQueueSummary> {
         let row = sqlx::query(
             r#"
+            WITH current_jobs AS (
+                SELECT job.*
+                FROM assignment_personalization_jobs job
+                JOIN users teacher_user ON teacher_user.id = job.requested_by
+                    AND teacher_user.school_id = job.school_id
+                JOIN roles teacher_role ON teacher_role.id = teacher_user.role_id
+                WHERE job.requested_by = $1
+                  AND teacher_user.is_active
+                  AND teacher_role.name::text = 'Teacher'
+                  AND NOT EXISTS (
+                      SELECT 1 FROM assignment_personalization_jobs newer
+                      WHERE newer.school_id = job.school_id
+                        AND newer.requested_by = job.requested_by
+                        AND newer.assignment_id = job.assignment_id
+                        AND newer.student_id = job.student_id
+                        AND newer.profile_name = job.profile_name
+                        AND newer.profile_version = job.profile_version
+                        AND newer.execution_generation > job.execution_generation
+                  )
+            )
             SELECT
                 COUNT(*) FILTER (WHERE status = 'queued') AS queued,
                 COUNT(*) FILTER (WHERE status = 'running') AS running,
@@ -1095,15 +1115,11 @@ impl AssignmentPersonalizationJobRepository {
                 COALESCE(MAX(attempt_count), 0) AS max_attempt_count,
                 MAX(completed_at) AS last_completed_at,
                 (SELECT failed.id
-                 FROM assignment_personalization_jobs failed
-                 WHERE failed.requested_by = $1
-                   AND failed.school_id = (SELECT school_id FROM users WHERE id = $1)
-                   AND failed.status = 'failed'
+                 FROM current_jobs failed
+                 WHERE failed.status = 'failed'
                  ORDER BY failed.completed_at DESC NULLS LAST, failed.id DESC
                  LIMIT 1) AS latest_failed_job_id
-            FROM assignment_personalization_jobs
-            WHERE requested_by = $1
-              AND school_id = (SELECT school_id FROM users WHERE id = $1)
+            FROM current_jobs
             "#,
         )
         .bind(requested_by)

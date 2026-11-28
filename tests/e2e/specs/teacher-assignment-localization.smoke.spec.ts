@@ -131,10 +131,17 @@ function latestFailedJob(teacherId: string): string {
   const databaseUrl = process.env.DATABASE_URL;
   if (!databaseUrl) throw new Error('DATABASE_URL is required for the teacher support-reference fixture');
   return execFileSync('psql', [databaseUrl, '-v', 'ON_ERROR_STOP=1', '-Atqc', `
-    SELECT id FROM assignment_personalization_jobs
-    WHERE requested_by = '${teacherId}' AND status = 'failed'
-      AND school_id = (SELECT school_id FROM users WHERE id = '${teacherId}')
-    ORDER BY completed_at DESC NULLS LAST, id DESC LIMIT 1
+    SELECT job.id FROM assignment_personalization_jobs job
+    WHERE job.requested_by = '${teacherId}' AND job.status = 'failed'
+      AND job.school_id = (SELECT school_id FROM users WHERE id = '${teacherId}')
+      AND NOT EXISTS (
+        SELECT 1 FROM assignment_personalization_jobs newer
+        WHERE newer.school_id = job.school_id AND newer.requested_by = job.requested_by
+          AND newer.assignment_id = job.assignment_id AND newer.student_id = job.student_id
+          AND newer.profile_name = job.profile_name AND newer.profile_version = job.profile_version
+          AND newer.execution_generation > job.execution_generation
+      )
+    ORDER BY job.completed_at DESC NULLS LAST, job.id DESC LIMIT 1
   `], { encoding: 'utf8' }).trim();
 }
 
@@ -146,8 +153,15 @@ for (const locale of ['en', 'fa'] as const) {
     await page.goto('/dashboard/assignments');
     const panel = page.getByTestId('teacher-personalization-status');
     const reference = panel.getByTestId('teacher-personalization-support-reference');
+    await expect(panel.getByRole('button', {name: locale === 'en' ? 'Refresh status' : 'به‌روزرسانی وضعیت', exact: true})).toBeVisible();
+    await expect(reference).toBeHidden();
+    await panel.getByText(locale === 'en' ? 'View details' : 'دریافت راهنمایی', {exact: true}).click();
     await expect(reference).toContainText(locale === 'en' ? 'Support reference' : 'شناسه پیگیری پشتیبانی');
-    await expect(reference.locator('bdi')).toHaveText(expected);
+    await expect(reference.locator('bdi')).toHaveText(expected.slice(0, 8) + '…');
+    await expect(panel).not.toContainText(expected);
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+    await reference.getByRole('button', {name: locale === 'en' ? 'Copy support reference' : 'کپی شناسه پیگیری', exact:true}).click();
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(expected);
     await expect(panel).not.toContainText(/gateway_unavailable|provider_unconfigured|model_mismatch|Gateway failure history|تاریخچه خطاهای دروازه/);
   });
 }
