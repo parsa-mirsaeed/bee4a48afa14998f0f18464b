@@ -1,5 +1,7 @@
 /* EduTalent mobile bottom navigation — phase 2.
- * Loaded after Aurora; only the authenticated <=767px shell is affected.
+ * Loaded by App before route transitions. The scoped shell padding has
+ * higher specificity than Aurora's later route-local padding declarations.
+ * Only the authenticated <=767px shell is affected.
  * Keep overlay/drawer priority and safe-area space, including in Persian RTL.
  */
 .et-mobile-bottom-nav { display: none; }
@@ -109,10 +111,10 @@
 
   /* The main role page scrolls independently of the viewport. Padding on that
    * scrollable content prevents final form actions being covered by the bar. */
-  .et-dashboard-content {
+  .et-dashboard-shell .et-dashboard-content {
     scroll-padding-bottom: calc(140px + env(safe-area-inset-bottom));
   }
-  .et-dashboard-content-inner {
+  .et-dashboard-shell .et-dashboard-content-inner {
     padding-block-end: calc(148px + env(safe-area-inset-bottom));
   }
 }
@@ -120,8 +122,8 @@
 @media (max-width: 767px) and (max-height: 480px) {
   /* Compact/keyboard-height views prioritize the focused form and drawer. */
   .et-mobile-bottom-nav { display: none; }
-  .et-dashboard-content-inner { padding-block-end: 42px; }
-  .et-dashboard-content { scroll-padding-bottom: 42px; }
+  .et-dashboard-shell .et-dashboard-content-inner { padding-block-end: 42px; }
+  .et-dashboard-shell .et-dashboard-content { scroll-padding-bottom: 42px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

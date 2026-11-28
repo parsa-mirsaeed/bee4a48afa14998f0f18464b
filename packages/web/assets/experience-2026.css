@@ -434,6 +434,31 @@
 }
 .et-ui-button--primary:not(:disabled):hover { background: var(--et-color-primary-hover); box-shadow: 0 5px 18px rgb(87 65 218 / 0.2); }
 .et-ui-button--secondary { background: var(--et-color-surface); }
+
+/* Vectorization pairs foreground and background atomically on theme changes.
+ * Interpolating both colors through opposite luminances briefly makes the
+ * action unreadable. Keep interaction feedback on transform/shadow instead. */
+.et-admin-vector-action .et-ui-button--primary {
+  min-block-size: 48px;
+  inline-size: 100%;
+  background: var(--et-color-primary);
+  color: var(--et-color-on-primary);
+  transition: transform var(--et-motion-fast) ease, box-shadow var(--et-motion-fast) ease;
+}
+.et-admin-vector-action .et-ui-button--primary:not(:disabled):hover {
+  background: var(--et-color-primary-hover);
+  color: var(--et-color-on-primary);
+}
+.et-admin-vector-action .et-ui-button--primary:disabled {
+  opacity: 1;
+  background: var(--et-color-surface-subtle);
+  color: var(--et-color-text-muted);
+  border-color: var(--et-color-border-strong);
+  box-shadow: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .et-admin-vector-action .et-ui-button--primary { transition: none; transform: none; }
+}
 .et-ui-icon-button { border-radius: 12px; }
 
 .et-ui-input, .et-ui-select, .et-ui-textarea {

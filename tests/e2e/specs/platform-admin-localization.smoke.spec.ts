@@ -46,7 +46,7 @@ function resetVectorizationFixture(): void {
     -- legal embedded -> embedding_pending -> ocr_ready recovery path.
     UPDATE knowledge_assets
     SET status = 'embedding_pending', failure_reason = NULL, reviewed_by = NULL, published_at = NULL
-    WHERE id = '${VERIFIED_ASSET_ID}' AND status = 'embedded';
+    WHERE id = '${VERIFIED_ASSET_ID}' AND status IN ('embedded','failed');
 
     UPDATE knowledge_assets
     SET status = 'ocr_ready', failure_reason = NULL, reviewed_by = NULL, published_at = NULL
@@ -179,6 +179,12 @@ for (const scenario of [
     vectorStatus: 'Vector status',
     vectorNotStarted: 'Not started',
     vectorStored: 'Stored successfully',
+    vectorQueued: 'Queued',
+    vectorRunning: 'Running',
+    vectorFailed: 'Failed',
+    vectorRetry: 'Retry vectorization',
+    vectorDetails: 'Vectorization details',
+    vectorChunks: 'Stored chunks',
     publicationStage: 'Step 3 · Publication',
     startVectorization: 'Start vectorization',
     publish: 'Publish',
@@ -213,6 +219,12 @@ for (const scenario of [
     vectorStatus: 'وضعیت بردار',
     vectorNotStarted: 'شروع نشده',
     vectorStored: 'با موفقیت ذخیره شد',
+    vectorQueued: 'در صف',
+    vectorRunning: 'در حال اجرا',
+    vectorFailed: 'ناموفق',
+    vectorRetry: 'تلاش دوباره برای بردارسازی',
+    vectorDetails: 'جزئیات بردارسازی',
+    vectorChunks: 'قطعه‌های ذخیره‌شده',
     publicationStage: 'مرحله ۳ · انتشار',
     startVectorization: 'شروع بردارسازی',
     publish: 'انتشار',
@@ -262,12 +274,55 @@ for (const scenario of [
     const vectorMethod = verifiedCard.locator('select[id^="vector-profile-"]');
     await expect(vectorMethod).toBeVisible();
     await expect(vectorMethod.locator('option')).toHaveCount(2);
+    await expect(vectorMethod.locator('option:disabled')).toHaveCount(1);
     const startVectorization = verifiedCard.getByRole('button', {
       name: scenario.startVectorization,
       exact: true,
     });
     await expect(startVectorization).toBeVisible();
     await expect(startVectorization).toBeEnabled();
+    // Visibility alone did not catch white text on a transparent button.
+    // Assert the actual production CSS, without selecting its text.
+    const originalViewport = page.viewportSize();
+    const originalDark = await page.evaluate(() => document.documentElement.classList.contains('dark'));
+    for (const width of [320, 375, 430, 1024]) {
+      await page.setViewportSize({ width, height: 768 });
+      for (const dark of [false, true]) {
+        await page.evaluate(value => document.documentElement.classList.toggle('dark', value), dark);
+        await expect(startVectorization).toBeVisible();
+        const readAppearance = () => startVectorization.evaluate(button => {
+          const css = getComputedStyle(button);
+          const rgb = (value: string) => value.match(/[\d.]+/g)?.map(Number) ?? [];
+          const luminance = (value: number[]) => value.slice(0,3).map(v => {
+            const n = v / 255;
+            return n <= 0.04045 ? n / 12.92 : ((n + 0.055) / 1.055) ** 2.4;
+          }).reduce((sum, channel, index) => sum + channel * [0.2126,0.7152,0.0722][index],0);
+          const background = rgb(css.backgroundColor);
+          const foreground = rgb(getComputedStyle(button.querySelector('span:last-child') ?? button).color);
+          const values = [luminance(background),luminance(foreground)].sort((a,b)=>b-a);
+          return { opaque: background.length === 3 || background[3] === 1, contrast: (values[0]+0.05)/(values[1]+0.05), height: button.getBoundingClientRect().height, colors: [css.backgroundColor, getComputedStyle(button.querySelector('span:last-child') ?? button).color], opacity: css.opacity };
+        });
+        const verifyAppearance = async (state: string) => {
+          const appearance = await readAppearance();
+          const context = `${scenario.locale} ${width}px ${dark ? 'dark' : 'light'} ${state}: ${appearance.colors.join(' / ')}`;
+          expect(appearance.opaque, context + ' CTA must not be transparent').toBeTruthy();
+          expect(appearance.contrast, context + ' CTA text contrast').toBeGreaterThanOrEqual(4.5);
+          expect(appearance.opacity, context + ' CTA must not be faded').toBe('1');
+          expect(appearance.height, context + ' CTA touch target').toBeGreaterThanOrEqual(44);
+        };
+        await page.mouse.move(0, 0);
+        await verifyAppearance('normal');
+        await startVectorization.hover();
+        await verifyAppearance('hover');
+        await page.mouse.move(0, 0);
+        await startVectorization.focus();
+        await expect(startVectorization).toBeFocused();
+        await verifyAppearance('focus');
+        await startVectorization.evaluate(button => (button as HTMLButtonElement).blur());
+      }
+    }
+    await page.evaluate(value => document.documentElement.classList.toggle('dark', value), originalDark);
+    if (originalViewport) await page.setViewportSize(originalViewport);
     const pendingPublish = verifiedCard.getByRole('button', {
       name: scenario.publish,
       exact: true,
@@ -293,13 +348,66 @@ for (const scenario of [
     // deterministically in PostgreSQL because browser proof intentionally runs
     // without Qdrant/provider services. The existing client polling must update
     // the same card in place and enable its already-mounted Publish control.
-    await startVectorization.click();
+    let queueRequests = 0;
+    let releaseQueue!: () => void;
+    let queueReached!: () => void;
+    const queueHeld = new Promise<void>(resolve => { releaseQueue = resolve; });
+    const queueSeen = new Promise<void>(resolve => { queueReached = resolve; });
+    const queueRoute = '**/api/admin/knowledge-assets/embed-configured';
+    await page.route(queueRoute, async route => {
+      queueRequests += 1;
+      queueReached();
+      await queueHeld;
+      await route.continue();
+    });
+    try {
+      await startVectorization.click();
+      await queueSeen;
+      await expect(startVectorization).toBeDisabled();
+      await expect(startVectorization).toHaveAttribute('aria-busy', 'true');
+      await expect(startVectorization).toHaveCSS('opacity', '1');
+      // A second click at the same actual control cannot enqueue again.
+      await startVectorization.evaluate(button => (button as HTMLButtonElement).click());
+      expect(queueRequests).toBe(1);
+    } finally {
+      releaseQueue();
+    }
+    const vectorPanel = verifiedCard.getByRole('region', {name: scenario.vectorTitle, exact: true});
+    await expect(vectorPanel.getByRole('status')).toHaveText(scenario.vectorQueued);
+    expect(queueRequests).toBe(1);
+    await page.unroute(queueRoute);
+    await expect(pendingPublish).toBeDisabled();
+    expect(runFixtureSql(`SELECT count(*) FROM ingestion_jobs WHERE asset_id = '${VERIFIED_ASSET_ID}' AND stage = 'embed'`)).toBe('1');
+    // Exercise the terminal failure and explicit retry using the same
+    // database transitions as the repository. No external vector provider.
+    runFixtureSql(`
+      UPDATE ingestion_jobs SET status='running', attempts=1, started_at=NOW(), locked_at=NOW(), heartbeat_at=NOW()
+      WHERE asset_id='${VERIFIED_ASSET_ID}' AND stage='embed' AND status='queued'
+    `);
+    await expect(vectorPanel.getByRole('status')).toHaveText(scenario.vectorRunning);
+    await expect(pendingPublish).toBeDisabled();
+    runFixtureSql(`
+      BEGIN;
+      UPDATE ingestion_jobs SET status='failed', error_message='Synthetic worker failure', finished_at=NOW(), locked_at=NULL, heartbeat_at=NULL
+      WHERE asset_id='${VERIFIED_ASSET_ID}' AND stage='embed' AND status='running';
+      UPDATE knowledge_assets SET status='failed', failure_reason='Synthetic worker failure'
+      WHERE id='${VERIFIED_ASSET_ID}' AND status='embedding_pending';
+      COMMIT;
+    `);
+    await expect(vectorPanel.getByRole('status')).toHaveText(scenario.vectorFailed, {timeout: 15_000});
+    await expect(pendingPublish).toBeDisabled();
+    const retryVectorization = vectorPanel.getByRole('button', {name:scenario.vectorRetry, exact:true});
+    await expect(retryVectorization).toBeEnabled();
+    await retryVectorization.click();
     await completeQueuedVectorizationFixture();
+    expect(runFixtureSql(`SELECT count(*) FROM ingestion_jobs WHERE asset_id = '${VERIFIED_ASSET_ID}' AND stage = 'embed'`)).toBe('2');
     await expect(
       verifiedCard.getByText(scenario.vectorStored, { exact: true }).first(),
     ).toBeVisible({ timeout: 15_000 });
     await expect(verifiedCard.getByText(scenario.publicationStage, { exact: true })).toBeVisible();
     await expect(pendingPublish).toBeEnabled();
+    await vectorPanel.getByText(scenario.vectorDetails, {exact:true}).click();
+    await expect(vectorPanel.getByText(scenario.vectorChunks, {exact:true}).locator('..')).toContainText('1');
 
     const publishedCard = page.locator('article').filter({
       has: page.getByText('E2E Published Asset', { exact: true }),

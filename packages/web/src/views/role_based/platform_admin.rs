@@ -4,7 +4,7 @@ use crate::i18n::{
     platform_admin_language_label, platform_admin_lifecycle_guidance, platform_admin_status_label,
     platform_admin_target_type_label, platform_admin_translation, use_locale, Locale,
 };
-use crate::ui::{ConfirmDialog, Dialog};
+use crate::ui::{Button, ButtonSize, ButtonVariant, ConfirmDialog, Dialog};
 use crate::views::role_based::components::{DashboardSection, ResponsiveDashboardLayout};
 use crate::views::role_based::platform_admin_personalization::PlatformPersonalizationSection;
 use api::server_functions::admin_knowledge_ocr_functions::{
@@ -118,6 +118,56 @@ fn PlatformKnowledgeReviewSection() -> Element {
     let mut assets =
         use_resource(move || async move { list_admin_knowledge_assets_for_review().await });
 
+    // Resume observation when opening a page with jobs already in flight.
+    // Each job identity receives one bounded observation window; the manual
+    // refresh action remains available after that window or on network error.
+    #[cfg(target_arch = "wasm32")]
+    {
+        let mut observed_jobs = use_signal(std::collections::BTreeSet::<String>::new);
+        let mut polling = use_signal(|| false);
+        use_effect(move || {
+            if polling() {
+                return;
+            }
+            let jobs = assets
+                .read()
+                .as_ref()
+                .and_then(|result| result.as_ref().ok())
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter(|item| item.asset.status == "embedding_pending")
+                        .filter_map(|item| item.vectorization.job_id.clone())
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            if !jobs.iter().any(|job| !observed_jobs.peek().contains(job)) {
+                return;
+            }
+            observed_jobs.write().extend(jobs);
+            polling.set(true);
+            spawn(async move {
+                for delay_ms in [500_u32, 1_000, 1_500, 2_500, 4_000, 6_000, 8_000, 10_000] {
+                    TimeoutFuture::new(delay_ms).await;
+                    let settled = assets.read().as_ref().is_some_and(|result| {
+                        result.as_ref().is_ok_and(|items| {
+                            items
+                                .iter()
+                                .all(|item| item.asset.status != "embedding_pending")
+                        })
+                    });
+                    if settled {
+                        break;
+                    }
+                    if !busy() {
+                        assets.restart();
+                    }
+                }
+                polling.set(false);
+            });
+        });
+    }
+
     rsx! {
         DashboardSection {
             title: admin_t("platform_admin.review.title", locale),
@@ -148,6 +198,15 @@ fn PlatformKnowledgeReviewSection() -> Element {
                             class: "rounded-lg bg-blue-50 px-4 py-3 text-sm text-blue-800 dark:bg-blue-900/20 dark:text-blue-200",
                             role: "status",
                             {admin_t(message_key, locale)}
+                        }
+                    }
+                    div { class: "flex justify-end",
+                        Button {
+                            label: admin_t("platform_admin.vector.refresh", locale),
+                            variant: ButtonVariant::Secondary,
+                            size: ButtonSize::Lg,
+                            disabled: busy(),
+                            onclick: move |_| assets.restart(),
                         }
                     }
                     match &*assets.read() {
@@ -663,18 +722,24 @@ fn render_archive_confirmation(
 }
 
 fn vector_job_status_label(
+    lifecycle: &str,
     vectorization: &AdminKnowledgeVectorizationDto,
     locale: Locale,
 ) -> String {
-    let key = match vectorization.job_status.as_deref() {
-        Some("queued") => "platform_admin.vector.queued",
-        Some("running") => "platform_admin.vector.running",
-        Some("succeeded") => "platform_admin.vector.succeeded",
-        Some("failed") => "platform_admin.vector.failed",
-        Some("cancelled") => "platform_admin.vector.cancelled",
-        Some(_) => "platform_admin.vector.unknown",
-        None if vectorization.stored_chunks > 0 => "platform_admin.vector.succeeded",
-        None => "platform_admin.vector.not_started",
+    // The current asset lifecycle wins over historical jobs and chunk counts.
+    let key = match lifecycle {
+        "ocr_ready" => "platform_admin.vector.not_started",
+        "embedded" | "published" if vectorization.stored_chunks > 0 => {
+            "platform_admin.vector.succeeded"
+        }
+        "embedding_pending" => match vectorization.job_status.as_deref() {
+            Some("queued") => "platform_admin.vector.queued",
+            Some("running") => "platform_admin.vector.running",
+            _ => "platform_admin.vector.unknown",
+        },
+        "failed" => "platform_admin.vector.failed",
+        "archived" => "platform_admin.vector.cancelled",
+        _ => "platform_admin.vector.unknown",
     };
     admin_t(key, locale)
 }
@@ -706,14 +771,13 @@ fn VectorizationPanel(
         .vectorization
         .methods
         .iter()
-        .find(|method| method.profile_id == selected_profile_value)
-        .or_else(|| {
-            item.vectorization
-                .methods
-                .iter()
-                .find(|method| method.available)
-        });
+        .find(|method| method.profile_id == selected_profile_value);
     let method_available = selected_method.is_some_and(|method| method.available);
+    let any_method_available = item
+        .vectorization
+        .methods
+        .iter()
+        .any(|method| method.available);
     let model = item
         .vectorization
         .model
@@ -740,9 +804,21 @@ fn VectorizationPanel(
         (Some(size), Some(overlap)) => format!("{size} / {overlap}"),
         _ => "—".to_string(),
     };
-    let status_label = vector_job_status_label(&item.vectorization, locale);
     let status = item.asset.status.clone();
+    let status_label = vector_job_status_label(&status, &item.vectorization, locale);
     let start_asset_id = item.asset.id.clone();
+    let mut pending = use_signal(|| false);
+    let mut queued_job = use_signal(|| None::<String>);
+    // The command response is authoritative about the queued job identity.
+    // Do not enable a stale OCR-ready button while the review list refreshes.
+    let awaiting_confirmation = queued_job()
+        .as_ref()
+        .is_some_and(|job| item.vectorization.job_id.as_ref() != Some(job));
+    let action_label = if status == "failed" {
+        admin_t("platform_admin.action.retry_vectorization", locale)
+    } else {
+        admin_t("platform_admin.action.start_vectorization", locale)
+    };
 
     rsx! {
         section {
@@ -752,67 +828,108 @@ fn VectorizationPanel(
                 p { class: "font-semibold text-gray-900 dark:text-white",
                     {admin_t("platform_admin.vector.title", locale)}
                 }
-                span { class: "rounded-full bg-white px-2.5 py-1 text-xs font-medium text-indigo-700 dark:bg-gray-900 dark:text-indigo-300",
-                    {status_label}
+                div { class: "flex flex-wrap items-center gap-2",
+                    span { class: "text-xs text-gray-600 dark:text-gray-300", {admin_t("platform_admin.vector.status", locale)} }
+                    span { class: "rounded-full bg-white px-2.5 py-1 text-xs font-medium text-indigo-700 dark:bg-gray-900 dark:text-indigo-300", role: "status",
+                        {status_label}
+                    }
                 }
             }
-            div { class: "mt-3 grid grid-cols-1 gap-3 md:grid-cols-2",
-                div {
-                    label {
-                        r#for: "vector-profile-{item.asset.id}",
-                        class: "mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300",
-                        {admin_t("platform_admin.vector.method", locale)}
-                    }
-                    select {
-                        id: "vector-profile-{item.asset.id}",
-                        class: "w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 disabled:opacity-60 dark:border-gray-700 dark:bg-gray-900 dark:text-white",
-                        value: "{selected_profile_value}",
-                        disabled: busy() || item.vectorization.job_status.as_deref() == Some("running") || item.vectorization.job_status.as_deref() == Some("queued"),
-                        oninput: move |event| selected_profile.set(event.value()),
-                        for method in item.vectorization.methods.iter() {
-                            option {
-                                value: "{method.profile_id}",
-                                disabled: !method.available,
-                                "{method.profile_id} · {method.model} · {method.dimensions}D"
-                            }
+            div { class: "mt-3 space-y-3",
+                label {
+                    r#for: "vector-profile-{item.asset.id}",
+                    class: "block text-sm font-medium text-gray-600 dark:text-gray-300",
+                    {admin_t("platform_admin.vector.method", locale)}
+                }
+                select {
+                    id: "vector-profile-{item.asset.id}",
+                    class: "min-h-[44px] w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 disabled:opacity-60 dark:border-gray-700 dark:bg-gray-900 dark:text-white",
+                    value: "{selected_profile_value}",
+                    disabled: busy() || pending() || awaiting_confirmation || status == "embedding_pending",
+                    oninput: move |event| selected_profile.set(event.value()),
+                    for method in item.vectorization.methods.iter() {
+                        option {
+                            value: "{method.profile_id}",
+                            disabled: !method.available,
+                            {format!(
+                                "{} · {} · {}D{}",
+                                method.profile_id,
+                                method.model,
+                                method.dimensions,
+                                if method.available {
+                                    String::new()
+                                } else {
+                                    format!(" · {}", admin_t("platform_admin.vector.unavailable_method", locale))
+                                },
+                            )}
                         }
                     }
                 }
-                MetadataField {
-                    label: admin_t("platform_admin.vector.status", locale),
-                    value: vector_job_status_label(&item.vectorization, locale),
+                p { class: "text-xs text-gray-600 dark:text-gray-400",
+                    {admin_t("platform_admin.vector.storage_help", locale)}
                 }
-                MetadataField {
-                    label: admin_t("platform_admin.vector.model", locale),
-                    value: model.to_string(),
+                if !method_available {
+                    p { class: "text-sm font-medium text-amber-700 dark:text-amber-300",
+                        {admin_t(if any_method_available {
+                            "platform_admin.vector.unavailable_method"
+                        } else {
+                            "platform_admin.vector.no_method"
+                        }, locale)}
+                    }
                 }
-                MetadataField {
-                    label: admin_t("platform_admin.vector.dimensions", locale),
-                    value: dimensions,
-                }
-                MetadataField {
-                    label: admin_t("platform_admin.vector.storage", locale),
-                    value: collection.to_string(),
-                }
-                MetadataField {
-                    label: admin_t("platform_admin.vector.chunks", locale),
-                    value: item.vectorization.stored_chunks.to_string(),
-                }
-                MetadataField {
-                    label: admin_t("platform_admin.vector.attempts", locale),
-                    value: item.vectorization.attempts.to_string(),
-                }
-                MetadataField {
-                    label: admin_t("platform_admin.vector.chunking", locale),
-                    value: chunking,
+                if can_start {
+                    div { class: "et-admin-vector-action grid",
+                        Button {
+                            label: action_label,
+                            variant: ButtonVariant::Primary,
+                            size: ButtonSize::Lg,
+                            disabled: busy() || !method_available,
+                            pending: pending() || awaiting_confirmation,
+                            onclick: move |_| {
+                                if busy() || pending() || awaiting_confirmation || !method_available {
+                                    return;
+                                }
+                                let profile = selected_profile();
+                                if profile.is_empty() {
+                                    return;
+                                }
+                                let request = QueueKnowledgeEmbeddingRequest {
+                                    asset_id: start_asset_id.clone(),
+                                    embedding_profile: profile,
+                                };
+                                busy.set(true);
+                                pending.set(true);
+                                notice.set(None);
+                                spawn(async move {
+                                    match embed_admin_knowledge_asset_configured(request).await {
+                                        Ok(job_id) => {
+                                            queued_job.set(Some(job_id));
+                                            notice.set(Some("platform_admin.notice.embedding_queued"));
+                                            assets.restart();
+                                            busy.set(false);
+                                        }
+                                        Err(_) => {
+                                            notice.set(Some("platform_admin.notice.embedding_failed"));
+                                            busy.set(false);
+                                            assets.restart();
+                                        }
+                                    }
+                                    pending.set(false);
+                                });
+                            },
+                        }
+                    }
                 }
             }
-            p { class: "mt-3 text-xs text-gray-600 dark:text-gray-400",
-                {admin_t("platform_admin.vector.storage_help", locale)}
-            }
-            if !item.vectorization.methods.iter().any(|method| method.available) {
-                p { class: "mt-2 text-xs font-medium text-amber-700 dark:text-amber-300",
-                    {admin_t("platform_admin.vector.no_method", locale)}
+            details { class: "mt-3 rounded-lg border border-gray-200 p-3 dark:border-gray-700",
+                summary { class: "min-h-[44px] cursor-pointer font-medium", {admin_t("platform_admin.vector.details", locale)} }
+                div { class: "mt-2 grid grid-cols-1 gap-2 md:grid-cols-2",
+                    MetadataField { label: admin_t("platform_admin.vector.model", locale), value: model.to_string() }
+                    MetadataField { label: admin_t("platform_admin.vector.dimensions", locale), value: dimensions }
+                    MetadataField { label: admin_t("platform_admin.vector.storage", locale), value: collection }
+                    MetadataField { label: admin_t("platform_admin.vector.chunks", locale), value: item.vectorization.stored_chunks.to_string() }
+                    MetadataField { label: admin_t("platform_admin.vector.attempts", locale), value: item.vectorization.attempts.to_string() }
+                    MetadataField { label: admin_t("platform_admin.vector.chunking", locale), value: chunking }
                 }
             }
             if let Some(error) = item.vectorization.last_error.as_ref() {
@@ -823,50 +940,7 @@ fn VectorizationPanel(
                     p { class: "mt-1", dir: "auto", "{error}" }
                 }
             }
-            if can_start {
-                button {
-                    class: "mt-3 rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50",
-                    disabled: busy() || !method_available,
-                    onclick: move |_| {
-                        let profile = selected_profile();
-                        if profile.is_empty() {
-                            return;
-                        }
-                        let request = QueueKnowledgeEmbeddingRequest {
-                            asset_id: start_asset_id.clone(),
-                            embedding_profile: profile,
-                        };
-                        busy.set(true);
-                        notice.set(None);
-                        spawn(async move {
-                            match embed_admin_knowledge_asset_configured(request).await {
-                                Ok(_) => {
-                                    notice.set(Some("platform_admin.notice.embedding_queued"));
-                                    assets.restart();
-                                    busy.set(false);
-                                    #[cfg(target_arch = "wasm32")]
-                                    for delay_ms in [
-                                        500_u32, 1_000, 1_500, 2_500, 4_000, 6_000, 8_000,
-                                        10_000,
-                                    ] {
-                                        TimeoutFuture::new(delay_ms).await;
-                                        assets.restart();
-                                    }
-                                }
-                                Err(_) => {
-                                    notice.set(Some("platform_admin.notice.embedding_failed"));
-                                }
-                            }
-                            busy.set(false);
-                        });
-                    },
-                    if status == "failed" {
-                        {admin_t("platform_admin.action.retry_vectorization", locale)}
-                    } else {
-                        {admin_t("platform_admin.action.start_vectorization", locale)}
-                    }
-                }
-            }
+
         }
     }
 }
